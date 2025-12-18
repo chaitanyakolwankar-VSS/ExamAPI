@@ -9,10 +9,14 @@ namespace ExamAPI.Models
 
         [Required]
         [MaxLength(100)]
-        public required string PermissionName { get; set; }
+        public required string PermissionFormName { get; set; }
+
+        [Required]
+        [MaxLength(100)]
+        public required string PermissionModuleName { get; set; }
 
         // Navigation Properties
         public ICollection<RolePermission>? RolePermissions { get; set; }
-        public ICollection<UserPermission>? UserPermissions { get; set; }
+        public ICollection<UserPermission>? UserPermissions { get; set; } 
     }
 }
