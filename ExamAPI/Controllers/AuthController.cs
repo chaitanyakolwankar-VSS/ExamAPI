@@ -18,7 +18,7 @@ namespace ExamAPI.Controllers
 
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginRequestDto request)
-            {
+        {
             var result = await _authService.LoginAsync(request);
 
             if (result == null)

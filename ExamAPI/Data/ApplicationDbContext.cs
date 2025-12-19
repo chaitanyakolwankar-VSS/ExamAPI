@@ -81,7 +81,7 @@ namespace ExamAPI.Data
 
             modelBuilder.Entity<RolePermission>()
                 .HasOne(rp => rp.Role)
-                .WithMany()
+                .WithMany(rm => rm.RolePermissions)
                 .HasForeignKey(rp => rp.RoleId)
                 .OnDelete(DeleteBehavior.Cascade);
 
