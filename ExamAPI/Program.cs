@@ -2,7 +2,7 @@ using ExamAPI.Data;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-using System.Text;
+using System.Text; 
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
@@ -20,6 +20,7 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 builder.Services.AddScoped<ExamAPI.Services.Auth.IAuthService, ExamAPI.Services.Auth.AuthService>();
 builder.Services.AddScoped<ExamAPI.Services.Common.IGenericRepository, ExamAPI.Services.Common.GenericRepository>();
 builder.Services.AddScoped<ExamAPI.Services.Common.IAcademicYearService, ExamAPI.Services.Common.AcademicYearService>();
+builder.Services.AddScoped<ExamAPI.Services.Common.RoleMaster.IRoleMasterService, ExamAPI.Services.Common.RoleMaster.RoleMasterService>();
 
 //--services and interface end ------//
 
