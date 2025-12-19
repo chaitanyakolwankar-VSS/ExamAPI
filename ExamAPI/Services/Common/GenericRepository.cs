@@ -19,6 +19,7 @@ namespace ExamAPI.Services.Common
             if (entity != null)
             {
                 entity.IsDeleted = true;
+                entity.DeletedAt = DateTime.UtcNow;
                 await _context.SaveChangesAsync();
             }
         }
