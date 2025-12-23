@@ -1,5 +1,5 @@
 ﻿using ExamAPI.Services.Common;
-using ExamAPI.Services.Common.RoleMaster;
+using ExamAPI.Services.RoleMaster;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
@@ -14,7 +14,7 @@ namespace ExamAPI.Controllers
         {
             _service = service;
         }
-        [HttpGet]
+        [HttpGet("GetInfo")]
         public async Task<IActionResult> GetInfo()
         {
             var role = await _service.GetRoleAsync();

@@ -1,6 +1,6 @@
 ﻿using ExamAPI.DTOs;
 
-namespace ExamAPI.Services.Common.RoleMaster
+namespace ExamAPI.Services.RoleMaster
 {
     public interface IRoleMasterService
     {

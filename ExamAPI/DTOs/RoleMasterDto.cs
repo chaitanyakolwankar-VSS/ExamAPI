@@ -7,5 +7,8 @@ namespace ExamAPI.DTOs
         public Guid RoleId { get; set; }
         public required string Name { get; set; }
         public string? Description { get; set; }
+
+        public string? PermissionFormNames { get; set; }
+        public string? PermissionForms { get; set; }
     }
 }
