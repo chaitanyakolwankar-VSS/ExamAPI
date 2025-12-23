@@ -10,7 +10,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHttpContextAccessor();
 
-//  connection string 
+//  connection string
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 //  connection string end ------------//
@@ -20,7 +20,7 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 builder.Services.AddScoped<ExamAPI.Services.Auth.IAuthService, ExamAPI.Services.Auth.AuthService>();
 builder.Services.AddScoped<ExamAPI.Services.Common.IGenericRepository, ExamAPI.Services.Common.GenericRepository>();
 builder.Services.AddScoped<ExamAPI.Services.Common.IAcademicYearService, ExamAPI.Services.Common.AcademicYearService>();
-builder.Services.AddScoped<ExamAPI.Services.Permission.IPermissionService, ExamAPI.Services.Permission.PermissionService>();
+builder.Services.AddScoped<ExamAPI.Services.Permissions.IPermissionService, ExamAPI.Services.Permissions.PermissionService>();
 
 //--services and interface end ------//
 
