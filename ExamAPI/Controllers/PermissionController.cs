@@ -5,27 +5,6 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace ExamAPI.Controllers
 {
-    //[Route("api/[controller]")]
-    //[ApiController]
-    //public class PermissionController : ControllerBase
-    //{
-    //    private readonly IPermissionService _permissionService;
-
-    //    public PermissionController(IPermissionService permissionService)
-    //    {
-    //        _permissionService = permissionService;
-    //    }
-
-    //    [HttpPost]
-    //    public async Task<IActionResult> CreatePermission([FromBody] PermissionCreate dto)
-    //    {
-    //        var result = await _permissionService.CreatePermissionAsync(dto);
-
-    //        if (!result) return BadRequest("Failed to insert permission");
-
-    //        return Ok("Permission added successfully");
-    //    }
-    //}
     [Route("api/[controller]")]
     [ApiController]
     public class PermissionController : ControllerBase

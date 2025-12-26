@@ -46,11 +46,9 @@ namespace ExamAPI.Services.Permissions
         //        {
         //            PermissionModuleName = g.Key,
         //            PermissionForms = g
-        //                .Select(x => x.PermissionFormName)
-        //                .OrderBy(x => x)
+        //                .Select(p => p.PermissionFormName)
         //                .ToList()
         //        })
-        //        .OrderBy(x => x.PermissionModuleName)
         //        .ToListAsync();
         //}
         public async Task<List<PermissionModuleDto>> GetGroupedPermissionsAsync()
@@ -61,12 +59,15 @@ namespace ExamAPI.Services.Permissions
                 .Select(g => new PermissionModuleDto
                 {
                     PermissionModuleName = g.Key,
-                    PermissionForms = g
-                        .Select(p => p.PermissionFormName)
-                        .ToList()
+                    PermissionForms = g.Select(p => new PermissionFormDto
+                    {
+                        PermissionId = p.PermissionId,
+                        PermissionFormName = p.PermissionFormName
+                    }).ToList()
                 })
                 .ToListAsync();
         }
+
 
 
         public async Task<bool> DeletePermissionAsync(Guid permissionId)
