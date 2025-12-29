@@ -37,20 +37,6 @@ namespace ExamAPI.Services.Permissions
                 .ToListAsync();
         }
 
-        //public async Task<List<PermissionModuleDto>> GetGroupedPermissionsAsync()
-        //{
-        //    return await _context.Permissions
-        //        .Where(x => !x.IsDeleted)
-        //        .GroupBy(x => x.PermissionModuleName)
-        //        .Select(g => new PermissionModuleDto
-        //        {
-        //            PermissionModuleName = g.Key,
-        //            PermissionForms = g
-        //                .Select(p => p.PermissionFormName)
-        //                .ToList()
-        //        })
-        //        .ToListAsync();
-        //}
         public async Task<List<PermissionModuleDto>> GetGroupedPermissionsAsync()
         {
             return await _context.Permissions
@@ -95,6 +81,21 @@ namespace ExamAPI.Services.Permissions
 
             return await _context.SaveChangesAsync() > 0;
         }
+
+        //public async Task<bool> UpdatePermissionAsync(Guid id, PermissionUpdate dto)
+        //{
+        //    var permission = await _context.Permissions
+        //        .FirstOrDefaultAsync(x => x.PermissionId == id && !x.IsDeleted);
+
+        //    if (permission == null)
+        //        return false;
+
+        //    permission.PermissionFormName = dto.PermissionFormName;
+
+        //    await _context.SaveChangesAsync();
+        //    return true;
+        //}
+
 
 
 
