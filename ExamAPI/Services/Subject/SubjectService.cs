@@ -18,7 +18,6 @@ namespace ExamAPI.Services.Subject
             _context = context;
             _genericRepository = genericRepository;
         }
-
         public async Task<List<SubjectDtos>> GetSubjectsAsync(GetSubjectReqDtos dto)
         {
 
