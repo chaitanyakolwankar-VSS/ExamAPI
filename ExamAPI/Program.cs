@@ -22,6 +22,7 @@ builder.Services.AddScoped<ExamAPI.Services.Auth.IAuthService, ExamAPI.Services.
 builder.Services.AddScoped<ExamAPI.Services.Common.IGenericRepository, ExamAPI.Services.Common.GenericRepository>();
 builder.Services.AddScoped<ExamAPI.Services.Common.IAcademicYearService, ExamAPI.Services.Common.AcademicYearService>();
 builder.Services.AddScoped<IRoleMasterService, RoleMasterService>();
+builder.Services.AddScoped<ExamAPI.Services.Subject.ISubjectService, ExamAPI.Services.Subject.SubjectService>();
 
 //--services and interface end ------//
 

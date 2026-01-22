@@ -1,5 +1,8 @@
 ﻿using ExamAPI.Data;
 using ExamAPI.Models;
+using System.Linq.Expressions;
+using Microsoft.EntityFrameworkCore;
+
 
 namespace ExamAPI.Services.Common
 {
@@ -23,5 +26,18 @@ namespace ExamAPI.Services.Common
                 await _context.SaveChangesAsync();
             }
         }
+        public async Task DeleteRangeAsync<T>( Expression<Func<T, bool>> predicate  ) where T : BaseEntity
+        {
+            var entities = await _context.Set<T>()
+                .Where(predicate)
+                .ToListAsync();
+
+            foreach (var entity in entities)
+            {
+                entity.IsDeleted = true;
+                entity.DeletedAt = DateTime.UtcNow;
+            }
+        }
+
     }
 }
