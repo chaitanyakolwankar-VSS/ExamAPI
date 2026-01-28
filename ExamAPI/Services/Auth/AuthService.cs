@@ -25,7 +25,8 @@ namespace ExamAPI.Services.Auth
                     UserId = Guid.NewGuid(),
                     Username = "admin",
                     Email = "admin@Test.com",
-                    Role = "Admin"
+                    Role = "Admin",
+                    CollegeId = "103EBF99-FEB0-43BC-A312-56FE85D3BCC6"
                 };
 
                 var token = GenerateJwtToken(user);
@@ -51,7 +52,8 @@ namespace ExamAPI.Services.Auth
             {
                 new Claim(ClaimTypes.NameIdentifier, user.UserId.ToString()),
                 new Claim(ClaimTypes.Name, user.Username),
-                new Claim(ClaimTypes.Role, user.Role)
+                new Claim(ClaimTypes.Role, user.Role),
+                new Claim("CollegeId", user.CollegeId)
             };
 
             var tokenDescriptor = new SecurityTokenDescriptor
