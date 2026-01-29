@@ -16,7 +16,7 @@ namespace ExamAPI.Models
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         // Foreign Key
-        public Guid? PatternId { get; set; }
+        public Guid PatternId { get; set; }
         [ForeignKey(nameof(PatternId))]
         public PatternMaster? Pattern { get; set; }
 

@@ -18,6 +18,7 @@ namespace ExamAPI.Services.Ordinance
             _context = context;
         }
 
+        // === Pattern Methods ===
         public async Task<IEnumerable<PatternDto>> GetPatternsAsync()
         {
             return await _context.PatternMasters
@@ -53,14 +54,13 @@ namespace ExamAPI.Services.Ordinance
                 PatternId = Guid.NewGuid(),
                 PatternName = patternDto.PatternName,
                 Description = patternDto.Description,
-                CollegeId = collegeId, // Assign the CollegeId from the parameter
+                CollegeId = collegeId,
                 CreatedAt = DateTime.UtcNow,
             };
             
             _context.PatternMasters.Add(pattern);
             await _context.SaveChangesAsync();
             
-            // Map the new entity to a DTO to return it
             return new PatternDto
             {
                 PatternId = pattern.PatternId,
@@ -74,10 +74,7 @@ namespace ExamAPI.Services.Ordinance
             var existingPattern = await _context.PatternMasters
                 .FirstOrDefaultAsync(p => p.PatternId == patternDto.PatternId);
 
-            if (existingPattern == null || existingPattern.IsDeleted)
-            {
-                return false;
-            }
+            if (existingPattern == null || existingPattern.IsDeleted) return false;
 
             existingPattern.PatternName = patternDto.PatternName;
             existingPattern.Description = patternDto.Description;
@@ -93,15 +90,81 @@ namespace ExamAPI.Services.Ordinance
             var existingPattern = await _context.PatternMasters
                 .FirstOrDefaultAsync(p => p.PatternId == patternId);
             
-            if (existingPattern == null || existingPattern.IsDeleted)
-            {
-                return false;
-            }
+            if (existingPattern == null || existingPattern.IsDeleted) return false;
 
             existingPattern.IsDeleted = true;
             existingPattern.DeletedAt = DateTime.UtcNow;
             
             _context.PatternMasters.Update(existingPattern);
+            await _context.SaveChangesAsync();
+            return true;
+        }
+
+        // === RuleSet Methods ===
+        public async Task<IEnumerable<RuleSetDto>> GetRuleSetsByPatternAsync(Guid patternId)
+        {
+            return await _context.RuleSets
+                .Where(rs => rs.PatternId == patternId && !rs.IsDeleted)
+                .Select(rs => new RuleSetDto
+                {
+                    RuleSetId = rs.RuleSetId,
+                    Name = rs.Name,
+                    IsActive = rs.IsActive,
+                    PatternId = rs.PatternId
+                })
+                .ToListAsync();
+        }
+
+        public async Task<RuleSetDto> CreateRuleSetAsync(RuleSetCreateDto ruleSetDto)
+        {
+            var ruleSet = new RuleSet
+            {
+                RuleSetId = Guid.NewGuid(),
+                Name = ruleSetDto.Name,
+                IsActive = ruleSetDto.IsActive,
+                PatternId = ruleSetDto.PatternId,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _context.RuleSets.Add(ruleSet);
+            await _context.SaveChangesAsync();
+
+            return new RuleSetDto
+            {
+                RuleSetId = ruleSet.RuleSetId,
+                Name = ruleSet.Name,
+                IsActive = ruleSet.IsActive,
+                PatternId = ruleSet.PatternId
+            };
+        }
+
+        public async Task<bool> UpdateRuleSetAsync(RuleSetUpdateDto ruleSetDto)
+        {
+            var existingRuleSet = await _context.RuleSets
+                .FirstOrDefaultAsync(rs => rs.RuleSetId == ruleSetDto.RuleSetId);
+                
+            if (existingRuleSet == null || existingRuleSet.IsDeleted) return false;
+
+            existingRuleSet.Name = ruleSetDto.Name;
+            existingRuleSet.IsActive = ruleSetDto.IsActive;
+            existingRuleSet.UpdatedAt = DateTime.UtcNow;
+
+            _context.RuleSets.Update(existingRuleSet);
+            await _context.SaveChangesAsync();
+            return true;
+        }
+
+        public async Task<bool> DeleteRuleSetAsync(Guid ruleSetId)
+        {
+            var existingRuleSet = await _context.RuleSets
+                .FirstOrDefaultAsync(rs => rs.RuleSetId == ruleSetId);
+
+            if (existingRuleSet == null || existingRuleSet.IsDeleted) return false;
+
+            existingRuleSet.IsDeleted = true;
+            existingRuleSet.DeletedAt = DateTime.UtcNow;
+
+            _context.RuleSets.Update(existingRuleSet);
             await _context.SaveChangesAsync();
             return true;
         }
