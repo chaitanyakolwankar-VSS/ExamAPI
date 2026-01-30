@@ -19,7 +19,7 @@ namespace ExamAPI.Services.Exam
             _genericRepository = genericRepository;
         }
 
-        public async Task<ApiResponseDto<object>> CreateExamAsync(SaveExam dto)
+        public async Task<ApiResponseDto<object>> CreateExamAsync(Exams dto)
         {
             // 🔹 Transaction start
             using var transaction = await _context.Database.BeginTransactionAsync();
@@ -81,6 +81,7 @@ namespace ExamAPI.Services.Exam
                 };
             }
         }
+
 
         public async Task<ApiResponseDto<object>> DeleteExamAsync(DeleteExam dto)
         {
@@ -149,6 +150,35 @@ namespace ExamAPI.Services.Exam
             catch (Exception ex)
             {
                 throw new Exception(ex.Message);
+            }
+        }
+
+        public async Task<ApiResponseDto<object>> SearchExam(Exams dto)
+        {
+            try
+            {
+                var exam_search = _context.Exams.Where(a => a.Name == dto.Name && a.AcademicYearAYID == dto.Ayid && a.ExamType == dto.ExamType);
+                if (exam_search.Any())
+                {
+                    return new ApiResponseDto<object>
+                    {
+                        Success = true,
+                        Message = "Exam already exists."
+                    };
+                }
+                return new ApiResponseDto<object>
+                {
+                    Success = false,
+                    Message = "Something went wrong while Updating the Active Status exam."
+                };
+            }
+            catch
+            {
+                return new ApiResponseDto<object>
+                {
+                    Success = false,
+                    Message = "Something went wrong while Updating the Active Status exam."
+                };
             }
         }
 

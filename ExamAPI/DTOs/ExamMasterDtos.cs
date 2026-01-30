@@ -3,7 +3,7 @@
     public class ExamMasterDtos
     {
     }
-    public class SaveExam
+    public class Exams
     {
         public Guid Courseid { get; set; }
         public string Name { get; set; }

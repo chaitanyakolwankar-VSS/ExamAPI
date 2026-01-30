@@ -16,7 +16,7 @@ namespace ExamAPI.Controllers
         }
         // SAVE EXAM
         [HttpPost("save-exam")]
-        public async Task<IActionResult> SaveExam([FromBody] SaveExam request)
+        public async Task<IActionResult> SaveExam([FromBody] Exams request)
         {
             var result = await _examService.CreateExamAsync(request);
             return Ok(result);
@@ -26,6 +26,13 @@ namespace ExamAPI.Controllers
         public async Task<IActionResult> GetExam([FromQuery] GetExam request)
         {
             var result = await _examService.GetExam(request);
+            return Ok(result);
+        }
+        // SEARCH EXAMS
+        [HttpGet("search-exam")]
+        public async Task<IActionResult> SearchExam([FromQuery] Exams request)
+        {
+            var result = await _examService.SearchExam(request);
             return Ok(result);
         }
         // UPDATE EXAMS
