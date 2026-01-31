@@ -16,11 +16,13 @@ namespace ExamAPI.Models
         public string? ExamType { get; set; } // e.g., "Regular", "KT"
 
         [MaxLength(20)]
-        public string? AYID { get; set; } // Academic Year Reference
+        public Guid? RevaluationForExamId { get; set; } // Academic Year Reference
 
         [MaxLength(20)]
         public string? Semester { get; set; }
+        public Guid? AcademicYearAYID { get; set; }
 
+        public bool? IsActive { get; set; }
         // Foreign Key
         public Guid? CourseId { get; set; }
         [ForeignKey(nameof(CourseId))]
