@@ -1,14 +1,24 @@
-using ExamAPI.Data;
+﻿using ExamAPI.Data;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
+using CloudinaryDotNet;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHttpContextAccessor();
+
+
+var cloudConfig = builder.Configuration.GetSection("Cloudinary");
+var account = new Account(
+    cloudConfig["CloudName"],
+    cloudConfig["ApiKey"],
+    cloudConfig["ApiSecret"]
+);
+builder.Services.AddSingleton(new Cloudinary(account));
 
 //  connection string
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
