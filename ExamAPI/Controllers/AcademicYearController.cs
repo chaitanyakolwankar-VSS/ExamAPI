@@ -7,7 +7,7 @@ namespace ExamAPI.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    [Authorize] //--comment when want to use without login
+/*    [Authorize]*/ //--comment when want to use without login
     public class AcademicYearController : ControllerBase
     {
         private readonly IAcademicYearService _service;
