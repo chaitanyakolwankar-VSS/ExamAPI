@@ -4,11 +4,6 @@
     {
     }
 
-    //public class PermissionModuleDto
-    //{
-    //    public string PermissionModuleName { get; set; } = string.Empty;
-    //    public List<string> PermissionForms { get; set; } = new();
-    //}
     public class PermissionModuleDto
     {
         public string PermissionModuleName { get; set; } = string.Empty;
