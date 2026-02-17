@@ -19,7 +19,7 @@ namespace ExamAPI.Models
         public CourseMaster? Course { get; set; }
 
         [MaxLength(20)]
-        public string? AYID { get; set; } // Academic Year ID string
+        public Guid? AYID { get; set; } // Academic Year ID string
 
         [MaxLength(50)]
         public string? StudentId { get; set; } // String copy of ID for easy searching
