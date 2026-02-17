@@ -19,5 +19,11 @@ namespace ExamAPI.Services.Ordinance
         Task<RuleSetDto> CreateRuleSetAsync(RuleSetCreateDto ruleSetDto);
         Task<bool> UpdateRuleSetAsync(RuleSetUpdateDto ruleSetDto);
         Task<bool> DeleteRuleSetAsync(Guid ruleSetId);
+
+        // Rule Methods
+        Task<IEnumerable<RuleDto>> GetRulesByRuleSetAsync(Guid ruleSetId);
+        Task<RuleDto> CreateRuleAsync(RuleCreateDto ruleDto);
+        Task<bool> UpdateRuleAsync(RuleUpdateDto ruleDto);
+        Task<bool> DeleteRuleAsync(Guid ruleId);
     }
 }

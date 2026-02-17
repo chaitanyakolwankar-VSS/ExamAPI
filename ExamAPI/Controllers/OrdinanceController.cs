@@ -122,5 +122,46 @@ namespace ExamAPI.Controllers
             
             return Ok(new ApiResponseDto<object> { Success = true, Message = "RuleSet deleted successfully." });
         }
+
+        // === Rule Endpoints ===
+        [HttpGet("Rules/ByRuleSet/{ruleSetId}")]
+        public async Task<IActionResult> GetRulesByRuleSet(Guid ruleSetId)
+        {
+            var ruleDtos = await _ordinanceService.GetRulesByRuleSetAsync(ruleSetId);
+            return Ok(new ApiResponseDto<IEnumerable<RuleDto>> { Success = true, Data = ruleDtos, Message = "Rules fetched successfully." });
+        }
+
+        [HttpPost("Rules")]
+        public async Task<IActionResult> CreateRule([FromBody] RuleCreateDto ruleDto)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(new ApiResponseDto<object> { Success = false, Message = "Invalid data.", Data = ModelState });
+            }
+
+            var createdRuleDto = await _ordinanceService.CreateRuleAsync(ruleDto);
+            return Ok(new ApiResponseDto<RuleDto> { Success = true, Data = createdRuleDto, Message = "Rule created successfully." });
+        }
+
+        [HttpPut("Rules/{id}")]
+        public async Task<IActionResult> UpdateRule(Guid id, [FromBody] RuleUpdateDto ruleDto)
+        {
+            if (!ModelState.IsValid) return BadRequest(new ApiResponseDto<object> { Success = false, Message = "Invalid data.", Data = ModelState });
+            if (id != ruleDto.RuleId) return BadRequest(new ApiResponseDto<object> { Success = false, Message = "Rule ID in URL and body do not match." });
+
+            var result = await _ordinanceService.UpdateRuleAsync(ruleDto);
+            if (!result) return NotFound(new ApiResponseDto<object> { Success = false, Message = "Rule not found." });
+
+            return Ok(new ApiResponseDto<object> { Success = true, Message = "Rule updated successfully." });
+        }
+
+        [HttpDelete("Rules/{id}")]
+        public async Task<IActionResult> DeleteRule(Guid id)
+        {
+            var result = await _ordinanceService.DeleteRuleAsync(id);
+            if (!result) return NotFound(new ApiResponseDto<object> { Success = false, Message = "Rule not found." });
+
+            return Ok(new ApiResponseDto<object> { Success = true, Message = "Rule deleted successfully." });
+        }
     }
 }

@@ -14,6 +14,10 @@ namespace ExamAPI.Models
 
         public int Priority { get; set; }
         public bool IsEnabled { get; set; }
+        public bool StopOnSuccess { get; set; }
+
+        [MaxLength(10)]
+        public string? OrdinanceSymbol { get; set; }
 
         // Foreign Key
         public Guid? RuleSetId { get; set; }

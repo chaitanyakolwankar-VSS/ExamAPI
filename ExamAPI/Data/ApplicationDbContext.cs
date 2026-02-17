@@ -253,7 +253,7 @@ namespace ExamAPI.Data
                 await AuditLogs.AddRangeAsync(auditEntries);
             }
 
-            return await base.SaveChangesAsync(cancellationToken);
+                return await base.SaveChangesAsync(cancellationToken);
         }
     }
 }
