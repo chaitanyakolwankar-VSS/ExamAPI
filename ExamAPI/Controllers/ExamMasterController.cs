@@ -49,5 +49,34 @@ namespace ExamAPI.Controllers
             var result = await _examService.DeleteExamAsync(request);
             return Ok(result);
         }
+        [HttpGet("get-resolutionexam")]
+        public async Task<IActionResult> GetResolutionExam([FromQuery] GetResolutionExam request)
+        {
+            var result = await _examService.GetResolutionExam(request);
+            return Ok(result);
+        }
+        [HttpGet("get-creditHeadResolution")]
+        public async Task<IActionResult> GetCreditHeadResolution([FromQuery] GetCreditHeadResolutionReq request)
+        {
+            var result = await _examService.GetCreditHeadResolution(request);
+            return Ok(result);
+        }
+        [HttpPost("save-creditHeadResolutionres")]
+        public async Task<IActionResult> SaveCreditHeadResolutionres([FromBody] SaveCreditHeadResolutionres request)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+            var result = await _examService.SaveCreditHeadResolutionres(request);
+            return Ok(result);
+        }
+        [HttpPut("update-creditHeadResolutionres")]
+        public async Task<IActionResult> UpdateCreditHeadResolutionres([FromBody] SaveCreditHeadResolutionres request)
+        {
+
+            var result = await _examService.UpdateCreditHeadResolutionres(request);
+            return Ok(result);
+        }
     }
 }
