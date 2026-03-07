@@ -56,9 +56,13 @@ namespace ExamAPI.Models
         [ForeignKey(nameof(CollegeId))]
         public College? College { get; set; }
 
+        [Column("DyslexiaStudent")]
+        public bool Dyslexia { get; set; }
+        //public Guid CourseId { get; set; }
 
         // Navigation Properties
         public ICollection<StudentEligibility>? Eligibilities { get; set; }
+        public ICollection<CourseMaster>? CourseMasters { get; set; }
         public ICollection<MarksMaster>? Marks { get; set; }
         public ICollection<StudentsOverallResult>? OverallMarks { get; set; }
     }
