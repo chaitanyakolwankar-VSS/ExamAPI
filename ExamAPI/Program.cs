@@ -2,8 +2,12 @@ using ExamAPI.Data;
 using ExamAPI.Services.RoleMaster;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
-using System.Text; 
+using OfficeOpenXml;
+using System.Text;
+
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
@@ -14,6 +18,7 @@ builder.Services.AddHttpContextAccessor();
 //  connection string 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+
 //  connection string end ------------//
 
 
@@ -23,6 +28,7 @@ builder.Services.AddScoped<ExamAPI.Services.Common.IGenericRepository, ExamAPI.S
 builder.Services.AddScoped<ExamAPI.Services.Common.IAcademicYearService, ExamAPI.Services.Common.AcademicYearService>();
 builder.Services.AddScoped<IRoleMasterService, RoleMasterService>();
 builder.Services.AddScoped<ExamAPI.Services.Subject.ISubjectService, ExamAPI.Services.Subject.SubjectService>();
+builder.Services.AddScoped<ExamAPI.Services.StudentMaster.IStudentMasterService, ExamAPI.Services.StudentMaster.StudentMasterService>();
 
 //--services and interface end ------//
 
@@ -58,6 +64,7 @@ builder.Services.AddCors(options =>
             .WithOrigins("http://localhost:5173", "https://localhost:5174") //  local React URL  
             .AllowAnyMethod()
             .AllowAnyHeader());
+
 });
 //CORS config
 
@@ -72,7 +79,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
-
+app.UseStaticFiles();
 app.UseHttpsRedirection();
 
 app.UseCors("AllowReactApp");
@@ -84,3 +91,5 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+

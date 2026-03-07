@@ -14,7 +14,7 @@ namespace ExamAPI.Models
         public StudentMaster? Student { get; set; }
 
         // Links to Course
-        public Guid? CourseId { get; set; }
+        public Guid?CourseId { get; set; }
         [ForeignKey(nameof(CourseId))]
         public CourseMaster? Course { get; set; }
 
