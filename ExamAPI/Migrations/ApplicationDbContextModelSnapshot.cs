@@ -17,7 +17,7 @@ namespace ExamAPI.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.0")
+                .HasAnnotation("ProductVersion", "10.0.3")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
@@ -217,10 +217,6 @@ namespace ExamAPI.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<string>("AYID")
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
-
                     b.Property<Guid?>("AcademicYearAYID")
                         .HasColumnType("uniqueidentifier");
 
@@ -241,6 +237,9 @@ namespace ExamAPI.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
                     b.Property<bool>("IsDeleted")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bit")
@@ -250,6 +249,10 @@ namespace ExamAPI.Migrations
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("RevaluationForExamId")
+                        .HasMaxLength(20)
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("Semester")
                         .HasMaxLength(20)
@@ -265,6 +268,69 @@ namespace ExamAPI.Migrations
                     b.HasIndex("CourseId");
 
                     b.ToTable("ExamMaster");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.FeesDefine", b =>
+                {
+                    b.Property<Guid>("FeesDefineId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<Guid?>("Ayid")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Category")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("CourseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("ExamId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ExamType")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("SemId")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("SubCount")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("FeesDefineId");
+
+                    b.HasIndex("Ayid");
+
+                    b.HasIndex("CourseId");
+
+                    b.HasIndex("ExamId");
+
+                    b.ToTable("FeesDefine");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.GraceLookup", b =>
@@ -341,6 +407,10 @@ namespace ExamAPI.Migrations
                     b.Property<string>("OverallRemark")
                         .HasMaxLength(255)
                         .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("Pattern")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
 
                     b.Property<string>("SeatNo")
                         .HasMaxLength(50)
@@ -729,9 +799,9 @@ namespace ExamAPI.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<string>("AYID")
+                    b.Property<Guid?>("AYID")
                         .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("CourseId")
                         .HasColumnType("uniqueidentifier");
@@ -1337,6 +1407,27 @@ namespace ExamAPI.Migrations
                     b.Navigation("Course");
                 });
 
+            modelBuilder.Entity("ExamAPI.Models.FeesDefine", b =>
+                {
+                    b.HasOne("ExamAPI.Models.AcademicYear", "AcademicYear")
+                        .WithMany()
+                        .HasForeignKey("Ayid");
+
+                    b.HasOne("ExamAPI.Models.CourseMaster", "Course")
+                        .WithMany()
+                        .HasForeignKey("CourseId");
+
+                    b.HasOne("ExamAPI.Models.ExamMaster", "Exam")
+                        .WithMany()
+                        .HasForeignKey("ExamId");
+
+                    b.Navigation("AcademicYear");
+
+                    b.Navigation("Course");
+
+                    b.Navigation("Exam");
+                });
+
             modelBuilder.Entity("ExamAPI.Models.GraceLookup", b =>
                 {
                     b.HasOne("ExamAPI.Models.College", "College")
@@ -1348,7 +1439,7 @@ namespace ExamAPI.Migrations
 
             modelBuilder.Entity("ExamAPI.Models.MarksMaster", b =>
                 {
-                    b.HasOne("ExamAPI.Models.AcademicYear", null)
+                    b.HasOne("ExamAPI.Models.AcademicYear", "AcademicYear")
                         .WithMany("Marks")
                         .HasForeignKey("AcademicYearAYID");
 
@@ -1359,6 +1450,8 @@ namespace ExamAPI.Migrations
                     b.HasOne("ExamAPI.Models.StudentMaster", "Student")
                         .WithMany("Marks")
                         .HasForeignKey("StdMstId");
+
+                    b.Navigation("AcademicYear");
 
                     b.Navigation("Exam");
 

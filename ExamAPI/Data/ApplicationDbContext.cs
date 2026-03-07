@@ -50,6 +50,7 @@ namespace ExamAPI.Data
         public DbSet<TimeTableMaster> TimeTables { get; set; }
         public DbSet<MarksMaster> MarksMasters { get; set; }
         public DbSet<StudentMarks> StudentMarks { get; set; }
+        public DbSet<FeesDefines> FeesDefines { get; set; }
         public DbSet<StudentsOverallResult> StudentsOverallResults { get; set; }
 
         // =========================================
@@ -140,6 +141,11 @@ namespace ExamAPI.Data
             modelBuilder.Entity<RuleAction>()
                 .Property(p => p.MaxLimit)
                 .HasColumnType("decimal(18,2)");
+
+
+            modelBuilder.Entity<FeesDefines>()
+               .Property(f => f.Amount)
+               .HasColumnType("decimal(18,2)");
 
             // =========================================================
             // GLOBAL CONFIGURATION

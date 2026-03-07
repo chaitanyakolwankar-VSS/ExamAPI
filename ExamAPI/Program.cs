@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text; 
 using CloudinaryDotNet;
+using Microsoft.Extensions.Logging;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
@@ -21,9 +22,12 @@ var account = new Account(
 );
 builder.Services.AddSingleton(new Cloudinary(account));
 
+//  connection string with EF logging enabled for debugging
 //  connection string
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"))
+           .LogTo(Console.WriteLine, LogLevel.Information)
+           .EnableSensitiveDataLogging());
 //  connection string end ------------//
 
 
@@ -37,6 +41,7 @@ builder.Services.AddScoped<IRoleMasterService, RoleMasterService>();
 builder.Services.AddScoped<ExamAPI.Services.Subject.ISubjectService, ExamAPI.Services.Subject.SubjectService>();
 builder.Services.AddScoped<ExamAPI.Services.Exam.IExamService, ExamAPI.Services.Exam.ExamService>();
 builder.Services.AddScoped<ExamAPI.Services.RegularExam.IRegularExamService, ExamAPI.Services.RegularExam.RegularExamService>();
+builder.Services.AddScoped<ExamAPI.Services.Fees.IFeesService, ExamAPI.Services.Fees.FeesService>();
 
 //--services and interface end ------//
 
