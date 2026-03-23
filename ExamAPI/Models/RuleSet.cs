@@ -20,6 +20,10 @@ namespace ExamAPI.Models
         [ForeignKey(nameof(PatternId))]
         public PatternMaster? Pattern { get; set; }
 
+        public Guid? GradeMasterId { get; set; }
+        [ForeignKey(nameof(GradeMasterId))]
+        public GradeMaster? GradeMaster { get; set; }
+
         // Navigation Properties
         public ICollection<Rule>? Rules { get; set; }
     }

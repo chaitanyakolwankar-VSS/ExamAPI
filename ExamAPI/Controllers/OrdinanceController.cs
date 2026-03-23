@@ -81,6 +81,47 @@ namespace ExamAPI.Controllers
             return Ok(new ApiResponseDto<object> { Success = true, Message = "Pattern deleted successfully." });
         }
 
+        // === Grade Master Endpoints ===
+        [HttpGet("GradeMasters")]
+        public async Task<IActionResult> GetGradeMasters()
+        {
+            var grades = await _ordinanceService.GetGradeMastersAsync();
+            return Ok(new ApiResponseDto<IEnumerable<GradeMasterDto>> { Success = true, Data = grades, Message = "Grade Masters fetched successfully." });
+        }
+
+        [HttpPost("GradeMasters")]
+        public async Task<IActionResult> CreateGradeMaster([FromBody] GradeMasterCreateDto gradeDto)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(new ApiResponseDto<object> { Success = false, Message = "Invalid data.", Data = ModelState });
+            }
+
+            var createdGrade = await _ordinanceService.CreateGradeMasterAsync(gradeDto);
+            return Ok(new ApiResponseDto<GradeMasterDto> { Success = true, Data = createdGrade, Message = "Grade Master created successfully." });
+        }
+
+        [HttpPut("GradeMasters/{id}")]
+        public async Task<IActionResult> UpdateGradeMaster(Guid id, [FromBody] GradeMasterUpdateDto gradeDto)
+        {
+            if (!ModelState.IsValid) return BadRequest(new ApiResponseDto<object> { Success = false, Message = "Invalid data.", Data = ModelState });
+            if (id != gradeDto.GradeMasterId) return BadRequest(new ApiResponseDto<object> { Success = false, Message = "Grade Master ID in URL and body do not match." });
+
+            var result = await _ordinanceService.UpdateGradeMasterAsync(gradeDto);
+            if (!result) return NotFound(new ApiResponseDto<object> { Success = false, Message = "Grade Master not found." });
+
+            return Ok(new ApiResponseDto<object> { Success = true, Message = "Grade Master updated successfully." });
+        }
+
+        [HttpDelete("GradeMasters/{id}")]
+        public async Task<IActionResult> DeleteGradeMaster(Guid id)
+        {
+            var result = await _ordinanceService.DeleteGradeMasterAsync(id);
+            if (!result) return NotFound(new ApiResponseDto<object> { Success = false, Message = "Grade Master not found." });
+
+            return Ok(new ApiResponseDto<object> { Success = true, Message = "Grade Master deleted successfully." });
+        }
+
         // === RuleSet Endpoints ===
         [HttpGet("RuleSets/ByPattern/{patternId}")]
         public async Task<IActionResult> GetRuleSetsByPattern(Guid patternId)

@@ -14,6 +14,12 @@ namespace ExamAPI.Services.Ordinance
         Task<bool> UpdatePatternAsync(PatternUpdateDto patternDto);
         Task<bool> DeletePatternAsync(Guid patternId);
 
+        // Grade Master Methods
+        Task<IEnumerable<GradeMasterDto>> GetGradeMastersAsync();
+        Task<GradeMasterDto> CreateGradeMasterAsync(GradeMasterCreateDto gradeDto);
+        Task<bool> UpdateGradeMasterAsync(GradeMasterUpdateDto gradeDto);
+        Task<bool> DeleteGradeMasterAsync(Guid gradeMasterId);
+
         // RuleSet Methods
         Task<IEnumerable<RuleSetDto>> GetRuleSetsByPatternAsync(Guid patternId);
         Task<RuleSetDto> CreateRuleSetAsync(RuleSetCreateDto ruleSetDto);

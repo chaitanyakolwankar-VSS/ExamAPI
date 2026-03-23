@@ -61,6 +61,8 @@ namespace ExamAPI.Data
         public DbSet<RuleCondition> RuleConditions { get; set; }
         public DbSet<RuleAction> RuleActions { get; set; }
         public DbSet<GraceLookup> GraceLookups { get; set; }
+        public DbSet<GradeMaster> GradeMasters { get; set; }
+        public DbSet<GradeThreshold> GradeThresholds { get; set; }
 
         // =========================================
         // 7. AuditLog
@@ -140,6 +142,14 @@ namespace ExamAPI.Data
             modelBuilder.Entity<RuleAction>()
                 .Property(p => p.MaxLimit)
                 .HasColumnType("decimal(18,2)");
+
+            modelBuilder.Entity<GradeThreshold>()
+                .Property(p => p.MinPercentage)
+                .HasColumnType("decimal(5,2)");
+
+            modelBuilder.Entity<GradeThreshold>()
+                .Property(p => p.MaxPercentage)
+                .HasColumnType("decimal(5,2)");
 
             // =========================================================
             // GLOBAL CONFIGURATION

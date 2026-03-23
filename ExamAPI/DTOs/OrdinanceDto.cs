@@ -32,6 +32,7 @@ namespace ExamAPI.DTOs
         public string Name { get; set; }
         public bool IsActive { get; set; }
         public Guid PatternId { get; set; }
+        public Guid? GradeMasterId { get; set; }
     }
 
     public class RuleSetCreateDto
@@ -41,6 +42,7 @@ namespace ExamAPI.DTOs
         public bool IsActive { get; set; } = true;
         [Required]
         public Guid PatternId { get; set; }
+        public Guid? GradeMasterId { get; set; }
     }
 
     public class RuleSetUpdateDto
@@ -50,6 +52,44 @@ namespace ExamAPI.DTOs
         [Required]
         public string Name { get; set; }
         public bool IsActive { get; set; }
+        public Guid? GradeMasterId { get; set; }
+    }
+
+    // --- GradeMaster DTOs ---
+    public class GradeThresholdDto
+    {
+        public Guid? ThresholdId { get; set; }
+        public string Grade { get; set; }
+        public int GradePoint { get; set; }
+        public decimal MinPercentage { get; set; }
+        public decimal MaxPercentage { get; set; }
+        public string PerformanceRemark { get; set; }
+    }
+
+    public class GradeMasterDto
+    {
+        public Guid GradeMasterId { get; set; }
+        public string Name { get; set; }
+        public string Description { get; set; }
+        public List<GradeThresholdDto> Thresholds { get; set; }
+    }
+
+    public class GradeMasterCreateDto
+    {
+        [Required]
+        public string Name { get; set; }
+        public string Description { get; set; }
+        public List<GradeThresholdDto> Thresholds { get; set; }
+    }
+    
+    public class GradeMasterUpdateDto
+    {
+        [Required]
+        public Guid GradeMasterId { get; set; }
+        [Required]
+        public string Name { get; set; }
+        public string Description { get; set; }
+        public List<GradeThresholdDto> Thresholds { get; set; }
     }
 
     // --- Rule DTOs ---
@@ -103,6 +143,8 @@ namespace ExamAPI.DTOs
         public string Name { get; set; }
         public int Priority { get; set; }
         public bool IsEnabled { get; set; }
+        public bool StopOnSuccess { get; set; }
+        public string? OrdinanceSymbol { get; set; }
         public Guid RuleSetId { get; set; }
         public List<RuleConditionDto> Conditions { get; set; }
         public List<RuleActionDto> Actions { get; set; }
@@ -116,6 +158,8 @@ namespace ExamAPI.DTOs
         public string Name { get; set; }
         public int Priority { get; set; }
         public bool IsEnabled { get; set; } = true;
+        public bool StopOnSuccess { get; set; }
+        public string? OrdinanceSymbol { get; set; }
         public List<RuleConditionCreateDto> Conditions { get; set; }
         public List<RuleActionCreateDto> Actions { get; set; }
     }
@@ -128,6 +172,8 @@ namespace ExamAPI.DTOs
         public string Name { get; set; }
         public int Priority { get; set; }
         public bool IsEnabled { get; set; }
+        public bool StopOnSuccess { get; set; }
+        public string? OrdinanceSymbol { get; set; }
         public List<RuleConditionCreateDto> Conditions { get; set; }
         public List<RuleActionCreateDto> Actions { get; set; }
     }

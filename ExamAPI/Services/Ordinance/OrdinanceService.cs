@@ -43,7 +43,7 @@ namespace ExamAPI.Services.Ordinance
                     Description = p.Description
                 })
                 .FirstOrDefaultAsync();
-            
+
             return pattern;
         }
 
@@ -57,10 +57,10 @@ namespace ExamAPI.Services.Ordinance
                 CollegeId = collegeId,
                 CreatedAt = DateTime.UtcNow,
             };
-            
+
             _context.PatternMasters.Add(pattern);
             await _context.SaveChangesAsync();
-            
+
             return new PatternDto
             {
                 PatternId = pattern.PatternId,
@@ -89,13 +89,171 @@ namespace ExamAPI.Services.Ordinance
         {
             var existingPattern = await _context.PatternMasters
                 .FirstOrDefaultAsync(p => p.PatternId == patternId);
-            
+
             if (existingPattern == null || existingPattern.IsDeleted) return false;
 
             existingPattern.IsDeleted = true;
             existingPattern.DeletedAt = DateTime.UtcNow;
-            
+
             _context.PatternMasters.Update(existingPattern);
+            await _context.SaveChangesAsync();
+            return true;
+        }
+
+        // === Grade Master Methods ===
+        public async Task<IEnumerable<GradeMasterDto>> GetGradeMastersAsync()
+        {
+            var grades = await _context.GradeMasters
+                .Include(g => g.Thresholds)
+                .Where(g => !g.IsDeleted)
+                .ToListAsync();
+
+            return grades.Select(g => new GradeMasterDto
+            {
+                GradeMasterId = g.GradeMasterId,
+                Name = g.Name,
+                Description = g.Description,
+                Thresholds = g.Thresholds?.Where(t => !t.IsDeleted).Select(t => new GradeThresholdDto
+                {
+                    ThresholdId = t.ThresholdId,
+                    Grade = t.Grade,
+                    GradePoint = t.GradePoint,
+                    MinPercentage = t.MinPercentage,
+                    MaxPercentage = t.MaxPercentage,
+                    PerformanceRemark = t.PerformanceRemark
+                }).OrderByDescending(t => t.MinPercentage).ToList() ?? new List<GradeThresholdDto>()
+            });
+        }
+
+        public async Task<GradeMasterDto> CreateGradeMasterAsync(GradeMasterCreateDto gradeDto)
+        {
+            var gradeMaster = new GradeMaster
+            {
+                GradeMasterId = Guid.NewGuid(),
+                Name = gradeDto.Name,
+                Description = gradeDto.Description,
+                CreatedAt = DateTime.UtcNow,
+                Thresholds = gradeDto.Thresholds?.Select(t => new GradeThreshold
+                {
+                    ThresholdId = Guid.NewGuid(),
+                    Grade = t.Grade,
+                    GradePoint = t.GradePoint,
+                    MinPercentage = t.MinPercentage,
+                    MaxPercentage = t.MaxPercentage,
+                    PerformanceRemark = t.PerformanceRemark,
+                    CreatedAt = DateTime.UtcNow
+                }).ToList()
+            };
+
+            _context.GradeMasters.Add(gradeMaster);
+            await _context.SaveChangesAsync();
+
+            return new GradeMasterDto
+            {
+                GradeMasterId = gradeMaster.GradeMasterId,
+                Name = gradeMaster.Name,
+                Description = gradeMaster.Description,
+                Thresholds = gradeMaster.Thresholds?.Select(t => new GradeThresholdDto
+                {
+                    ThresholdId = t.ThresholdId,
+                    Grade = t.Grade,
+                    GradePoint = t.GradePoint,
+                    MinPercentage = t.MinPercentage,
+                    MaxPercentage = t.MaxPercentage,
+                    PerformanceRemark = t.PerformanceRemark
+                }).OrderByDescending(t => t.MinPercentage).ToList() ?? new List<GradeThresholdDto>()
+            };
+        }
+
+        public async Task<bool> UpdateGradeMasterAsync(GradeMasterUpdateDto gradeDto)
+        {
+            var existingGradeMaster = await _context.GradeMasters
+                .Include(g => g.Thresholds.Where(t => !t.IsDeleted))
+                .FirstOrDefaultAsync(g => g.GradeMasterId == gradeDto.GradeMasterId);
+
+            if (existingGradeMaster == null || existingGradeMaster.IsDeleted) return false;
+
+            existingGradeMaster.Name = gradeDto.Name;
+            existingGradeMaster.Description = gradeDto.Description;
+            existingGradeMaster.UpdatedAt = DateTime.UtcNow;
+
+            var existingThresholds = existingGradeMaster.Thresholds.ToList();
+            var incomingThresholds = gradeDto.Thresholds ?? new List<GradeThresholdDto>();
+            var processedThresholdIds = new HashSet<Guid>();
+
+            foreach (var tDto in incomingThresholds)
+            {
+                if (tDto.ThresholdId.HasValue)
+                {
+                    var existingThreshold = existingThresholds.FirstOrDefault(t => t.ThresholdId == tDto.ThresholdId.Value);
+                    if (existingThreshold != null)
+                    {
+                        existingThreshold.Grade = tDto.Grade;
+                        existingThreshold.GradePoint = tDto.GradePoint;
+                        existingThreshold.MinPercentage = tDto.MinPercentage;
+                        existingThreshold.MaxPercentage = tDto.MaxPercentage;
+                        existingThreshold.PerformanceRemark = tDto.PerformanceRemark;
+                        existingThreshold.UpdatedAt = DateTime.UtcNow;
+
+                        processedThresholdIds.Add(existingThreshold.ThresholdId);
+                        _context.Entry(existingThreshold).State = EntityState.Modified;
+                        continue;
+                    }
+                }
+
+                var newThreshold = new GradeThreshold
+                {
+                    ThresholdId = Guid.NewGuid(),
+                    Grade = tDto.Grade,
+                    GradePoint = tDto.GradePoint,
+                    MinPercentage = tDto.MinPercentage,
+                    MaxPercentage = tDto.MaxPercentage,
+                    PerformanceRemark = tDto.PerformanceRemark,
+                    CreatedAt = DateTime.UtcNow,
+                    GradeMasterId = existingGradeMaster.GradeMasterId
+                };
+                _context.GradeThresholds.Add(newThreshold);
+            }
+
+            foreach (var threshold in existingThresholds)
+            {
+                if (!processedThresholdIds.Contains(threshold.ThresholdId))
+                {
+                    threshold.IsDeleted = true;
+                    threshold.DeletedAt = DateTime.UtcNow;
+                    _context.Entry(threshold).State = EntityState.Modified;
+                }
+            }
+
+            await _context.SaveChangesAsync();
+            return true;
+        }
+
+        public async Task<bool> DeleteGradeMasterAsync(Guid gradeMasterId)
+        {
+            var existingGradeMaster = await _context.GradeMasters
+                .Include(g => g.Thresholds)
+                .FirstOrDefaultAsync(g => g.GradeMasterId == gradeMasterId);
+
+            if (existingGradeMaster == null || existingGradeMaster.IsDeleted) return false;
+
+            existingGradeMaster.IsDeleted = true;
+            existingGradeMaster.DeletedAt = DateTime.UtcNow;
+
+            if (existingGradeMaster.Thresholds != null)
+            {
+                foreach (var threshold in existingGradeMaster.Thresholds)
+                {
+                    if (!threshold.IsDeleted)
+                    {
+                        threshold.IsDeleted = true;
+                        threshold.DeletedAt = DateTime.UtcNow;
+                        _context.Entry(threshold).State = EntityState.Modified;
+                    }
+                }
+            }
+
+            _context.GradeMasters.Update(existingGradeMaster);
             await _context.SaveChangesAsync();
             return true;
         }
@@ -110,7 +268,8 @@ namespace ExamAPI.Services.Ordinance
                     RuleSetId = rs.RuleSetId,
                     Name = rs.Name,
                     IsActive = rs.IsActive,
-                    PatternId = rs.PatternId
+                    PatternId = rs.PatternId,
+                    GradeMasterId = rs.GradeMasterId
                 })
                 .ToListAsync();
         }
@@ -123,6 +282,7 @@ namespace ExamAPI.Services.Ordinance
                 Name = ruleSetDto.Name,
                 IsActive = ruleSetDto.IsActive,
                 PatternId = ruleSetDto.PatternId,
+                GradeMasterId = ruleSetDto.GradeMasterId,
                 CreatedAt = DateTime.UtcNow
             };
 
@@ -134,7 +294,8 @@ namespace ExamAPI.Services.Ordinance
                 RuleSetId = ruleSet.RuleSetId,
                 Name = ruleSet.Name,
                 IsActive = ruleSet.IsActive,
-                PatternId = ruleSet.PatternId
+                PatternId = ruleSet.PatternId,
+                GradeMasterId = ruleSet.GradeMasterId
             };
         }
 
@@ -142,11 +303,12 @@ namespace ExamAPI.Services.Ordinance
         {
             var existingRuleSet = await _context.RuleSets
                 .FirstOrDefaultAsync(rs => rs.RuleSetId == ruleSetDto.RuleSetId);
-                
+
             if (existingRuleSet == null || existingRuleSet.IsDeleted) return false;
 
             existingRuleSet.Name = ruleSetDto.Name;
             existingRuleSet.IsActive = ruleSetDto.IsActive;
+            existingRuleSet.GradeMasterId = ruleSetDto.GradeMasterId;
             existingRuleSet.UpdatedAt = DateTime.UtcNow;
 
             _context.RuleSets.Update(existingRuleSet);
@@ -184,6 +346,8 @@ namespace ExamAPI.Services.Ordinance
                 Name = r.Name,
                 Priority = r.Priority,
                 IsEnabled = r.IsEnabled,
+                StopOnSuccess = r.StopOnSuccess,
+                OrdinanceSymbol = r.OrdinanceSymbol,
                 RuleSetId = r.RuleSetId ?? Guid.Empty,
                 Conditions = r.Conditions?.Where(c => !c.IsDeleted).Select(c => new RuleConditionDto
                 {
@@ -216,6 +380,8 @@ namespace ExamAPI.Services.Ordinance
                 Name = ruleDto.Name,
                 Priority = ruleDto.Priority,
                 IsEnabled = ruleDto.IsEnabled,
+                StopOnSuccess = ruleDto.StopOnSuccess,
+                OrdinanceSymbol = ruleDto.OrdinanceSymbol,
                 RuleSetId = ruleDto.RuleSetId,
                 CreatedAt = DateTime.UtcNow,
                 Conditions = ruleDto.Conditions?.Select(c => new RuleCondition
@@ -251,6 +417,8 @@ namespace ExamAPI.Services.Ordinance
                 Name = rule.Name,
                 Priority = rule.Priority,
                 IsEnabled = rule.IsEnabled,
+                StopOnSuccess = rule.StopOnSuccess,
+                OrdinanceSymbol = rule.OrdinanceSymbol,
                 RuleSetId = rule.RuleSetId ?? Guid.Empty,
                 Conditions = rule.Conditions?.Select(c => new RuleConditionDto
                 {
@@ -288,121 +456,123 @@ namespace ExamAPI.Services.Ordinance
             existingRule.Name = ruleDto.Name;
             existingRule.Priority = ruleDto.Priority;
             existingRule.IsEnabled = ruleDto.IsEnabled;
+            existingRule.StopOnSuccess = ruleDto.StopOnSuccess;
+            existingRule.OrdinanceSymbol = ruleDto.OrdinanceSymbol;
             existingRule.UpdatedAt = DateTime.UtcNow;
 
-                        // 2. Reconcile Conditions
-                        var existingConditions = existingRule.Conditions.ToList();
-                        var incomingConditions = ruleDto.Conditions ?? new List<RuleConditionCreateDto>();
-                        
-                        // Track IDs processed to identify what to delete later
-                        var processedConditionIds = new HashSet<Guid>();
-            
-                        foreach (var cDto in incomingConditions)
-                        {
-                            if (cDto.ConditionId.HasValue)
-                            {
-                                var existingCond = existingConditions.FirstOrDefault(c => c.ConditionId == cDto.ConditionId.Value);
-                                if (existingCond != null)
-                                {
-                                    // UPDATE Existing
-                                    existingCond.FactName = cDto.FactName;
-                                    existingCond.Operator = cDto.Operator;
-                                    existingCond.Value = cDto.Value;
-                                    existingCond.UpdatedAt = DateTime.UtcNow;
-                                    
-                                    processedConditionIds.Add(existingCond.ConditionId);
-                                    _context.Entry(existingCond).State = EntityState.Modified;
-                                    continue;
-                                }
-                            }
-            
-                            // INSERT New
-                            var newCondition = new RuleCondition
-                            {
-                                ConditionId = Guid.NewGuid(),
-                                FactName = cDto.FactName,
-                                Operator = cDto.Operator,
-                                Value = cDto.Value,
-                                CreatedAt = DateTime.UtcNow,
-                                RuleId = existingRule.RuleId
-                            };
-                            _context.RuleConditions.Add(newCondition);
-                        }
-            
-                        // DELETE Missing
-                        foreach (var cond in existingConditions)
-                        {
-                            if (!processedConditionIds.Contains(cond.ConditionId))
-                            {
-                                cond.IsDeleted = true;
-                                cond.DeletedAt = DateTime.UtcNow;
-                                _context.Entry(cond).State = EntityState.Modified;
-                            }
-                        }
-            
-                        // 3. Reconcile Actions
-                        var existingActions = existingRule.Actions.ToList();
-                        var incomingActions = ruleDto.Actions ?? new List<RuleActionCreateDto>();
-                        var processedActionIds = new HashSet<Guid>();
-            
-                        foreach (var aDto in incomingActions)
-                        {
-                            if (aDto.ActionId.HasValue)
-                            {
-                                var existingAct = existingActions.FirstOrDefault(a => a.ActionId == aDto.ActionId.Value);
-                                if (existingAct != null)
-                                {
-                                    // UPDATE Existing
-                                    existingAct.ActionType = aDto.ActionType;
-                                    existingAct.CalculationMode = aDto.CalculationMode;
-                                    existingAct.Param1Type = aDto.Param1Type;
-                                    existingAct.Param1Value = aDto.Param1Value;
-                                    existingAct.Param2Type = aDto.Param2Type;
-                                    existingAct.Param2Value = aDto.Param2Value;
-                                    existingAct.MaxLimit = aDto.MaxLimit;
-                                    existingAct.MaxTargetCount = aDto.MaxTargetCount;
-                                    existingAct.Target = aDto.Target;
-                                    existingAct.UpdatedAt = DateTime.UtcNow;
-            
-                                    processedActionIds.Add(existingAct.ActionId);
-                                    _context.Entry(existingAct).State = EntityState.Modified;
-                                    continue;
-                                }
-                            }
-            
-                            // INSERT New
-                            var newAction = new RuleAction
-                            {
-                                ActionId = Guid.NewGuid(),
-                                ActionType = aDto.ActionType,
-                                CalculationMode = aDto.CalculationMode,
-                                Param1Type = aDto.Param1Type,
-                                Param1Value = aDto.Param1Value,
-                                Param2Type = aDto.Param2Type,
-                                Param2Value = aDto.Param2Value,
-                                MaxLimit = aDto.MaxLimit,
-                                MaxTargetCount = aDto.MaxTargetCount,
-                                Target = aDto.Target,
-                                CreatedAt = DateTime.UtcNow,
-                                RuleId = existingRule.RuleId
-                            };
-                            _context.RuleActions.Add(newAction);
-                        }
-            
-                        // DELETE Missing Actions
-                        foreach (var act in existingActions)
-                        {
-                            if (!processedActionIds.Contains(act.ActionId))
-                            {
-                                act.IsDeleted = true;
-                                act.DeletedAt = DateTime.UtcNow;
-                                _context.Entry(act).State = EntityState.Modified;
-                            }
-                        }
-            
-                        await _context.SaveChangesAsync();
-                        return true;
+            // 2. Reconcile Conditions
+            var existingConditions = existingRule.Conditions.ToList();
+            var incomingConditions = ruleDto.Conditions ?? new List<RuleConditionCreateDto>();
+
+            // Track IDs processed to identify what to delete later
+            var processedConditionIds = new HashSet<Guid>();
+
+            foreach (var cDto in incomingConditions)
+            {
+                if (cDto.ConditionId.HasValue)
+                {
+                    var existingCond = existingConditions.FirstOrDefault(c => c.ConditionId == cDto.ConditionId.Value);
+                    if (existingCond != null)
+                    {
+                        // UPDATE Existing
+                        existingCond.FactName = cDto.FactName;
+                        existingCond.Operator = cDto.Operator;
+                        existingCond.Value = cDto.Value;
+                        existingCond.UpdatedAt = DateTime.UtcNow;
+
+                        processedConditionIds.Add(existingCond.ConditionId);
+                        _context.Entry(existingCond).State = EntityState.Modified;
+                        continue;
                     }
+                }
+
+                // INSERT New
+                var newCondition = new RuleCondition
+                {
+                    ConditionId = Guid.NewGuid(),
+                    FactName = cDto.FactName,
+                    Operator = cDto.Operator,
+                    Value = cDto.Value,
+                    CreatedAt = DateTime.UtcNow,
+                    RuleId = existingRule.RuleId
+                };
+                _context.RuleConditions.Add(newCondition);
+            }
+
+            // DELETE Missing
+            foreach (var cond in existingConditions)
+            {
+                if (!processedConditionIds.Contains(cond.ConditionId))
+                {
+                    cond.IsDeleted = true;
+                    cond.DeletedAt = DateTime.UtcNow;
+                    _context.Entry(cond).State = EntityState.Modified;
+                }
+            }
+
+            // 3. Reconcile Actions
+            var existingActions = existingRule.Actions.ToList();
+            var incomingActions = ruleDto.Actions ?? new List<RuleActionCreateDto>();
+            var processedActionIds = new HashSet<Guid>();
+
+            foreach (var aDto in incomingActions)
+            {
+                if (aDto.ActionId.HasValue)
+                {
+                    var existingAct = existingActions.FirstOrDefault(a => a.ActionId == aDto.ActionId.Value);
+                    if (existingAct != null)
+                    {
+                        // UPDATE Existing
+                        existingAct.ActionType = aDto.ActionType;
+                        existingAct.CalculationMode = aDto.CalculationMode;
+                        existingAct.Param1Type = aDto.Param1Type;
+                        existingAct.Param1Value = aDto.Param1Value;
+                        existingAct.Param2Type = aDto.Param2Type;
+                        existingAct.Param2Value = aDto.Param2Value;
+                        existingAct.MaxLimit = aDto.MaxLimit;
+                        existingAct.MaxTargetCount = aDto.MaxTargetCount;
+                        existingAct.Target = aDto.Target;
+                        existingAct.UpdatedAt = DateTime.UtcNow;
+
+                        processedActionIds.Add(existingAct.ActionId);
+                        _context.Entry(existingAct).State = EntityState.Modified;
+                        continue;
+                    }
+                }
+
+                // INSERT New
+                var newAction = new RuleAction
+                {
+                    ActionId = Guid.NewGuid(),
+                    ActionType = aDto.ActionType,
+                    CalculationMode = aDto.CalculationMode,
+                    Param1Type = aDto.Param1Type,
+                    Param1Value = aDto.Param1Value,
+                    Param2Type = aDto.Param2Type,
+                    Param2Value = aDto.Param2Value,
+                    MaxLimit = aDto.MaxLimit,
+                    MaxTargetCount = aDto.MaxTargetCount,
+                    Target = aDto.Target,
+                    CreatedAt = DateTime.UtcNow,
+                    RuleId = existingRule.RuleId
+                };
+                _context.RuleActions.Add(newAction);
+            }
+
+            // DELETE Missing Actions
+            foreach (var act in existingActions)
+            {
+                if (!processedActionIds.Contains(act.ActionId))
+                {
+                    act.IsDeleted = true;
+                    act.DeletedAt = DateTime.UtcNow;
+                    _context.Entry(act).State = EntityState.Modified;
+                }
+            }
+
+            await _context.SaveChangesAsync();
+            return true;
+        }
         public async Task<bool> DeleteRuleAsync(Guid ruleId)
         {
             var rule = await _context.Rules
