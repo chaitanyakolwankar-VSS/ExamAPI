@@ -19,6 +19,8 @@ namespace ExamAPI.Models
 
         [MaxLength(20)]
         public string? SemesterId { get; set; }
+        [MaxLength(20)]
+        public string? Pattern { get; set; }
 
         [MaxLength(255)]
         public string? OverallRemark { get; set; } // e.g., "Pass", "Fail"
@@ -31,6 +33,11 @@ namespace ExamAPI.Models
         public Guid? ExamId { get; set; }
         [ForeignKey(nameof(ExamId))]
         public ExamMaster? Exam { get; set; }
+
+        // 🔹 Academic Year (GUID based)
+        public Guid? AcademicYearAYID { get; set; }
+        [ForeignKey(nameof(AcademicYearAYID))]
+        public AcademicYear? AcademicYear { get; set; }
 
         // Navigation Properties
         public ICollection<StudentMarks>? StudentMarks { get; set; }
