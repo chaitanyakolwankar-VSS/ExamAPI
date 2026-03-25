@@ -11,9 +11,14 @@ namespace ExamAPI.DTOs
     }
     public class Savedata
     {
+<<<<<<< HEAD
         public string? StudentId { get; set; }
         public Guid Id { get; set; }
         public Guid CourseId { get; set; }
+=======
+        public Guid Id { get; set; }
+        public Guid CourseId { get; set; } 
+>>>>>>> 49b1e581466adc2308420e40d667e717b5a343fa
         public required string FirstName { get; set; }
         public string? MiddleName { get; set; }
         public string? LastName { get; set; }
@@ -21,7 +26,11 @@ namespace ExamAPI.DTOs
         public string? Category { get; set; }
         public string? StudentPRN { get; set; }
         public string? PhotoUrl { get; set; }
+<<<<<<< HEAD
         public string? SignUrl { get; set; }
+=======
+        public string? SignUrl { get; set; } 
+>>>>>>> 49b1e581466adc2308420e40d667e717b5a343fa
         public bool Dyslexia { get; set; }
         public string? SemesterId { get; set; }
         public string? AYID { get; set; }
@@ -32,7 +41,11 @@ namespace ExamAPI.DTOs
         public Guid CourseId { get; set; }
         public required string Name { get; set; }
         public required string FirstName { get; set; }
+<<<<<<< HEAD
         public string? MiddleName { get; set; }
+=======
+        public string?MiddleName { get; set; }
+>>>>>>> 49b1e581466adc2308420e40d667e717b5a343fa
         public required string LastName { get; set; }
         public string? StudentPRN { get; set; }
         public string? SemesterId { get; set; }
@@ -51,6 +64,7 @@ namespace ExamAPI.DTOs
         public string StudentId { get; set; }
         public string? StudentName { get; set; }
     }
+<<<<<<< HEAD
 
     public class StudentExcelDto
     {
@@ -84,3 +98,7 @@ namespace ExamAPI.DTOs
     }
 }
 
+=======
+}
+ 
+>>>>>>> 49b1e581466adc2308420e40d667e717b5a343fa

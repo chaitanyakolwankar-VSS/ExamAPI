@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 ﻿using ClosedXML.Excel;
 using ExamAPI.Data;
 using ExamAPI.DTOs;
@@ -5,19 +6,34 @@ using ExamAPI.Models;
 using Microsoft.EntityFrameworkCore;
 using OfficeOpenXml;
 
+=======
+﻿using ExamAPI.Data;
+using ExamAPI.DTOs;
+using ExamAPI.Models;
+using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore; 
+>>>>>>> 49b1e581466adc2308420e40d667e717b5a343fa
 
 namespace ExamAPI.Services.StudentMaster
 {
     public class StudentMasterService : IStudentMasterService
     {
+<<<<<<< HEAD
 
+=======
+>>>>>>> 49b1e581466adc2308420e40d667e717b5a343fa
         private readonly ApplicationDbContext _context;
 
         public StudentMasterService(ApplicationDbContext context)
         {
             _context = context;
         }
+<<<<<<< HEAD
 
+=======
+         
+>>>>>>> 49b1e581466adc2308420e40d667e717b5a343fa
         public async Task<List<StudentMasterDto>> GetDataAsync()
         {
             var branches = await _context.CourseMasters
@@ -32,6 +48,122 @@ namespace ExamAPI.Services.StudentMaster
 
             return branches;
         }
+<<<<<<< HEAD
+=======
+
+        private async Task<string> GenerateStudentIdAsync(Guid courseId)
+        {
+            // 1️⃣ Get Current Academic Year
+            var academicYear = await _context.AcademicYears
+                .Where(a => a.IsCurrent)
+                .Select(a => new { a.AYID, a.ShortDuration }) 
+                .FirstOrDefaultAsync();
+
+            if (academicYear == null)
+                throw new Exception("No Data Not Found");
+
+            // Example: ShortDuration = "2024-25"
+            string yearPart = academicYear.ShortDuration.Substring(2, 2);
+
+            // 2️⃣ Get Course Code
+            var courseCode = await _context.CourseMasters
+                .Where(c => c.CourseId == courseId)
+                .Select(c => c.CourseCode)
+                .FirstOrDefaultAsync();
+
+            if (string.IsNullOrEmpty(courseCode))
+                throw new Exception("Invalid Course selected.");
+
+            string coursePart = courseCode.Substring(courseCode.Length - 2);
+
+            // 3️⃣ Get Last StudentId for this Course
+            var lastStudentId = await _context.StudentEligibilities
+                .Where(e => e.CourseId == courseId)
+                .OrderByDescending(e => e.CreatedAt)
+                .Select(e => e.StudentId)
+                .FirstOrDefaultAsync();
+
+            int nextNumber = 1;
+
+            if (!string.IsNullOrEmpty(lastStudentId) && lastStudentId.Length >= 8)
+            {
+                string numberPart = lastStudentId.Substring(4);
+                nextNumber = int.Parse(numberPart) + 1;
+            }
+
+            return $"{yearPart}{coursePart}{nextNumber:D4}";
+        }
+
+        public async Task<string> SaveStudentAsync(Savedata dto)
+        {
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
+            try
+            {
+                // 1️⃣ Get Current Academic Year (Real AYID)
+                var academicYear = await _context.AcademicYears
+                    .Where(a => a.IsCurrent)
+                    .Select(a => new { a.AYID, a.ShortDuration })
+                    .FirstOrDefaultAsync();
+
+                if (academicYear == null)
+                    throw new Exception("No current academic year found.");
+
+                Guid stdMstId = Guid.NewGuid();
+
+                // 2️⃣ Generate StudentId
+                string studentId = await GenerateStudentIdAsync(dto.CourseId);
+
+                // 3️⃣ Save StudentMaster
+                var studentMaster = new Models.StudentMaster
+                {
+                    StdMstId = stdMstId,
+                    StudentId = studentId,  
+                    FirstName = dto.FirstName,
+                    MiddleName = dto.MiddleName,
+                    LastName = dto.LastName,
+                    Category = dto.Category,
+                    StudentPRN = dto.StudentPRN,
+                    Gender = dto.Gender,
+                    Dyslexia = dto.Dyslexia,
+
+                    CreatedAt = DateTime.UtcNow,
+                    IsDeleted = false
+                };
+
+                _context.StudentMasters.Add(studentMaster);
+
+
+
+                var Id = Guid.NewGuid();
+                // 4️⃣ Save StudentEligibility
+                var studentEligibility = new StudentEligibility
+                {
+                    Id= Id,
+                    StdMstId = stdMstId,
+                    StudentId = studentId,
+                    CourseId = dto.CourseId,
+                    SemesterId = dto.SemesterId,
+                    AYID = academicYear.ShortDuration,
+                    CreatedAt = DateTime.UtcNow,
+                    IsDeleted = false
+                };
+
+                _context.StudentEligibilities.Add(studentEligibility);
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                return studentId; // ✅ Return to frontend
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
+>>>>>>> 49b1e581466adc2308420e40d667e717b5a343fa
         public async Task<List<FetchData>> GetbycourseAsync(Guid courseId)
         {
             // Step 1: Get Current Academic Year (ShortDuration)
@@ -39,7 +171,11 @@ namespace ExamAPI.Services.StudentMaster
                 .Where(a => a.IsCurrent == true)
                 .Select(a => a.ShortDuration)
                 .FirstOrDefaultAsync();
+<<<<<<< HEAD
 
+=======
+ 
+>>>>>>> 49b1e581466adc2308420e40d667e717b5a343fa
             var data = await (
                 from se in _context.StudentEligibilities
                 join sm in _context.StudentMasters on se.StudentId equals sm.StudentId
@@ -62,6 +198,7 @@ namespace ExamAPI.Services.StudentMaster
 
             return data;
         }
+<<<<<<< HEAD
         private async Task<string> GenerateStudentIdAsync(Guid courseId)
         {
             // 1️⃣ Get Current Academic Year
@@ -211,6 +348,8 @@ namespace ExamAPI.Services.StudentMaster
             }
         }
 
+=======
+>>>>>>> 49b1e581466adc2308420e40d667e717b5a343fa
         public async Task<List<FetchData>> SearchStudentsAsync(Searchbyname model)
         {
             var currentAY = await _context.AcademicYears
@@ -256,6 +395,7 @@ namespace ExamAPI.Services.StudentMaster
 
             return data;
         }
+<<<<<<< HEAD
         public async Task<Savedata> GetStudentByIdAsync(string studentId)
         {
             var data = await (
@@ -578,3 +718,8 @@ namespace ExamAPI.Services.StudentMaster
         }
     }
 }
+=======
+    }
+}
+ 
+>>>>>>> 49b1e581466adc2308420e40d667e717b5a343fa

@@ -1,10 +1,17 @@
+<<<<<<< HEAD
 ﻿using DocumentFormat.OpenXml.Spreadsheet;
 using ExamAPI.DTOs;
+=======
+﻿using ExamAPI.DTOs;
+>>>>>>> 49b1e581466adc2308420e40d667e717b5a343fa
 using ExamAPI.Services.RoleMaster;
 using ExamAPI.Services.StudentMaster;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+<<<<<<< HEAD
 using static ExamAPI.DTOs.StudentExcelDto;
+=======
+>>>>>>> 49b1e581466adc2308420e40d667e717b5a343fa
 using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace ExamAPI.Controllers
@@ -47,6 +54,7 @@ namespace ExamAPI.Controllers
             var data = await _service.SearchStudentsAsync(model);
             return Ok(data);
         }
+<<<<<<< HEAD
         [HttpGet("GetStudentById")]
         public async Task<IActionResult> GetStudentById(string studentId)
         {
@@ -90,3 +98,7 @@ namespace ExamAPI.Controllers
     }
 }
 
+=======
+    }
+}
+>>>>>>> 49b1e581466adc2308420e40d667e717b5a343fa

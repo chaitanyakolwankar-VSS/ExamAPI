@@ -1,6 +1,10 @@
+<<<<<<< HEAD
 ﻿using ClosedXML.Excel;
 using ExamAPI.DTOs;
 using static ExamAPI.DTOs.StudentExcelDto;
+=======
+﻿using ExamAPI.DTOs;
+>>>>>>> 49b1e581466adc2308420e40d667e717b5a343fa
 
 namespace ExamAPI.Services.StudentMaster
 {
@@ -12,6 +16,7 @@ namespace ExamAPI.Services.StudentMaster
         Task<string> SaveStudentAsync(Savedata dto);
         Task<List<FetchData>> GetbycourseAsync(Guid courseId);
         Task<List<FetchData>> SearchStudentsAsync(Searchbyname model);
+<<<<<<< HEAD
         Task<Savedata> GetStudentByIdAsync(string studentId);
         Task<string> UpdateStudentAsync(Savedata dto);
         Task<string> DeleteStudentAsync(string studentId);
@@ -19,5 +24,7 @@ namespace ExamAPI.Services.StudentMaster
 
         Task<object> ImportStudentsAsync(StudentImportDto dto);
       
+=======
+>>>>>>> 49b1e581466adc2308420e40d667e717b5a343fa
     }
 }

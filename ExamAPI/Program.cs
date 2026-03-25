@@ -3,7 +3,10 @@ using ExamAPI.Services.RoleMaster;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+<<<<<<< HEAD
 using Microsoft.Extensions.FileProviders;
+=======
+>>>>>>> 49b1e581466adc2308420e40d667e717b5a343fa
 using Microsoft.IdentityModel.Tokens;
 using OfficeOpenXml;
 using System.Text;
