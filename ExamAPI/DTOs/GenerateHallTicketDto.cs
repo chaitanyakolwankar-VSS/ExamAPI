@@ -38,6 +38,7 @@
         public string name { get; set; }
         public string centre { get; set; }
         public string seat { get; set; }
+        public string Studentid { get; set; }
         public List<StudentsHallTicketSubjects> subjects { get; set; }
     }
     public class StudentHallTicketDataRequest

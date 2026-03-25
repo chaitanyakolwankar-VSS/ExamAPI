@@ -134,6 +134,7 @@ namespace ExamAPI.Services.GenerateHallTicket
                         name = Student.Name,
                         centre = Student.Center,
                         seat = Student.Seat,
+                        Studentid=Student.StudentId,
                         subjects = StudentSubjects.ToList()
                     });
                 }
