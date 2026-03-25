@@ -3,10 +3,9 @@ using ExamAPI.Services.RoleMaster;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
-<<<<<<< HEAD
+
 using Microsoft.Extensions.FileProviders;
-=======
->>>>>>> 49b1e581466adc2308420e40d667e717b5a343fa
+
 using Microsoft.IdentityModel.Tokens;
 using OfficeOpenXml;
 using System.Text;
@@ -18,7 +17,16 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHttpContextAccessor();
 
-//  connection string 
+
+var cloudConfig = builder.Configuration.GetSection("Cloudinary");
+var account = new Account(
+    cloudConfig["CloudName"],
+    cloudConfig["ApiKey"],
+    cloudConfig["ApiSecret"]
+);
+builder.Services.AddSingleton(new Cloudinary(account));
+
+//  connection string
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
@@ -29,6 +37,8 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 builder.Services.AddScoped<ExamAPI.Services.Auth.IAuthService, ExamAPI.Services.Auth.AuthService>();
 builder.Services.AddScoped<ExamAPI.Services.Common.IGenericRepository, ExamAPI.Services.Common.GenericRepository>();
 builder.Services.AddScoped<ExamAPI.Services.Common.IAcademicYearService, ExamAPI.Services.Common.AcademicYearService>();
+builder.Services.AddScoped<ExamAPI.Services.Permissions.IPermissionService, ExamAPI.Services.Permissions.PermissionService>();
+builder.Services.AddScoped<ExamAPI.Services.CollegeDetail.ICollegeDetailService, ExamAPI.Services.CollegeDetail.CollegeDetailService>();
 builder.Services.AddScoped<IRoleMasterService, RoleMasterService>();
 builder.Services.AddScoped<ExamAPI.Services.Subject.ISubjectService, ExamAPI.Services.Subject.SubjectService>();
 builder.Services.AddScoped<ExamAPI.Services.StudentMaster.IStudentMasterService, ExamAPI.Services.StudentMaster.StudentMasterService>();
