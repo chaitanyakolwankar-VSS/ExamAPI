@@ -47,6 +47,7 @@ namespace ExamAPI.Data
         // 5. Examinations & Results
         // =========================================
         public DbSet<ExamMaster> Exams { get; set; }
+        public DbSet<ResolutionMaster> Resolution { get; set; }
         public DbSet<TimeTableMaster> TimeTables { get; set; }
         public DbSet<MarksMaster> MarksMasters { get; set; }
         public DbSet<StudentMarks> StudentMarks { get; set; }
