@@ -25,6 +25,19 @@ namespace ExamAPI.Models
         [MaxLength(255)]
         public string? OverallRemark { get; set; } // e.g., "Pass", "Fail"
 
+        [Column(TypeName = "decimal(18, 2)")]
+        public decimal? SGPI { get; set; }
+
+        [Column(TypeName = "decimal(18, 2)")]
+        public decimal? CGPI { get; set; }
+
+        [MaxLength(50)]
+        public string? ResultRemark { get; set; } // e.g., "RLE"
+
+        public bool? HMCheck { get; set; }
+
+        public int? Rank { get; set; }
+
         // Foreign Keys
         public Guid? StdMstId { get; set; }
         [ForeignKey(nameof(StdMstId))]

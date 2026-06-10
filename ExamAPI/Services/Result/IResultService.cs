@@ -10,5 +10,6 @@ namespace ExamAPI.Services.Result
         Task<IEnumerable<ExamOptionDto>> GetExamsAsync(Guid branchId, string semId, string pattern);
         Task<ApiResponseDto<object>> ProcessResultsAsync(ProcessResultRequest request, Guid collegeId);
         Task<ApiResponseDto<IEnumerable<ResultDataDto>>> GetResultsAsync(ProcessResultRequest request, Guid collegeId);
+        Task<byte[]> ExportResultsExcelAsync(ProcessResultRequest request, Guid collegeId);
     }
 }

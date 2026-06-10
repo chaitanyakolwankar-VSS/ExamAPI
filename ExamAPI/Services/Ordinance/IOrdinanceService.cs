@@ -31,5 +31,8 @@ namespace ExamAPI.Services.Ordinance
         Task<RuleDto> CreateRuleAsync(RuleCreateDto ruleDto);
         Task<bool> UpdateRuleAsync(RuleUpdateDto ruleDto);
         Task<bool> DeleteRuleAsync(Guid ruleId);
+
+        // Metadata Methods
+        Task<EngineMetadataDto> GetEngineMetadataAsync();
     }
 }

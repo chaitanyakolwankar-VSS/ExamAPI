@@ -204,5 +204,13 @@ namespace ExamAPI.Controllers
 
             return Ok(new ApiResponseDto<object> { Success = true, Message = "Rule deleted successfully." });
         }
+
+        // === Metadata Endpoints ===
+        [HttpGet("Metadata")]
+        public async Task<IActionResult> GetEngineMetadata()
+        {
+            var metadata = await _ordinanceService.GetEngineMetadataAsync();
+            return Ok(new ApiResponseDto<EngineMetadataDto> { Success = true, Data = metadata, Message = "Metadata fetched successfully." });
+        }
     }
 }

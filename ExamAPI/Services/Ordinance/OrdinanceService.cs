@@ -6,16 +6,19 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using ExamAPI.Services.Result.Engine;
 
 namespace ExamAPI.Services.Ordinance
 {
     public class OrdinanceService : IOrdinanceService
     {
         private readonly ApplicationDbContext _context;
+        private readonly EngineRegistry _engineRegistry;
 
-        public OrdinanceService(ApplicationDbContext context)
+        public OrdinanceService(ApplicationDbContext context, EngineRegistry engineRegistry)
         {
             _context = context;
+            _engineRegistry = engineRegistry;
         }
 
         // === Pattern Methods ===
@@ -267,6 +270,7 @@ namespace ExamAPI.Services.Ordinance
                 {
                     RuleSetId = rs.RuleSetId,
                     Name = rs.Name,
+                    ExamType = rs.ExamType,
                     IsActive = rs.IsActive,
                     PatternId = rs.PatternId,
                     GradeMasterId = rs.GradeMasterId
@@ -280,6 +284,7 @@ namespace ExamAPI.Services.Ordinance
             {
                 RuleSetId = Guid.NewGuid(),
                 Name = ruleSetDto.Name,
+                ExamType = ruleSetDto.ExamType,
                 IsActive = ruleSetDto.IsActive,
                 PatternId = ruleSetDto.PatternId,
                 GradeMasterId = ruleSetDto.GradeMasterId,
@@ -293,6 +298,7 @@ namespace ExamAPI.Services.Ordinance
             {
                 RuleSetId = ruleSet.RuleSetId,
                 Name = ruleSet.Name,
+                ExamType = ruleSet.ExamType,
                 IsActive = ruleSet.IsActive,
                 PatternId = ruleSet.PatternId,
                 GradeMasterId = ruleSet.GradeMasterId
@@ -307,6 +313,7 @@ namespace ExamAPI.Services.Ordinance
             if (existingRuleSet == null || existingRuleSet.IsDeleted) return false;
 
             existingRuleSet.Name = ruleSetDto.Name;
+            existingRuleSet.ExamType = ruleSetDto.ExamType;
             existingRuleSet.IsActive = ruleSetDto.IsActive;
             existingRuleSet.GradeMasterId = ruleSetDto.GradeMasterId;
             existingRuleSet.UpdatedAt = DateTime.UtcNow;
@@ -366,6 +373,7 @@ namespace ExamAPI.Services.Ordinance
                     Param2Type = a.Param2Type,
                     Param2Value = a.Param2Value,
                     MaxLimit = a.MaxLimit,
+                    Expression = a.Expression,
                     MaxTargetCount = a.MaxTargetCount,
                     Target = a.Target
                 }).ToList() ?? new List<RuleActionDto>()
@@ -402,6 +410,7 @@ namespace ExamAPI.Services.Ordinance
                     Param2Type = a.Param2Type,
                     Param2Value = a.Param2Value,
                     MaxLimit = a.MaxLimit,
+                    Expression = a.Expression,
                     MaxTargetCount = a.MaxTargetCount,
                     Target = a.Target,
                     CreatedAt = DateTime.UtcNow
@@ -437,6 +446,7 @@ namespace ExamAPI.Services.Ordinance
                     Param2Type = a.Param2Type,
                     Param2Value = a.Param2Value,
                     MaxLimit = a.MaxLimit,
+                    Expression = a.Expression,
                     MaxTargetCount = a.MaxTargetCount,
                     Target = a.Target
                 }).ToList() ?? new List<RuleActionDto>()
@@ -530,6 +540,7 @@ namespace ExamAPI.Services.Ordinance
                         existingAct.Param2Type = aDto.Param2Type;
                         existingAct.Param2Value = aDto.Param2Value;
                         existingAct.MaxLimit = aDto.MaxLimit;
+                        existingAct.Expression = aDto.Expression;
                         existingAct.MaxTargetCount = aDto.MaxTargetCount;
                         existingAct.Target = aDto.Target;
                         existingAct.UpdatedAt = DateTime.UtcNow;
@@ -618,6 +629,19 @@ namespace ExamAPI.Services.Ordinance
             _context.Rules.Update(rule);
             await _context.SaveChangesAsync();
             return true;
+        }
+
+        // === Metadata Methods ===
+        public async Task<EngineMetadataDto> GetEngineMetadataAsync()
+        {
+            var metadata = new EngineMetadataDto
+            {
+                Facts = _engineRegistry.GetRegisteredFacts().ToList(),
+                Actions = _engineRegistry.GetRegisteredActions().ToList(),
+                Operators = new List<string> { "==", "!=", ">", ">=", "<", "<=" }
+            };
+
+            return await Task.FromResult(metadata);
         }
     }
 }

@@ -13,6 +13,7 @@ namespace ExamAPI.Models
         [MaxLength(50)]
         public string? Head { get; set; } // e.g. "Theory"
 
+        public int? RawMarks { get; set; }
         public int? Marks { get; set; }
         public int? Resolution { get; set; }
 

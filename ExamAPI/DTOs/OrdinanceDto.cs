@@ -30,6 +30,7 @@ namespace ExamAPI.DTOs
     {
         public Guid RuleSetId { get; set; }
         public string Name { get; set; }
+        public string? ExamType { get; set; }
         public bool IsActive { get; set; }
         public Guid PatternId { get; set; }
         public Guid? GradeMasterId { get; set; }
@@ -39,6 +40,7 @@ namespace ExamAPI.DTOs
     {
         [Required]
         public string Name { get; set; }
+        public string? ExamType { get; set; }
         public bool IsActive { get; set; } = true;
         [Required]
         public Guid PatternId { get; set; }
@@ -51,6 +53,7 @@ namespace ExamAPI.DTOs
         public Guid RuleSetId { get; set; }
         [Required]
         public string Name { get; set; }
+        public string? ExamType { get; set; }
         public bool IsActive { get; set; }
         public Guid? GradeMasterId { get; set; }
     }
@@ -112,29 +115,31 @@ namespace ExamAPI.DTOs
     public class RuleActionDto
     {
         public Guid ActionId { get; set; }
-        public string ActionType { get; set; }
-        public string CalculationMode { get; set; }
-        public string Param1Type { get; set; }
+        public string? ActionType { get; set; }
+        public string? CalculationMode { get; set; }
+        public string? Param1Type { get; set; }
         public decimal? Param1Value { get; set; }
-        public string Param2Type { get; set; }
+        public string? Param2Type { get; set; }
         public decimal? Param2Value { get; set; }
         public decimal? MaxLimit { get; set; }
+        public string? Expression { get; set; }
         public int? MaxTargetCount { get; set; }
-        public string Target { get; set; }
+        public string? Target { get; set; }
     }
 
     public class RuleActionCreateDto
     {
         public Guid? ActionId { get; set; }
-        public string ActionType { get; set; }
-        public string CalculationMode { get; set; }
-        public string Param1Type { get; set; }
+        public string? ActionType { get; set; }
+        public string? CalculationMode { get; set; }
+        public string? Param1Type { get; set; }
         public decimal? Param1Value { get; set; }
-        public string Param2Type { get; set; }
+        public string? Param2Type { get; set; }
         public decimal? Param2Value { get; set; }
         public decimal? MaxLimit { get; set; }
+        public string? Expression { get; set; }
         public int? MaxTargetCount { get; set; }
-        public string Target { get; set; }
+        public string? Target { get; set; }
     }
 
     public class RuleDto
@@ -176,5 +181,12 @@ namespace ExamAPI.DTOs
         public string? OrdinanceSymbol { get; set; }
         public List<RuleConditionCreateDto> Conditions { get; set; }
         public List<RuleActionCreateDto> Actions { get; set; }
+    }
+
+    public class EngineMetadataDto
+    {
+        public List<string> Facts { get; set; } = new List<string>();
+        public List<string> Actions { get; set; } = new List<string>();
+        public List<string> Operators { get; set; } = new List<string> { "==", "!=", ">", ">=", "<", "<=" };
     }
 }

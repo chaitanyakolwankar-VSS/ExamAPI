@@ -68,5 +68,23 @@ namespace ExamAPI.Controllers
             var result = await _resultService.GetResultsAsync(request, collegeId);
             return Ok(result);
         }
+
+        [HttpPost("ExportExcel")]
+        public async Task<IActionResult> ExportExcel([FromBody] ProcessResultRequest request)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(new ApiResponseDto<object> { Success = false, Message = "Invalid data.", Data = ModelState });
+            }
+
+            var collegeIdClaim = User.FindFirstValue("CollegeId");
+            if (string.IsNullOrEmpty(collegeIdClaim) || !Guid.TryParse(collegeIdClaim, out var collegeId))
+            {
+                return Unauthorized(new ApiResponseDto<object> { Success = false, Message = "Invalid or missing CollegeId in token." });
+            }
+
+            var bytes = await _resultService.ExportResultsExcelAsync(request, collegeId);
+            return File(bytes, "text/csv", $"Results_{request.ExamId}.csv");
+        }
     }
 }

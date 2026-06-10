@@ -4,6 +4,7 @@ using ExamAPI.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace ExamAPI.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260609060755_AddSgpiCgpiAndDynamicRules")]
+    partial class AddSgpiCgpiAndDynamicRules
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -445,9 +448,6 @@ namespace ExamAPI.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
 
-                    b.Property<int?>("Rank")
-                        .HasColumnType("int");
-
                     b.Property<string>("ResultRemark")
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
@@ -773,10 +773,6 @@ namespace ExamAPI.Migrations
                     b.Property<DateTime?>("DeletedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<string>("Expression")
-                        .HasMaxLength(255)
-                        .HasColumnType("nvarchar(255)");
-
                     b.Property<bool>("IsDeleted")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bit")
@@ -880,10 +876,6 @@ namespace ExamAPI.Migrations
 
                     b.Property<DateTime?>("DeletedAt")
                         .HasColumnType("datetime2");
-
-                    b.Property<string>("ExamType")
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
 
                     b.Property<Guid?>("GradeMasterId")
                         .HasColumnType("uniqueidentifier");
@@ -1011,9 +1003,6 @@ namespace ExamAPI.Migrations
 
                     b.Property<Guid?>("MarksId")
                         .HasColumnType("uniqueidentifier");
-
-                    b.Property<int?>("RawMarks")
-                        .HasColumnType("int");
 
                     b.Property<string>("Remark")
                         .HasMaxLength(100)
