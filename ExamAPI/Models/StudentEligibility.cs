@@ -18,14 +18,13 @@ namespace ExamAPI.Models
         [ForeignKey(nameof(CourseId))]
         public CourseMaster? Course { get; set; }
 
-        [MaxLength(20)]
-        public Guid? AYID { get; set; } // Academic Year ID string
+      
+        public Guid? AYID { get; set; } 
 
         [MaxLength(50)]
-        public string? StudentId { get; set; } // String copy of ID for easy searching
-
+        public string? StudentId { get; set; }
         [MaxLength(20)]
-        public string? SemesterId { get; set; } // e.g., "SEM-1"
+        public string? SemesterId { get; set; } 
 
         [MaxLength(50)]
         public string? Pattern { get; set; }

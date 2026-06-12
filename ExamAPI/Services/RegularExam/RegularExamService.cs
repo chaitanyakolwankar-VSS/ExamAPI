@@ -89,14 +89,16 @@ namespace ExamAPI.Services.RegularExam
    );
 
                 var assignedStudents = _context.StudentMarks.Where(smrks => smrks.CreditsId != null &&
-        creditsID.Contains(smrks.CreditsId.Value)).Join(_context.MarksMasters, smrks => smrks.MarksId, mm => mm.MarksId, (smrks, mm) => new { smrks, mm }).Join(_context.StudentMasters, a => a.mm.StdMstId, sm => sm.StdMstId, (a, sm) => new { a, sm }).Where(x => x.a.mm.AcademicYearAYID == dto.Ayid && x.a.mm.ExamId == dto.ExamId && x.a.mm.SemesterId == dto.Semester && x.a.mm.Pattern == dto.Pattern && x.a.mm.StdMstId != null).Select(s => new RegularAssignedStudents { StdMstId = s.a.mm.StdMstId.Value, StudentId = s.a.mm.StudentID, StudentName = s.sm.FirstName + ' ' + s.sm.MiddleName + ' ' + s.sm.LastName, Assigned = true }).Distinct().ToList();
+        creditsID.Contains(smrks.CreditsId.Value)).Join(_context.MarksMasters, smrks => smrks.MarksId, mm => mm.MarksId, (smrks, mm) => new { smrks, mm }).Join(_context.StudentMasters, a => a.mm.StdMstId, sm => sm.StdMstId, (a, sm) => new { a, sm }).Where(x => x.a.mm.AcademicYearAYID == dto.Ayid && x.a.mm.ExamId == dto.ExamId && x.a.mm.SemesterId == dto.Semester && x.a.mm.Pattern == dto.Pattern && x.a.mm.StdMstId != null).Select(s => new RegularAssignedStudents { StdMstId = s.a.mm.StdMstId.Value, StudentId = s.a.mm.StudentID, StudentName = s.sm.FirstName + " " + s.sm.MiddleName + " " + s.sm.LastName, Assigned = true }).Distinct().ToList();
 
+               
 
-                var assignedStudentIds = _context.StudentMarks.Where(sm => sm.CreditsId != null &&
+              var assignedStudentIds = _context.StudentMarks.Where(sm => sm.CreditsId != null &&
         creditsID.Contains(sm.CreditsId.Value)).Join(_context.MarksMasters, sm => sm.MarksId, mm => mm.MarksId, (sm, mm) => new { sm, mm }).Where(x => x.mm.AcademicYearAYID == dto.Ayid && x.mm.ExamId == dto.ExamId && x.mm.SemesterId == dto.Semester && x.mm.Pattern == dto.Pattern && x.mm.StdMstId != null).Select(a => a.mm.StdMstId.Value);
 
-                var unassignedStudents = _context.StudentEligibilities.Join(_context.StudentMasters, se => se.StdMstId, sm => sm.StdMstId, (se, sm) => new { se, sm }).Where(a => a.se.CourseId == dto.CourseId && a.se.AYID == dto.Ayid && a.se.SemesterId == dto.Semester && a.se.Pattern == dto.Pattern && !assignedStudentIds.Contains(a.sm.StdMstId)).Select(x => new RegularStudents { StdMstId = x.sm.StdMstId, StudentId = x.sm.StudentId, StudentName = x.sm.FirstName + ' ' + x.sm.MiddleName + ' ' + x.sm.LastName, Assigned = false }).ToList();
+                var unassignedStudents = _context.StudentEligibilities.Join(_context.StudentMasters, se => se.StdMstId, sm => sm.StdMstId, (se, sm) => new { se, sm }).Where(a => a.se.CourseId == dto.CourseId && a.se.AYID == dto.Ayid && a.se.SemesterId == dto.Semester && a.se.Pattern == dto.Pattern && !assignedStudentIds.Contains(a.sm.StdMstId)).Select(x => new RegularStudents { StdMstId = x.sm.StdMstId, StudentId = x.sm.StudentId, StudentName = x.sm.FirstName + ' ' + x.sm.MiddleName + " " + x.sm.LastName, Assigned = false }).ToList();
 
+                var unassigned = _context.StudentEligibilities.Join(_context.StudentMasters, se => se.StdMstId, sm => sm.StdMstId, (se, sm) => new { se, sm }).Where(a => a.se.CourseId == dto.CourseId && a.se.AYID == dto.Ayid && a.se.SemesterId == dto.Semester && a.se.Pattern == dto.Pattern && !assignedStudentIds.Contains(a.sm.StdMstId)).Select(x => new RegularStudents { StdMstId = x.sm.StdMstId, StudentId = x.sm.StudentId, StudentName = x.sm.FirstName + ' ' + x.sm.MiddleName + " " + x.sm.LastName, Assigned = false });
                 return new RegularStudentResponse
                 {
                     AssignedStudents = assignedStudents,
@@ -131,13 +133,11 @@ namespace ExamAPI.Services.RegularExam
        }
 
    );
-
-
-
                 foreach (var student in dto.Students.Where(x => x.Assigned))
                 {
-                    //Searchthe Entry in the MarksMaster
-                    var StdMstId = _context.MarksMasters.Where(a => a.SemesterId == dto.ExamInfo.Semester && a.ExamId == dto.ExamInfo.ExamId && a.AcademicYearAYID == dto.ExamInfo.Ayid && a.Pattern == dto.ExamInfo.Pattern && a.StdMstId == student.StdMstId).FirstOrDefault();
+                  
+                   var StdMstId = _context.MarksMasters.Where(a => a.SemesterId == dto.ExamInfo.Semester && a.ExamId == dto.ExamInfo.ExamId && a.AcademicYearAYID == dto.ExamInfo.Ayid && a.Pattern == dto.ExamInfo.Pattern && a.StdMstId == student.StdMstId).FirstOrDefault();
+                   
                     var MarksId = Guid.NewGuid();
                     if (StdMstId != null)
                     {

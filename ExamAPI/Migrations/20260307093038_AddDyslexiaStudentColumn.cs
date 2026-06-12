@@ -11,12 +11,7 @@ namespace ExamAPI.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.AddColumn<bool>(
-                name: "DyslexiaStudent",
-                table: "StudentMaster",
-                type: "bit",
-                nullable: false,
-                defaultValue: false);
+  
 
             migrationBuilder.AddColumn<Guid>(
                 name: "StudentMasterStdMstId",
@@ -48,9 +43,7 @@ namespace ExamAPI.Migrations
                 name: "IX_CourseMaster_StudentMasterStdMstId",
                 table: "CourseMaster");
 
-            migrationBuilder.DropColumn(
-                name: "DyslexiaStudent",
-                table: "StudentMaster");
+          
 
             migrationBuilder.DropColumn(
                 name: "StudentMasterStdMstId",

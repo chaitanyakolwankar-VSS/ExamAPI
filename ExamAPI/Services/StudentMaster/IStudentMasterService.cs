@@ -1,30 +1,28 @@
-<<<<<<< HEAD
-﻿using ClosedXML.Excel;
-using ExamAPI.DTOs;
-using static ExamAPI.DTOs.StudentExcelDto;
-=======
+
 ﻿using ExamAPI.DTOs;
->>>>>>> 49b1e581466adc2308420e40d667e717b5a343fa
+using Microsoft.AspNetCore.Mvc;
+
 
 namespace ExamAPI.Services.StudentMaster
 {
     public interface IStudentMasterService
 
     {
-         Task<List<StudentMasterDto>> GetDataAsync();
+         Task<List<StudentMasterDto>> GetDataAsync([FromQuery] Guid ayid);
         //Task<string> SaveStudentAsync(Savedata dto); 
         Task<string> SaveStudentAsync(Savedata dto);
-        Task<List<FetchData>> GetbycourseAsync(Guid courseId);
-        Task<List<FetchData>> SearchStudentsAsync(Searchbyname model);
-<<<<<<< HEAD
-        Task<Savedata> GetStudentByIdAsync(string studentId);
+        Task<List<FetchData>> GetbycourseAsync(Guid courseId, Guid ayid);
+        Task<List<FetchData>> SearchStudentsAsync(Searchbyname model, Guid ayid);
+
+        Task<Savedata> GetStudentByIdAsync(string studentId, Guid ayid);
         Task<string> UpdateStudentAsync(Savedata dto);
         Task<string> DeleteStudentAsync(string studentId);
-        Task<(byte[] FileBytes, string FileName)> GenerateExcelTemplateAsync(Guid courseId, int semesterId);
+        Task<(byte[] FileBytes, string FileName)> GenerateExcelTemplateAsync( StudExcelDto dto);
 
         Task<object> ImportStudentsAsync(StudentImportDto dto);
-      
-=======
->>>>>>> 49b1e581466adc2308420e40d667e717b5a343fa
+        Task<List<ExamDetailsResultDto>> GetExamDetailsAsync(string studentId);
+        Task<string> RestoreExamAsync(string studentId, Guid marksId);
+        Task<string> DeleteExamAsync(string studentId, Guid marksId);
+        
     }
 }
