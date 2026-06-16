@@ -24,7 +24,7 @@ namespace ExamAPI.DTOs
         public string LastName { get; set; } = string.Empty;
 
         public Guid? RoleId { get; set; }
-        public Guid? CollegeId { get; set; }
+        public Guid CollegeId { get; set; }
     }
     public class UserMasterDTO
     {

@@ -11,12 +11,11 @@ namespace ExamAPI.Services.CollegeDetail
     public class CollegeDetailService : ICollegeDetailService
     {
         private readonly ApplicationDbContext _context;
-        private readonly Cloudinary _cloudinary;
-
-        public CollegeDetailService(ApplicationDbContext context, Cloudinary cloudinary)
+        private readonly IWebHostEnvironment _webHostEnvironment;
+        public CollegeDetailService(ApplicationDbContext context, IWebHostEnvironment webHostEnvironment)
         {
             _context = context;
-            _cloudinary = cloudinary;
+            _webHostEnvironment = webHostEnvironment;
         }
 
         public async Task<CollegeDetailDTO?> GetAsync()
@@ -48,25 +47,28 @@ namespace ExamAPI.Services.CollegeDetail
 
             if (dto.Logo != null)
             {
-                var uploadParams = new ImageUploadParams()
-                {
-                    File = new FileDescription(dto.Logo.FileName, dto.Logo.OpenReadStream()),
-                    Folder = "college_logos"
-                };
-                var uploadResult = await _cloudinary.UploadAsync(uploadParams);
-                logoUrl = uploadResult.SecureUrl.ToString();
+                //var uploadParams = new ImageUploadParams()
+                //{
+                //    File = new FileDescription(dto.Logo.FileName, dto.Logo.OpenReadStream()),
+                //    Folder = "college_logos"
+                //};
+                //var uploadResult = await _cloudinary.UploadAsync(uploadParams);
+                //logoUrl = uploadResult.SecureUrl.ToString();
+                ValidateImage(dto.Logo,"Logo");
+                logoUrl = await SaveImageToServerAsync(dto.Logo, "Clg_details/logos");
             }
 
             if (dto.Banner != null)
             {
-                var uploadParams = new ImageUploadParams()
-                {
-                    File = new FileDescription(dto.Banner.FileName, dto.Banner.OpenReadStream()),
-                    Folder = "college_banners"
-                };
-                var uploadResult = await _cloudinary.UploadAsync(uploadParams);
-                bannerUrl = uploadResult.SecureUrl.ToString();
-
+                //var uploadParams = new ImageUploadParams()
+                //{
+                //    File = new FileDescription(dto.Banner.FileName, dto.Banner.OpenReadStream()),
+                //    Folder = "college_banners"
+                //};
+                //var uploadResult = await _cloudinary.UploadAsync(uploadParams);
+                //bannerUrl = uploadResult.SecureUrl.ToString();
+                ValidateImage(dto.Banner, "Banner");
+                bannerUrl = await SaveImageToServerAsync(dto.Banner, "Clg_details/banners");
             }
 
             var college = new College
@@ -100,25 +102,29 @@ namespace ExamAPI.Services.CollegeDetail
             if (dto.Logo != null)
             {
                 ValidateImage(dto.Logo, "Logo");
-                var uploadParams = new ImageUploadParams
-                {
-                    File = new FileDescription(dto.Logo.FileName, dto.Logo.OpenReadStream()),
-                    Folder = "college_logos"
-                };
-                var uploadResult = await _cloudinary.UploadAsync(uploadParams);
-                college.LogoUrl = uploadResult.SecureUrl.ToString();
+                DeleteImageFromServer(college.LogoUrl);
+                college.LogoUrl = await SaveImageToServerAsync(dto.Logo, "Clg_detail/logos");
+                //var uploadParams = new ImageUploadParams
+                //{
+                //    File = new FileDescription(dto.Logo.FileName, dto.Logo.OpenReadStream()),
+                //    Folder = "college_logos"
+                //};
+                //var uploadResult = await _cloudinary.UploadAsync(uploadParams);
+                //college.LogoUrl = uploadResult.SecureUrl.ToString();
             }
 
             if (dto.Banner != null)
             {
                 ValidateImage(dto.Banner, "Banner");
-                var uploadParams = new ImageUploadParams
-                {
-                    File = new FileDescription(dto.Banner.FileName, dto.Banner.OpenReadStream()),
-                    Folder = "college_banners"
-                };
-                var uploadResult = await _cloudinary.UploadAsync(uploadParams);
-                college.LogoBannerUrl = uploadResult.SecureUrl.ToString();
+                //var uploadParams = new ImageUploadParams
+                //{
+                //    File = new FileDescription(dto.Banner.FileName, dto.Banner.OpenReadStream()),
+                //    Folder = "college_banners"
+                //};
+                //var uploadResult = await _cloudinary.UploadAsync(uploadParams);
+                //college.LogoBannerUrl = uploadResult.SecureUrl.ToString();
+                DeleteImageFromServer(college.LogoBannerUrl);
+                college.LogoBannerUrl = await SaveImageToServerAsync(dto.Banner, "Clg_detail/banners");
             }
 
             college.Name = dto.Name;
@@ -152,6 +158,38 @@ namespace ExamAPI.Services.CollegeDetail
                 throw new ArgumentException($"{fieldName} must be less than 2MB");
         }
 
+        private async Task<string> SaveImageToServerAsync(IFormFile file, string subFolder)
+        {
+            // wwwroot/Clg_detail/logos  or  wwwroot/Clg_detail/banners
+            var folderPath = Path.Combine(_webHostEnvironment.WebRootPath, subFolder);
 
+            // Create folder if it doesn't exist
+            if (!Directory.Exists(folderPath))
+                Directory.CreateDirectory(folderPath);
+
+            // Generate unique filename to avoid overwriting: guid_originalname.ext
+            var fileName = $"{Guid.NewGuid()}_{Path.GetFileName(file.FileName)}";
+            var fullPath = Path.Combine(folderPath, fileName);
+
+            using (var stream = new FileStream(fullPath, FileMode.Create))
+            {
+                await file.CopyToAsync(stream);
+            }
+
+            return $"/{subFolder}/{fileName}";
+        }
+
+        private void DeleteImageFromServer(string? relativeUrl)
+        {
+            if (string.IsNullOrEmpty(relativeUrl)) return;
+
+            var fullPath = Path.Combine(
+                _webHostEnvironment.WebRootPath,
+                relativeUrl.TrimStart('/')
+            );
+
+            if (File.Exists(fullPath))
+                File.Delete(fullPath);
+        }
     }
 }

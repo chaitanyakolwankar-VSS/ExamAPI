@@ -1,7 +1,10 @@
 ﻿using ExamAPI.Data;
 using ExamAPI.DTOs;
 using ExamAPI.Models;
+using ExamAPI.Services.PasswordResetOTP;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Cryptography;
 
 namespace ExamAPI.Services.UsersMaster
 {
@@ -33,11 +36,12 @@ namespace ExamAPI.Services.UsersMaster
                 CollegeId = dto.CollegeId,
                 HashedPassword = BCrypt.Net.BCrypt.HashPassword(dto.Password),
                 CreatedAt = DateTime.UtcNow
+                  
             };
 
             _context.UserMasters.Add(user);
             await _context.SaveChangesAsync();
-
+           
             return new UserMasterDTO
             {
                 UserId = user.UserId,
@@ -51,7 +55,7 @@ namespace ExamAPI.Services.UsersMaster
         public async Task<List<UserListDTO>> GetAllUsersAsync()
         {
             return await _context.UserMasters
-                .Where(u=>!u.IsDeleted)
+                .Where(u => !u.IsDeleted)
                 .Select(u => new UserListDTO
                 {
                     UserId = u.UserId,
@@ -65,20 +69,20 @@ namespace ExamAPI.Services.UsersMaster
         public async Task<GetUserMasterDTO?> GetById(Guid id)
         {
             return await _context.UserMasters
-                .Where(u=>u.UserId==id)
+                .Where(u => u.UserId == id)
                 .Select(u => new GetUserMasterDTO
                 {
-                    UserId=u.UserId,
+                    UserId = u.UserId,
                     Username = u.Username,
-                    FirstName=u.FirstName,
-                    LastName=u.LastName,
-                    Email=u.Email,
-                    RoleId=u.RoleId
+                    FirstName = u.FirstName,
+                    LastName = u.LastName,
+                    Email = u.Email,
+                    RoleId = u.RoleId
                 })
                 .FirstOrDefaultAsync();
         }
 
-    public async Task<bool> DeleteUserById(Guid id)
+        public async Task<bool> DeleteUserById(Guid id)
         {
             var user = await _context.UserMasters
                 .FirstOrDefaultAsync(u => u.UserId == id);
@@ -111,6 +115,24 @@ namespace ExamAPI.Services.UsersMaster
             await _context.SaveChangesAsync();
 
             return true;
+        }
+
+        public async Task ChangePasswordAsync(ChangePasswordDTO dto)
+        {
+            var user=await _context.UserMasters
+                .FirstOrDefaultAsync(x => x.UserId == dto.UserId && !x.IsDeleted);
+
+            if (user == null)
+                throw new Exception("User not found");
+
+            bool isCurrentPasswordValid = BCrypt.Net.BCrypt.Verify(dto.CurrentPassword, user.HashedPassword);
+
+            if(!isCurrentPasswordValid)
+                throw new Exception("Current password is incorrect");
+
+            user.HashedPassword= BCrypt.Net.BCrypt.HashPassword(dto.NewPassword);
+            user.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
         }
 
     }

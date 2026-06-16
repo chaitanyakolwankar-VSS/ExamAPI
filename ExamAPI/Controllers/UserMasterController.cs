@@ -74,5 +74,19 @@ namespace ExamAPI.Controllers
 
             return Ok(new { message = "User Updated Successfully" });
         }
+
+        [HttpPost("ChangePassword")]
+        public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordDTO dto)
+        {
+            try
+            {
+                await _service.ChangePasswordAsync(dto);
+                return Ok(new {message="Password Updated Successfully"});
+            }
+            catch(Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
     }
 }

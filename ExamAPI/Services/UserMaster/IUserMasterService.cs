@@ -12,5 +12,6 @@ namespace ExamAPI.Services.UsersMaster
 
         Task<bool> DeleteUserById(Guid id);
         Task<bool> UpdateUserMaster(UpdateUserMasterDTO dto);
+        Task ChangePasswordAsync(ChangePasswordDTO dto);
     }
 }
