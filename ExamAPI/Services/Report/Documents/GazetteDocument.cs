@@ -39,7 +39,7 @@ namespace ExamAPI.Services.Report.Documents
         {
             container.Column(column =>
             {
-                column.Item().AlignCenter().Text("LOKMANYA TILAK COLLEGE OF ENGINEERING").FontSize(16).SemiBold(); // Or fetch dynamic College Name
+                column.Item().AlignCenter().Text(Model.CollegeName).FontSize(16).SemiBold(); // Dynamically fetched
                 column.Item().PaddingTop(10).Row(row =>
                 {
                     row.RelativeItem().AlignLeft().Text($"Program Name: {Model.ProgramName}").FontSize(12).Bold();

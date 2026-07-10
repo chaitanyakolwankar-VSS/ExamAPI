@@ -3,7 +3,7 @@ namespace ExamAPI.DTOs
     public class GazetteRequestDto
     {
         public Guid ExamId { get; set; }
-        public Guid SemId { get; set; }
+        public string SemId { get; set; }
         public string Pattern { get; set; } = string.Empty;
         public Guid? GroupId { get; set; }
         
@@ -27,6 +27,7 @@ namespace ExamAPI.DTOs
 
     public class GazetteReportDto
     {
+        public string CollegeName { get; set; } = string.Empty;
         public string ProgramName { get; set; } = string.Empty;
         public string Semester { get; set; } = string.Empty;
         public string ExamName { get; set; } = string.Empty;

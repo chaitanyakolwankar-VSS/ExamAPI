@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using ExamAPI.Models;
 
@@ -10,9 +11,35 @@ namespace ExamAPI.Services.Result.Engine.ActionHandlers
 
         public Task ExecuteAsync(MarksMaster marksMaster, RuleAction action, string? symbol)
         {
-            // Note: In ResultService.cs, DowngradeGP is currently evaluated inside CalculateFinalStatus.
-            // For now, we keep this as a no-op handler to satisfy the registry, 
-            // but in the next phase, we might move the SGPI logic here as well.
+            if (marksMaster.StudentMarks == null) return Task.CompletedTask;
+
+            double downgradeVal = (double)(action.Param1Value ?? 1);
+            double minThreshold = (double)(action.Param2Value ?? 4);
+
+            var subjectGroups = marksMaster.StudentMarks.GroupBy(sm => sm.SubjectId).ToList();
+
+            foreach (var group in subjectGroups)
+            {
+                bool appliesToGroup = true;
+
+                if (action.Target == "Subject" && !group.Any(sm => sm.IsCarryForward))
+                {
+                    appliesToGroup = false;
+                }
+
+                if (appliesToGroup)
+                {
+                    foreach (var sm in group)
+                    {
+                        if (sm.GradePoint >= minThreshold)
+                        {
+                            sm.GradePoint = (int)Math.Max(minThreshold, sm.GradePoint.Value - downgradeVal);
+                            sm.Grade = sm.GradePoint < minThreshold ? "F" : sm.Grade;
+                        }
+                    }
+                }
+            }
+
             return Task.CompletedTask;
         }
     }

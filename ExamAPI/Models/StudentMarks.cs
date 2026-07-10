@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace ExamAPI.Models
@@ -22,6 +22,11 @@ namespace ExamAPI.Models
 
         [MaxLength(100)]
         public string? Remark { get; set; }
+
+        public int? GradePoint { get; set; }
+
+        [MaxLength(10)]
+        public string? Grade { get; set; }
 
         // Foreign Keys
         public Guid? MarksId { get; set; }

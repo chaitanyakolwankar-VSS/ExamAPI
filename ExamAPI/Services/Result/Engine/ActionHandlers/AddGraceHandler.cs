@@ -13,8 +13,20 @@ namespace ExamAPI.Services.Result.Engine.ActionHandlers
         {
             if (marksMaster.StudentMarks == null) return Task.CompletedTask;
 
-            var failedSubjects = marksMaster.StudentMarks
-                .Where(sm => sm.Marks.HasValue && sm.Marks < GetPassingMarks(sm))
+            var failedSubjectsQuery = marksMaster.StudentMarks
+                .Where(sm => sm.Marks.HasValue && sm.Marks < GetPassingMarks(sm));
+
+            // Apply Action Target Filter (Head-Specific Grace)
+            if (!string.IsNullOrWhiteSpace(action.Target) && !string.Equals(action.Target, "All", StringComparison.OrdinalIgnoreCase))
+            {
+                var targets = action.Target.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
+                                           .Select(t => t.Trim().ToUpperInvariant())
+                                           .ToList();
+
+                failedSubjectsQuery = failedSubjectsQuery.Where(sm => sm.Head != null && targets.Contains(sm.Head.ToUpperInvariant()));
+            }
+
+            var failedSubjects = failedSubjectsQuery
                 .OrderBy(sm => GetPassingMarks(sm) - sm.Marks)
                 .ToList();
 
@@ -59,7 +71,7 @@ namespace ExamAPI.Services.Result.Engine.ActionHandlers
         private decimal CalculateActionLimit(string? paramType, decimal? value, MarksMaster marksMaster, StudentMarks sm, bool noneMeansUnlimited, string? expressionStr = null)
         {
             var normalizedType = NormalizeKey(paramType);
-            if (normalizedType == "NONE")
+            if (string.IsNullOrEmpty(normalizedType) || normalizedType == "NONE")
             {
                 return noneMeansUnlimited ? decimal.MaxValue : 0;
             }

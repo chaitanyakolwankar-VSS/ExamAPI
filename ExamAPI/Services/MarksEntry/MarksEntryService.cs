@@ -96,13 +96,22 @@ namespace ExamAPI.Services.MarksEntry
                         }
                         else if (int.TryParse(update.Marks, out var marks))
                         {
+                            var outOf = 100;
+                            var credit = sm.CreditMaster?.Credits?.FirstOrDefault(c => c.Head == sm.Head);
+                            if (credit != null && int.TryParse(credit.HeadOutOf, out var o)) outOf = o;
+
+                            if (marks < 0 || marks > outOf)
+                            {
+                                return new ApiResponseDto<object> { Success = false, Message = $"Validation Error: Marks ({marks}) for {sm.Head} cannot exceed Max Marks ({outOf})." };
+                            }
+
                             sm.RawMarks = marks;
                             sm.Marks = marks;
                             
                             // Check for Passing and Resolution
                             var passing = 40;
-                            var credit = sm.CreditMaster?.Credits?.FirstOrDefault(c => c.Head == sm.Head);
-                            if (credit != null && int.TryParse(credit.HeadPass, out var p)) passing = p;
+                            var passCredit = sm.CreditMaster?.Credits?.FirstOrDefault(c => c.Head == sm.Head);
+                            if (passCredit != null && int.TryParse(passCredit.HeadPass, out var p)) passing = p;
 
                             if (marks >= passing)
                             {
@@ -121,6 +130,7 @@ namespace ExamAPI.Services.MarksEntry
                                 {
                                     sm.Resolution = passing - marks;
                                     sm.Marks = passing;
+                                    sm.Grace = (sm.Grace ?? "") + "^";
                                     sm.Remark = "Successful";
                                 }
                                 else
@@ -180,40 +190,53 @@ namespace ExamAPI.Services.MarksEntry
             {
                 var worksheet = package.Workbook.Worksheets.Add("Marks Entry");
 
+                // Title
+                worksheet.Cells["A1:F1"].Merge = true;
+                worksheet.Cells["A1"].Value = "MARKS ENTRY TEMPLATE";
+                worksheet.Cells["A1"].Style.Font.Size = 16;
+                worksheet.Cells["A1"].Style.Font.Bold = true;
+                worksheet.Cells["A1"].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
+                worksheet.Cells["A1"].Style.Font.Color.SetColor(Color.DarkBlue);
+
                 // Header Information
-                worksheet.Cells["A1"].Value = "Exam:";
-                worksheet.Cells["B1"].Value = exam?.Name ?? "N/A";
-                worksheet.Cells["A2"].Value = "Subject:";
-                worksheet.Cells["B2"].Value = subject?.Name ?? "N/A";
-                worksheet.Cells["A1:B2"].Style.Font.Bold = true;
+                worksheet.Cells["A3"].Value = "Exam:";
+                worksheet.Cells["B3"].Value = exam?.Name ?? "N/A";
+                worksheet.Cells["A4"].Value = "Subject:";
+                worksheet.Cells["B4"].Value = subject?.Name ?? "N/A";
+                worksheet.Cells["A3:A4"].Style.Font.Bold = true;
 
                 // Column Headers
-                worksheet.Cells[4, 1].Value = "Seat No";
-                worksheet.Cells[4, 2].Value = "Student ID";
-                worksheet.Cells[4, 3].Value = "Student Name";
+                worksheet.Cells[6, 1].Value = "Seat No";
+                worksheet.Cells[6, 2].Value = "Student ID";
+                worksheet.Cells[6, 3].Value = "Student Name";
 
                 var heads = marksData.First().Heads.OrderBy(h => h.HeadName).ToList();
                 int col = 4;
                 foreach (var head in heads)
                 {
-                    worksheet.Cells[4, col].Value = $"{head.HeadName} (Out Of: {head.OutOf})";
-                    worksheet.Cells[3, col].Value = head.HeadName; // Raw head name for matching
+                    worksheet.Cells[6, col].Value = $"{head.HeadName} (Out Of: {head.OutOf})";
+                    worksheet.Cells[5, col].Value = head.HeadName; // Raw head name for matching
+                    worksheet.Cells[5, col].Style.Font.Color.SetColor(Color.White); // Hide it by making it white or keep it visible
                     
                     // Hidden column for StudentMarksId
-                    worksheet.Cells[4, col + 1].Value = $"{head.HeadName}_ID";
+                    worksheet.Cells[6, col + 1].Value = $"{head.HeadName}_ID";
                     worksheet.Column(col + 1).Hidden = true;
                     col += 2;
                 }
 
-                using (var range = worksheet.Cells[4, 1, 4, col - 1])
+                // Style the Header Row
+                using (var range = worksheet.Cells[6, 1, 6, col - 1])
                 {
                     range.Style.Font.Bold = true;
+                    range.Style.Font.Color.SetColor(Color.White);
                     range.Style.Fill.PatternType = ExcelFillStyle.Solid;
-                    range.Style.Fill.BackgroundColor.SetColor(Color.LightGray);
+                    range.Style.Fill.BackgroundColor.SetColor(Color.FromArgb(41, 128, 185)); // Professional Blue
+                    range.Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
+                    range.Style.VerticalAlignment = ExcelVerticalAlignment.Center;
                 }
 
                 // Data
-                int row = 5;
+                int row = 7;
                 foreach (var student in marksData)
                 {
                     worksheet.Cells[row, 1].Value = student.SeatNo;
@@ -224,19 +247,41 @@ namespace ExamAPI.Services.MarksEntry
                     foreach (var head in student.Heads.OrderBy(h => h.HeadName))
                     {
                         worksheet.Cells[row, sCol].Value = head.Marks;
+                        worksheet.Cells[row, sCol].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
+                        
+                        // Highlight missing/empty marks with light yellow for data entry focus
+                        if (string.IsNullOrEmpty(head.Marks))
+                        {
+                            worksheet.Cells[row, sCol].Style.Fill.PatternType = ExcelFillStyle.Solid;
+                            worksheet.Cells[row, sCol].Style.Fill.BackgroundColor.SetColor(Color.FromArgb(255, 253, 208)); // Cream/Light Yellow
+                        }
+
                         worksheet.Cells[row, sCol + 1].Value = head.StudentMarksId.ToString();
                         sCol += 2;
                     }
                     row++;
                 }
 
+                // Apply borders to the entire data table
+                using (var range = worksheet.Cells[6, 1, row - 1, col - 1])
+                {
+                    range.Style.Border.Top.Style = ExcelBorderStyle.Thin;
+                    range.Style.Border.Bottom.Style = ExcelBorderStyle.Thin;
+                    range.Style.Border.Left.Style = ExcelBorderStyle.Thin;
+                    range.Style.Border.Right.Style = ExcelBorderStyle.Thin;
+                    range.Style.Border.Top.Color.SetColor(Color.Gray);
+                    range.Style.Border.Bottom.Color.SetColor(Color.Gray);
+                    range.Style.Border.Left.Color.SetColor(Color.Gray);
+                    range.Style.Border.Right.Color.SetColor(Color.Gray);
+                }
+
                 // Add Data Validations to columns
                 int vCol = 4;
                 foreach (var head in heads)
                 {
-                    var valAddress = ExcelCellBase.GetAddress(5, vCol, Math.Max(5, row - 1), vCol);
+                    var valAddress = ExcelCellBase.GetAddress(7, vCol, Math.Max(7, row - 1), vCol);
                     var validation = worksheet.DataValidations.AddCustomValidation(valAddress);
-                    var cellAddress = ExcelCellBase.GetAddress(5, vCol);
+                    var cellAddress = ExcelCellBase.GetAddress(7, vCol);
                     
                     validation.Formula.ExcelFormula = $"OR(EXACT({cellAddress}, \"Ab\"), EXACT({cellAddress}, \"ab\"), AND(ISNUMBER({cellAddress}), {cellAddress}>=0, {cellAddress}<={head.OutOf}))";
                     validation.ShowErrorMessage = true;
@@ -268,7 +313,7 @@ namespace ExamAPI.Services.MarksEntry
                     var headColumns = new List<(int MarkCol, int IdCol)>();
                     for (int col = 4; col <= colCount; col++)
                     {
-                        var headerValue = worksheet.Cells[4, col].Value?.ToString();
+                        var headerValue = worksheet.Cells[6, col].Value?.ToString();
                         if (headerValue != null && headerValue.EndsWith("_ID"))
                         {
                             headColumns.Add((col - 1, col));
@@ -276,7 +321,7 @@ namespace ExamAPI.Services.MarksEntry
                     }
 
                     int updatedCount = 0;
-                    for (int row = 5; row <= rowCount; row++)
+                    for (int row = 7; row <= rowCount; row++)
                     {
                         foreach (var (markCol, idCol) in headColumns)
                         {
@@ -284,7 +329,12 @@ namespace ExamAPI.Services.MarksEntry
                             if (Guid.TryParse(idValue, out Guid studentMarksId))
                             {
                                 var markValue = worksheet.Cells[row, markCol].Value?.ToString()?.Trim();
-                                var sm = await _context.StudentMarks.FindAsync(studentMarksId);
+                                var sm = await _context.StudentMarks
+                                    .Include(x => x.MarksMaster)
+                                    .Include(x => x.CreditMaster)
+                                        .ThenInclude(c => c.Credits)
+                                    .FirstOrDefaultAsync(x => x.Id == studentMarksId);
+
                                 if (sm != null)
                                 {
                                     if (string.IsNullOrEmpty(markValue))
@@ -301,9 +351,52 @@ namespace ExamAPI.Services.MarksEntry
                                     }
                                     else if (int.TryParse(markValue, out int marks))
                                     {
+                                        var outOf = 100;
+                                        var credit = sm.CreditMaster?.Credits?.FirstOrDefault(c => c.Head == sm.Head);
+                                        if (credit != null && int.TryParse(credit.HeadOutOf, out var o)) outOf = o;
+
+                                        if (marks < 0 || marks > outOf)
+                                        {
+                                            return new ApiResponseDto<object> { Success = false, Message = $"Import Error: Row {row} contains invalid marks ({marks}) exceeding Max Marks ({outOf}) for {sm.Head}." };
+                                        }
+
                                         sm.RawMarks = marks;
                                         sm.Marks = marks;
-                                        sm.Remark = "Successful";
+                                        
+                                        // Check for Passing and Resolution
+                                        var passing = 40;
+                                        var passCredit = sm.CreditMaster?.Credits?.FirstOrDefault(c => c.Head == sm.Head);
+                                        if (passCredit != null && int.TryParse(passCredit.HeadPass, out var p)) passing = p;
+
+                                        if (marks >= passing)
+                                        {
+                                            sm.Remark = "Successful";
+                                        }
+                                        else if (sm.MarksMaster != null && sm.MarksMaster.ExamId.HasValue)
+                                        {
+                                            // Check Resolution
+                                            var resolution = await _context.Resolution.FirstOrDefaultAsync(r => 
+                                                r.ExamID == sm.MarksMaster.ExamId && 
+                                                r.CreditID == sm.CreditsId && 
+                                                r.Head == sm.Head && 
+                                                !r.IsDeleted);
+                                            
+                                            if (resolution != null && int.TryParse(resolution.Resolution, out var resLimit) && (passing - marks) <= resLimit)
+                                            {
+                                                sm.Resolution = passing - marks;
+                                                sm.Marks = passing;
+                                                sm.Grace = (sm.Grace ?? "") + "^";
+                                                sm.Remark = "Successful";
+                                            }
+                                            else
+                                            {
+                                                sm.Remark = "Unsuccessful";
+                                            }
+                                        }
+                                        else
+                                        {
+                                            sm.Remark = "Unsuccessful";
+                                        }
                                     }
                                     sm.UpdatedAt = DateTime.UtcNow;
                                     updatedCount++;

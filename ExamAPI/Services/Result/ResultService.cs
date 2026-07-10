@@ -159,35 +159,92 @@ namespace ExamAPI.Services.Result
 
             await ApplyResolutionGraceAsync(marksMaster);
 
+            // Phase 1: Rule Evaluation & Sorting Actions
+            var pendingActions = new List<(Rule Rule, RuleAction Action)>();
             foreach (var rule in ruleSet.Rules)
             {
                 if (await EvaluateRule(marksMaster.Student, marksMaster, rule))
                 {
-                    await ApplyRuleActions(marksMaster, rule);
+                    foreach (var action in rule.Actions)
+                    {
+                        pendingActions.Add((rule, action));
+                    }
                     if (rule.StopOnSuccess) break;
                 }
             }
 
-            await CalculateFinalStatus(marksMaster, request, ruleSet);
+            // Phase 1b: Pre-calculation Handlers (e.g. AddGrace)
+            foreach (var (rule, action) in pendingActions.Where(x => x.Action.ActionType != "DowngradeGP" && x.Action.ActionType != "AddBonusSGPI"))
+            {
+                var handler = _registry.GetActionHandler(action.ActionType);
+                if (handler != null)
+                {
+                    await handler.ExecuteAsync(marksMaster, action, rule.OrdinanceSymbol);
+                }
+            }
+
+            // Phase 2: Calculate Base GradePoints
+            CalculateBaseGradePoints(marksMaster, ruleSet);
+
+            // Phase 3: Downgrade GP Handlers
+            foreach (var (rule, action) in pendingActions.Where(x => x.Action.ActionType == "DowngradeGP"))
+            {
+                var handler = _registry.GetActionHandler(action.ActionType);
+                if (handler != null)
+                {
+                    await handler.ExecuteAsync(marksMaster, action, rule.OrdinanceSymbol);
+                }
+            }
+
+            // Phase 4: Calculate Base SGPI
+            CalculateBaseSGPI(marksMaster);
+
+            // Phase 5: Bonus SGPI Handlers
+            foreach (var (rule, action) in pendingActions.Where(x => x.Action.ActionType == "AddBonusSGPI"))
+            {
+                var handler = _registry.GetActionHandler(action.ActionType);
+                if (handler != null)
+                {
+                    await handler.ExecuteAsync(marksMaster, action, rule.OrdinanceSymbol);
+                }
+            }
+
+            // Phase 6: Finalize Results
+            marksMaster.SGPI = (decimal)Math.Round((double)(marksMaster.SGPI ?? 0), 2);
+            await UpdateAcademicRecord(marksMaster);
         }
 
-        private async Task CalculateFinalStatus(MarksMaster marksMaster, ProcessResultRequest request, RuleSet ruleSet)
+        private void CalculateBaseGradePoints(MarksMaster marksMaster, RuleSet ruleSet)
         {
             var isFail = marksMaster.StudentMarks!.Any(sm => (sm.Marks ?? 0) < GetPassingMarks(sm));
             marksMaster.OverallRemark = isFail ? "Fail" : "Pass";
 
-            // 1. SGPI Calculation - Group by Subject
+            var subjectGroups = marksMaster.StudentMarks
+                .GroupBy(sm => sm.SubjectId)
+                .ToList();
+
+            foreach (var group in subjectGroups)
+            {
+                double subjectTotal = group.Sum(sm => (double)(sm.Marks ?? 0));
+                double subjectOutOf = group.Sum(sm => (double)GetOutOf(sm));
+                double percentage = subjectOutOf > 0 ? (subjectTotal * 100 / subjectOutOf) : 0;
+                
+                var (gp, gradeStr) = GetGradePointFromPercentage(percentage, ruleSet.GradeMaster);
+
+                foreach (var sm in group)
+                {
+                    sm.GradePoint = (int)gp;
+                    sm.Grade = gradeStr;
+                }
+            }
+        }
+
+        private void CalculateBaseSGPI(MarksMaster marksMaster)
+        {
             double totalGradePoints = 0;
             double totalCredits = 0;
 
-            // Identify DowngradeGP actions
-            var downgradeActions = ruleSet.Rules!
-                .Where(r => r.IsEnabled)
-                .SelectMany(r => r.Actions)
-                .Where(a => a.ActionType == "DowngradeGP")
-                .ToList();
-
-            var subjectGroups = marksMaster.StudentMarks
+            var subjectGroups = marksMaster.StudentMarks!
                 .GroupBy(sm => sm.SubjectId)
                 .ToList();
 
@@ -197,62 +254,18 @@ namespace ExamAPI.Services.Result
                 var creditMaster = firstSm.CreditMaster;
                 if (creditMaster == null) continue;
 
-                double subjectTotal = group.Sum(sm => (double)(sm.Marks ?? 0));
-                double subjectOutOf = group.Sum(sm => (double)GetOutOf(sm));
-                double percentage = subjectOutOf > 0 ? (subjectTotal * 100 / subjectOutOf) : 0;
-                
-                double gp = GetGradePointFromPercentage(percentage, ruleSet.GradeMaster);
-
-                // Apply Downgrade if it's a carry-forward subject or based on specific rule conditions
-                if (gp >= 4) 
-                {
-                    foreach (var action in downgradeActions)
-                    {
-                        var rule = ruleSet.Rules!.First(r => r.Actions.Contains(action));
-                        bool applies = false;
-
-                        if (action.Target == "Subject" && group.Any(sm => sm.IsCarryForward))
-                        {
-                            applies = true;
-                        }
-                        else if (await EvaluateRule(marksMaster.Student, marksMaster, rule))
-                        {
-                            applies = true;
-                        }
-
-                        if (applies)
-                        {
-                            double downgradeVal = (double)(action.Param1Value ?? 1);
-                            gp = Math.Max(4, gp - downgradeVal);
-                            break; 
-                        }
-                    }
-                }
-
                 double subjectCredits = double.TryParse(creditMaster.TotalCredits, out var c) ? c : 0;
+                var gp = firstSm.GradePoint ?? 0;
+                
                 totalGradePoints += gp * subjectCredits;
                 totalCredits += subjectCredits;
             }
 
             double sgpi = totalCredits > 0 ? totalGradePoints / totalCredits : 0;
-
-            // 2. SGPI Bonus Rules
-            foreach (var rule in ruleSet.Rules!.Where(r => r.IsEnabled && r.Actions.Any(a => a.ActionType == "AddBonusSGPI")))
-            {
-                if (await EvaluateRule(marksMaster.Student, marksMaster, rule))
-                {
-                    var bonusAction = rule.Actions.First(a => a.ActionType == "AddBonusSGPI");
-                    sgpi += (double)(bonusAction.Param1Value ?? 0);
-                }
-            }
-
-            marksMaster.SGPI = (decimal)Math.Min(10, Math.Round(sgpi, 2));
-
-            // 3. Update StudentsOverallResult & RLE Check
-            await UpdateAcademicRecord(marksMaster);
+            marksMaster.SGPI = (decimal)sgpi;
         }
 
-        private double GetGradePointFromPercentage(double percentage, GradeMaster? gradeMaster)
+        private (double GradePoint, string Grade) GetGradePointFromPercentage(double percentage, GradeMaster? gradeMaster)
         {
             if (gradeMaster?.Thresholds != null && gradeMaster.Thresholds.Any())
             {
@@ -260,18 +273,10 @@ namespace ExamAPI.Services.Result
                     .OrderByDescending(t => t.MinPercentage)
                     .FirstOrDefault(t => (decimal)percentage >= t.MinPercentage && (decimal)percentage <= t.MaxPercentage);
                 
-                if (threshold != null) return threshold.GradePoint;
+                if (threshold != null) return ((double)threshold.GradePoint, threshold.Grade ?? "P");
             }
 
-            // Fallback to standard 10-point scale
-            if (percentage >= 80) return 10;
-            if (percentage >= 75) return 9;
-            if (percentage >= 70) return 8;
-            if (percentage >= 60) return 7;
-            if (percentage >= 50) return 6;
-            if (percentage >= 45) return 5;
-            if (percentage >= 40) return 4;
-            return 0;
+            throw new InvalidOperationException("GradeMaster is not configured or no matching threshold found for the given percentage. Ensure ordinances are correctly set up.");
         }
 
         private async Task UpdateAcademicRecord(MarksMaster marksMaster)
@@ -328,7 +333,7 @@ namespace ExamAPI.Services.Result
             int outOf = GetOutOf(sm);
             double percentage = outOf > 0 ? (double)marks * 100 / outOf : 0;
 
-            return GetGradePointFromPercentage(percentage, gm);
+            return GetGradePointFromPercentage(percentage, gm).GradePoint;
         }
 
         private async Task<bool> EvaluateRule(StudentMaster student, MarksMaster marksMaster, Rule rule)
@@ -347,29 +352,19 @@ namespace ExamAPI.Services.Result
             return true;
         }
 
-        private async Task ApplyRuleActions(MarksMaster marksMaster, Rule rule)
-        {
-            foreach (var action in rule.Actions)
-            {
-                var handler = _registry.GetActionHandler(action.ActionType);
-                if (handler != null)
-                {
-                    await handler.ExecuteAsync(marksMaster, action, rule.OrdinanceSymbol);
-                }
-            }
-        }
+
 
         private bool CompareValues(double factValue, string op, string targetValueStr)
         {
             if (!double.TryParse(targetValueStr, out double targetValue)) return false;
             return op switch
             {
-                "Equals" => factValue == targetValue,
-                "GreaterThan" => factValue > targetValue,
-                "LessThan" => factValue < targetValue,
-                "GreaterOrEqual" or "GreaterThanOrEqual" => factValue >= targetValue,
-                "LessOrEqual" or "LessThanOrEqual" => factValue <= targetValue,
-                "NotEquals" => factValue != targetValue,
+                "Equals" or "==" => factValue == targetValue,
+                "GreaterThan" or ">" => factValue > targetValue,
+                "LessThan" or "<" => factValue < targetValue,
+                "GreaterOrEqual" or "GreaterThanOrEqual" or ">=" => factValue >= targetValue,
+                "LessOrEqual" or "LessThanOrEqual" or "<=" => factValue <= targetValue,
+                "NotEquals" or "!=" => factValue != targetValue,
                 _ => false
             };
         }
@@ -475,19 +470,21 @@ namespace ExamAPI.Services.Result
         {
              var credit = sm.CreditMaster?.Credits?.FirstOrDefault(c => c.Head == sm.Head);
              if (credit != null && int.TryParse(credit.HeadPass, out int pass)) return pass;
-             return 40; 
+             throw new InvalidOperationException($"Passing marks not configured for CreditMaster head: {sm.Head}.");
         }
 
         private int GetOutOf(StudentMarks sm)
         {
             var credit = sm.CreditMaster?.Credits?.FirstOrDefault(c => c.Head == sm.Head);
-            return int.TryParse(credit?.HeadOutOf, out int o) ? o : 100;
+            if (credit != null && int.TryParse(credit.HeadOutOf, out int o)) return o;
+            throw new InvalidOperationException($"Maximum out of marks not configured for CreditMaster head: {sm.Head}.");
         }
 
         private static int GetOutOfStatic(StudentMarks sm)
         {
             var credit = sm.CreditMaster?.Credits?.FirstOrDefault(c => c.Head == sm.Head);
-            return int.TryParse(credit?.HeadOutOf, out int o) ? o : 100;
+            if (credit != null && int.TryParse(credit.HeadOutOf, out int o)) return o;
+            throw new InvalidOperationException($"Maximum out of marks not configured for CreditMaster head: {sm.Head}.");
         }
 
         private static void ResetAppliedGrace(StudentMarks sm)
@@ -603,6 +600,7 @@ namespace ExamAPI.Services.Result
                 {
                     sm.Resolution = required;
                     sm.Marks = (sm.RawMarks ?? 0) + required;
+                    sm.Grace = (sm.Grace ?? "") + (symbol ?? "^");
                     sm.Remark = "Successful";
                 }
             }

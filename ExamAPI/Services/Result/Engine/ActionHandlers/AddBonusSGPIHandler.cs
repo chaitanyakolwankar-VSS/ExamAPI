@@ -10,7 +10,8 @@ namespace ExamAPI.Services.Result.Engine.ActionHandlers
 
         public Task ExecuteAsync(MarksMaster marksMaster, RuleAction action, string? symbol)
         {
-            // Note: In ResultService.cs, AddBonusSGPI is currently evaluated inside CalculateFinalStatus.
+            var bonus = (decimal)(action.Param1Value ?? 0);
+            marksMaster.SGPI = (marksMaster.SGPI ?? 0) + bonus;
             return Task.CompletedTask;
         }
     }

@@ -31,9 +31,17 @@ namespace ExamAPI.Services.Report
 
             var gradeMaster = ruleSet?.GradeMaster;
 
+            var college = await _context.Colleges.FirstOrDefaultAsync();
+            var collegeName = college?.Name ?? "College Name Not Found";
+
+            var programName = exam?.Course?.Name ?? "N/A";
+            if (programName == "CS & E(DS)") programName = "Computer Science & Engineering (Data Science)";
+            else if (programName == "CS & E") programName = "Computer Science & Engineering";
+
             var reportDto = new GazetteReportDto
             {
-                ProgramName = exam?.Course?.Name ?? "N/A", 
+                CollegeName = collegeName,
+                ProgramName = programName, 
                 Semester = $"Semester {request.SemId}", 
                 ExamName = exam?.Name ?? "Regular Exam",
                 ResultDate = DateTime.Now,
@@ -41,24 +49,38 @@ namespace ExamAPI.Services.Report
                 Students = new List<StudentResultSummaryDto>()
             };
 
-            var marksMasters = await _context.MarksMasters
+            var query = _context.MarksMasters
                 .Include(m => m.Student)
                 .Include(m => m.StudentMarks!)
                     .ThenInclude(sm => sm.Subject)
                 .Include(m => m.StudentMarks!)
                     .ThenInclude(sm => sm.CreditMaster)
                         .ThenInclude(cm => cm!.Credits)
-                .Where(m => m.ExamId == request.ExamId && !m.IsDeleted)
-                .ToListAsync();
+                .Include(m => m.Exam)
+                .Where(m => !m.IsDeleted);
+
+            if (request.MergeExam && request.MergedExamId.HasValue)
+            {
+                query = query.Where(m => m.ExamId == request.ExamId || m.ExamId == request.MergedExamId.Value);
+            }
+            else
+            {
+                query = query.Where(m => m.ExamId == request.ExamId);
+            }
+
+            var marksMasters = await query.ToListAsync();
 
             foreach (var marksMaster in marksMasters)
             {
                 var student = marksMaster.Student;
+                var studentName = student != null ? $"{student.FirstName} {student.LastName}" : "N/A";
+                if (marksMaster.QuotaType == "LD") studentName = "~" + studentName;
+
                 var studentDto = new StudentResultSummaryDto
                 {
                     StudentId = marksMaster.StudentID ?? "N/A",
                     SeatNo = marksMaster.SeatNo ?? "N/A",
-                    StudentName = student != null ? $"{student.FirstName} {student.LastName}" : "N/A",
+                    StudentName = studentName,
                     PRN = student?.StudentPRN ?? "N/A",
                     Remark = marksMaster.OverallRemark ?? "Pending",
                     SGPI = (double)(marksMaster.SGPI ?? 0),
@@ -113,10 +135,8 @@ namespace ExamAPI.Services.Report
                     subDto.TotalMax = sumMax;
                     subDto.TotalObtained = sumObtained.ToString();
 
-                    double percentage = sumMax > 0 ? (sumObtained / sumMax) * 100 : 0;
-                    var (gp, grade) = GetGradeAndPoint(percentage, gradeMaster);
-                    subDto.GradePoint = gp;
-                    subDto.Grade = grade;
+                    subDto.GradePoint = firstSm.GradePoint ?? 0;
+                    subDto.Grade = firstSm.Grade ?? "F";
 
                     studentDto.Subjects.Add(subDto);
 
@@ -202,7 +222,7 @@ namespace ExamAPI.Services.Report
             return await package.GetAsByteArrayAsync();
         }
 
-        public async Task<byte[]> GenerateMarksheetPdfAsync(Guid studId, Guid examId, Guid semId, string pattern, bool includeHistory = false)
+        public async Task<byte[]> GenerateMarksheetPdfAsync(Guid studId, Guid examId, string semId, string pattern, bool includeHistory = false)
         {
             var exam = await _context.Exams.Include(e => e.Course).FirstOrDefaultAsync(e => e.ExamId == examId);
 
@@ -226,14 +246,24 @@ namespace ExamAPI.Services.Report
 
             var student = marksMaster.Student;
 
+            var programName = exam?.Course?.Name ?? "N/A";
+            if (programName == "CS & E(DS)") programName = "Computer Science & Engineering (Data Science)";
+            else if (programName == "CS & E") programName = "Computer Science & Engineering";
+
+            var examName = exam?.Name ?? "Regular Exam";
+            if (marksMaster.Exam?.ExamType == "KT" || marksMaster.Exam?.ExamType == "ATKT" || exam?.ExamType == "KT" || exam?.ExamType == "ATKT") 
+            {
+                if (!examName.Contains("(ATKT)")) examName += " (ATKT)";
+            }
+
             var reportDto = new MarksheetReportDto
             {
-                StudentName = student != null ? $"{student.FirstName} {student.LastName}" : "N/A",
+                StudentName = student != null ? ((marksMaster.QuotaType == "LD" ? "~" : "") + $"{student.FirstName} {student.LastName}") : "N/A",
                 SeatNo = marksMaster.SeatNo ?? "N/A",
                 PRN = student?.StudentPRN ?? "N/A",
                 StudentId = marksMaster.StudentID ?? "N/A",
-                ProgramName = exam?.Course?.Name ?? "N/A",
-                ExamName = exam?.Name ?? "Regular Exam",
+                ProgramName = programName,
+                ExamName = examName,
                 Semester = $"Semester {semId}", 
                 ResultDate = DateTime.Now,
                 SGPI = (double)(marksMaster.SGPI ?? 0),
@@ -295,11 +325,8 @@ namespace ExamAPI.Services.Report
                 subDto.TotalMax = sumMax;
                 subDto.TotalObtained = sumObtained.ToString();
 
-                // Grade fallback estimation
-                double percentage = sumMax > 0 ? (sumObtained / sumMax) * 100 : 0;
-                var (gp, grade) = GetGradeAndPoint(percentage, gradeMaster);
-                subDto.GradePoint = gp;
-                subDto.Grade = grade;
+                subDto.GradePoint = firstSm.GradePoint ?? 0;
+                subDto.Grade = firstSm.Grade ?? "F";
 
                 reportDto.Subjects.Add(subDto);
 
@@ -318,7 +345,7 @@ namespace ExamAPI.Services.Report
             return document.GeneratePdf();
         }
 
-        public async Task<byte[]> GenerateBulkMarksheetPdfAsync(Guid examId, Guid semId, string pattern, string generationType, bool includeHistory = false)
+        public async Task<byte[]> GenerateBulkMarksheetPdfAsync(Guid examId, string semId, string pattern, string generationType, bool includeHistory = false)
         {
             var exam = await _context.Exams.Include(e => e.Course).FirstOrDefaultAsync(e => e.ExamId == examId);
 
@@ -353,17 +380,37 @@ namespace ExamAPI.Services.Report
 
             var reports = new List<MarksheetReportDto>();
 
+            Dictionary<Guid, List<SemesterRecordDto>> bulkHistory = new();
+            if (includeHistory)
+            {
+                var studentIds = marksMasters.Select(m => m.Student?.StdMstId).Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToList();
+                if (studentIds.Any())
+                {
+                    bulkHistory = await GetBulkSemesterHistoryAsync(studentIds);
+                }
+            }
+
             foreach (var marksMaster in marksMasters)
             {
                 var student = marksMaster.Student;
+                var programName = exam?.Course?.Name ?? "N/A";
+                if (programName == "CS & E(DS)") programName = "Computer Science & Engineering (Data Science)";
+                else if (programName == "CS & E") programName = "Computer Science & Engineering";
+
+                var examName = exam?.Name ?? "Regular Exam";
+                if (marksMaster.Exam?.ExamType == "KT" || marksMaster.Exam?.ExamType == "ATKT" || exam?.ExamType == "KT" || exam?.ExamType == "ATKT")
+                {
+                    if (!examName.Contains("(ATKT)")) examName += " (ATKT)";
+                }
+
                 var reportDto = new MarksheetReportDto
                 {
-                    StudentName = student != null ? $"{student.FirstName} {student.LastName}" : "N/A",
+                    StudentName = student != null ? ((marksMaster.QuotaType == "LD" ? "~" : "") + $"{student.FirstName} {student.LastName}") : "N/A",
                     SeatNo = marksMaster.SeatNo ?? "N/A",
                     PRN = student?.StudentPRN ?? "N/A",
                     StudentId = marksMaster.StudentID ?? "N/A",
-                    ProgramName = exam?.Course?.Name ?? "N/A",
-                    ExamName = exam?.Name ?? "Regular Exam",
+                    ProgramName = programName,
+                    ExamName = examName,
                     Semester = $"Semester {semId}",
                     ResultDate = DateTime.Now,
                     SGPI = (double)(marksMaster.SGPI ?? 0),
@@ -374,9 +421,9 @@ namespace ExamAPI.Services.Report
 
                 var subjectGroups = marksMaster.StudentMarks?.Where(sm => !sm.IsDeleted).GroupBy(sm => sm.SubjectId) ?? Enumerable.Empty<IGrouping<Guid?, StudentMarks>>();
 
-                if (includeHistory && student?.StdMstId != null)
+                if (includeHistory && student?.StdMstId != null && bulkHistory.ContainsKey(student.StdMstId))
                 {
-                    reportDto.PastSemesters = await GetSemesterHistoryAsync(student.StdMstId);
+                    reportDto.PastSemesters = bulkHistory[student.StdMstId];
                 }
 
                 double totalObtained = 0;
@@ -425,10 +472,8 @@ namespace ExamAPI.Services.Report
                     subDto.TotalMax = sumMax;
                     subDto.TotalObtained = sumObtained.ToString();
 
-                    double percentage = sumMax > 0 ? (sumObtained / sumMax) * 100 : 0;
-                    var (gp, grade) = GetGradeAndPoint(percentage, gradeMaster);
-                    subDto.GradePoint = gp;
-                    subDto.Grade = grade;
+                    subDto.GradePoint = firstSm.GradePoint ?? 0;
+                    subDto.Grade = firstSm.Grade ?? "F";
 
                     reportDto.Subjects.Add(subDto);
 
@@ -448,28 +493,6 @@ namespace ExamAPI.Services.Report
 
             var document = new BulkMarksheetDocument(reports);
             return document.GeneratePdf();
-        }
-
-        private (int GradePoint, string Grade) GetGradeAndPoint(double percentage, GradeMaster? gradeMaster)
-        {
-            if (gradeMaster?.Thresholds != null && gradeMaster.Thresholds.Any())
-            {
-                var threshold = gradeMaster.Thresholds
-                    .OrderByDescending(t => t.MinPercentage)
-                    .FirstOrDefault(t => (decimal)percentage >= t.MinPercentage && (decimal)percentage <= t.MaxPercentage);
-                
-                if (threshold != null) return ((int)threshold.GradePoint, threshold.Grade ?? "P");
-            }
-
-            // Fallback
-            if (percentage >= 80) return (10, "O");
-            if (percentage >= 75) return (9, "A");
-            if (percentage >= 70) return (8, "B");
-            if (percentage >= 60) return (7, "C");
-            if (percentage >= 50) return (6, "D");
-            if (percentage >= 45) return (5, "E");
-            if (percentage >= 40) return (4, "P");
-            return (0, "F");
         }
 
         private async Task<List<SemesterRecordDto>> GetSemesterHistoryAsync(Guid studentId)
@@ -492,6 +515,36 @@ namespace ExamAPI.Services.Report
                     SGPI = r.SGPI.HasValue ? (double)r.SGPI.Value : 0
                 })
                 .ToList();
+        }
+
+        private async Task<Dictionary<Guid, List<SemesterRecordDto>>> GetBulkSemesterHistoryAsync(List<Guid> studentIds)
+        {
+            var overallResults = await _context.StudentsOverallResults
+                .Where(r => r.StdMstId.HasValue && studentIds.Contains(r.StdMstId.Value) && !r.IsDeleted)
+                .ToListAsync();
+
+            var historyMap = new Dictionary<Guid, List<SemesterRecordDto>>();
+            
+            foreach (var studentGroup in overallResults.GroupBy(r => r.StdMstId!.Value))
+            {
+                var history = studentGroup
+                    .OrderBy(r => 
+                    {
+                        var match = System.Text.RegularExpressions.Regex.Match(r.SemesterId ?? "", @"\d+");
+                        return match.Success ? int.Parse(match.Value) : 0;
+                    })
+                    .Select(r => new SemesterRecordDto
+                    {
+                        SemesterName = r.SemesterId ?? "",
+                        Credits = double.TryParse(r.Credits, out var c) ? c : 0,
+                        EarnedGradePoints = double.TryParse(r.CreditGradePoint, out var cg) ? cg : 0,
+                        SGPI = r.SGPI.HasValue ? (double)r.SGPI.Value : 0
+                    })
+                    .ToList();
+                historyMap[studentGroup.Key] = history;
+            }
+
+            return historyMap;
         }
     }
 }
