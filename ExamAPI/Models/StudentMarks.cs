@@ -23,6 +23,7 @@ namespace ExamAPI.Models
         [MaxLength(100)]
         public string? Remark { get; set; }
 
+        public int? RawGradePoint { get; set; }
         public int? GradePoint { get; set; }
 
         [MaxLength(10)]

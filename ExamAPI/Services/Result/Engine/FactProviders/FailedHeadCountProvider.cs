@@ -5,17 +5,17 @@ using ExamAPI.Models;
 
 namespace ExamAPI.Services.Result.Engine.FactProviders
 {
-    public class FailedSubjectCountProvider : IFactProvider
+    public class FailedHeadCountProvider : IFactProvider
     {
-        public string FactName => "FailedSubjectCount";
+        public string FactName => "FailedHeadCount";
 
         public Task<double> GetValueAsync(StudentMaster? student, MarksMaster marksMaster)
         {
             if (marksMaster.StudentMarks == null) return Task.FromResult(0.0);
 
             var count = marksMaster.StudentMarks
-                .GroupBy(sm => sm.SubjectId)
-                .Count(group => group.Any(sm => (sm.Marks ?? 0) < GetPassingMarks(sm)));
+                .Count(sm => (sm.Marks ?? 0) < GetPassingMarks(sm));
+                
             return Task.FromResult((double)count);
         }
 

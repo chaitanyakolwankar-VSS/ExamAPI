@@ -31,7 +31,14 @@ namespace ExamAPI.Services.MarksEntry
                     .Include(mm => mm.StudentMarks)
                         .ThenInclude(sm => sm.CreditMaster)
                             .ThenInclude(cm => cm.Credits)
-                    .Where(mm => mm.ExamId == request.ExamId && mm.SemesterId == request.SemId && mm.Pattern == request.Pattern && !mm.IsDeleted);
+                    .Where(mm => mm.ExamId == request.ExamId
+                        && mm.SemesterId == request.SemId
+                        && mm.Pattern == request.Pattern
+                        && mm.Exam != null
+                        && mm.Exam.CourseId == request.BranchId
+                        && mm.Student != null
+                        && mm.Student.CollegeId == collegeId
+                        && !mm.IsDeleted);
 
                 if (!string.IsNullOrEmpty(request.StudentId))
                 {
@@ -78,89 +85,62 @@ namespace ExamAPI.Services.MarksEntry
         {
             try
             {
-                HashSet<Guid> marksMasterIds = new HashSet<Guid>();
+                var updates = request.Updates?
+                    .GroupBy(update => update.StudentMarksId)
+                    .Select(group => group.Last())
+                    .ToList() ?? new List<StudentMarksUpdateDto>();
 
-                foreach (var update in request.Updates)
+                if (!updates.Any())
                 {
-                    var sm = await _context.StudentMarks.FindAsync(update.StudentMarksId);
-                    if (sm != null && sm.MarksId.HasValue)
+                    return new ApiResponseDto<object> { Success = false, Message = "No marks updates were supplied." };
+                }
+
+                var requestedIds = updates.Select(update => update.StudentMarksId).ToList();
+                var studentMarks = await _context.StudentMarks
+                    .Include(sm => sm.MarksMaster)
+                        .ThenInclude(mm => mm!.Student)
+                    .Include(sm => sm.CreditMaster)
+                        .ThenInclude(cm => cm!.Credits)
+                    .Where(sm => requestedIds.Contains(sm.Id)
+                        && sm.MarksMaster != null
+                        && sm.MarksMaster.Student != null
+                        && sm.MarksMaster.Student.CollegeId == collegeId)
+                    .ToDictionaryAsync(sm => sm.Id);
+
+                if (studentMarks.Count != requestedIds.Count)
+                {
+                    return new ApiResponseDto<object> { Success = false, Message = "One or more marks entries are unavailable for the current college." };
+                }
+
+                var firstMark = studentMarks.Values.FirstOrDefault();
+                if (firstMark?.MarksMaster?.ExamId.HasValue == true)
+                {
+                    var exam = await _context.Exams.FirstOrDefaultAsync(e => e.ExamId == firstMark.MarksMaster.ExamId);
+                    if (exam != null && exam.IsLocked)
                     {
-                        marksMasterIds.Add(sm.MarksId.Value);
-                        var mm = await _context.MarksMasters.FindAsync(sm.MarksId.Value);
-
-                        if (update.Marks?.Trim().ToLower() == "ab")
-                        {
-                            sm.RawMarks = null;
-                            sm.Marks = null;
-                            sm.Remark = "Ab";
-                        }
-                        else if (int.TryParse(update.Marks, out var marks))
-                        {
-                            var outOf = 100;
-                            var credit = sm.CreditMaster?.Credits?.FirstOrDefault(c => c.Head == sm.Head);
-                            if (credit != null && int.TryParse(credit.HeadOutOf, out var o)) outOf = o;
-
-                            if (marks < 0 || marks > outOf)
-                            {
-                                return new ApiResponseDto<object> { Success = false, Message = $"Validation Error: Marks ({marks}) for {sm.Head} cannot exceed Max Marks ({outOf})." };
-                            }
-
-                            sm.RawMarks = marks;
-                            sm.Marks = marks;
-                            
-                            // Check for Passing and Resolution
-                            var passing = 40;
-                            var passCredit = sm.CreditMaster?.Credits?.FirstOrDefault(c => c.Head == sm.Head);
-                            if (passCredit != null && int.TryParse(passCredit.HeadPass, out var p)) passing = p;
-
-                            if (marks >= passing)
-                            {
-                                sm.Remark = "Successful";
-                            }
-                            else if (mm != null && mm.ExamId.HasValue)
-                            {
-                                // Check Resolution
-                                var resolution = await _context.Resolution.FirstOrDefaultAsync(r => 
-                                    r.ExamID == mm.ExamId && 
-                                    r.CreditID == sm.CreditsId && 
-                                    r.Head == sm.Head && 
-                                    !r.IsDeleted);
-                                
-                                if (resolution != null && int.TryParse(resolution.Resolution, out var resLimit) && (passing - marks) <= resLimit)
-                                {
-                                    sm.Resolution = passing - marks;
-                                    sm.Marks = passing;
-                                    sm.Grace = (sm.Grace ?? "") + "^";
-                                    sm.Remark = "Successful";
-                                }
-                                else
-                                {
-                                    sm.Remark = "Unsuccessful";
-                                }
-                            }
-                            else
-                            {
-                                sm.Remark = "Unsuccessful";
-                            }
-                        }
-                        else
-                        {
-                            sm.RawMarks = null;
-                            sm.Marks = null;
-                            sm.Remark = "Unsuccessful";
-                        }
-                        sm.UpdatedAt = DateTime.UtcNow;
+                        return new ApiResponseDto<object> { Success = false, Message = "This exam is locked. Further marks entry edits are not allowed." };
                     }
                 }
 
-                // Update Rank in all affected MarksMasters
-                foreach (var marksId in marksMasterIds)
+                var marksMasters = new HashSet<MarksMaster>();
+                foreach (var update in updates)
                 {
-                    var mm = await _context.MarksMasters.FindAsync(marksId);
-                    if (mm != null)
+                    var studentMark = studentMarks[update.StudentMarksId];
+                    var error = await ApplyMarkAsync(studentMark, update.Marks);
+                    if (error != null)
                     {
-                        mm.Rank = request.Rank;
+                        return new ApiResponseDto<object> { Success = false, Message = error };
                     }
+
+                    if (studentMark.MarksMaster != null)
+                    {
+                        marksMasters.Add(studentMark.MarksMaster);
+                    }
+                }
+
+                foreach (var marksMaster in marksMasters)
+                {
+                    marksMaster.Rank = request.Rank;
                 }
 
                 await _context.SaveChangesAsync();
@@ -170,6 +150,82 @@ namespace ExamAPI.Services.MarksEntry
             {
                 return new ApiResponseDto<object> { Success = false, Message = $"Error: {ex.Message}" };
             }
+        }
+
+        private async Task<string?> ApplyMarkAsync(StudentMarks studentMark, string? input)
+        {
+            var value = input?.Trim();
+            studentMark.Resolution = null;
+            studentMark.Grace = null;
+
+            if (string.IsNullOrEmpty(value))
+            {
+                studentMark.RawMarks = null;
+                studentMark.Marks = null;
+                studentMark.Remark = null;
+                studentMark.UpdatedAt = DateTime.UtcNow;
+                return null;
+            }
+
+            if (string.Equals(value, "ab", StringComparison.OrdinalIgnoreCase))
+            {
+                studentMark.RawMarks = null;
+                studentMark.Marks = null;
+                studentMark.Remark = "Ab";
+                studentMark.UpdatedAt = DateTime.UtcNow;
+                return null;
+            }
+
+            if (!int.TryParse(value, out var marks))
+            {
+                return $"Validation Error: Marks for {studentMark.Head} must be a whole number or Ab.";
+            }
+
+            var credit = studentMark.CreditMaster?.Credits?.FirstOrDefault(c => c.Head == studentMark.Head);
+            if (credit == null
+                || !int.TryParse(credit.HeadOutOf, out var outOf)
+                || !int.TryParse(credit.HeadPass, out var passing))
+            {
+                return $"Configuration Error: Passing and maximum marks are not configured for {studentMark.Head}.";
+            }
+
+            if (marks < 0 || marks > outOf)
+            {
+                return $"Validation Error: Marks ({marks}) for {studentMark.Head} must be between 0 and {outOf}.";
+            }
+
+            studentMark.RawMarks = marks;
+            studentMark.Marks = marks;
+            studentMark.Remark = marks >= passing ? "Successful" : "Unsuccessful";
+
+            var marksMaster = studentMark.MarksMaster;
+            if (marks < passing && marksMaster?.ExamId.HasValue == true)
+            {
+                var resolutions = _context.Resolution.Where(resolution =>
+                    resolution.ExamID == marksMaster.ExamId
+                    && resolution.CreditID == studentMark.CreditsId
+                    && resolution.Head == studentMark.Head
+                    && !resolution.IsDeleted);
+
+                if (marksMaster.AcademicYearAYID.HasValue)
+                {
+                    resolutions = resolutions.Where(resolution => resolution.AYID == marksMaster.AcademicYearAYID);
+                }
+
+                var resolution = await resolutions.FirstOrDefaultAsync();
+                if (resolution != null
+                    && int.TryParse(resolution.Resolution, out var resolutionLimit)
+                    && passing - marks <= resolutionLimit)
+                {
+                    studentMark.Resolution = passing - marks;
+                    studentMark.Marks = passing;
+                    studentMark.Grace = "^";
+                    studentMark.Remark = "Successful";
+                }
+            }
+
+            studentMark.UpdatedAt = DateTime.UtcNow;
+            return null;
         }
 
         public async Task<byte[]> ExportTemplateExcelAsync(MarksEntryFilterRequest request, Guid collegeId)
@@ -301,6 +357,12 @@ namespace ExamAPI.Services.MarksEntry
         {
             try
             {
+                var exam = await _context.Exams.FirstOrDefaultAsync(e => e.ExamId == examId);
+                if (exam != null && exam.IsLocked)
+                {
+                    return new ApiResponseDto<object> { Success = false, Message = "This exam is locked. Further marks imports are not allowed." };
+                }
+                
                 ExcelPackage.License.SetNonCommercialPersonal("ReactApi Project");
                 using (var stream = new MemoryStream(fileBytes))
                 using (var package = new ExcelPackage(stream))
@@ -331,76 +393,28 @@ namespace ExamAPI.Services.MarksEntry
                                 var markValue = worksheet.Cells[row, markCol].Value?.ToString()?.Trim();
                                 var sm = await _context.StudentMarks
                                     .Include(x => x.MarksMaster)
+                                        .ThenInclude(marksMaster => marksMaster!.Student)
                                     .Include(x => x.CreditMaster)
-                                        .ThenInclude(c => c.Credits)
-                                    .FirstOrDefaultAsync(x => x.Id == studentMarksId);
+                                        .ThenInclude(creditMaster => creditMaster!.Credits)
+                                    .FirstOrDefaultAsync(x => x.Id == studentMarksId
+                                        && x.SubjectId == subjectId
+                                        && x.MarksMaster != null
+                                        && x.MarksMaster.ExamId == examId
+                                        && x.MarksMaster.Student != null
+                                        && x.MarksMaster.Student.CollegeId == collegeId);
 
-                                if (sm != null)
+                                if (sm == null)
                                 {
-                                    if (string.IsNullOrEmpty(markValue))
-                                    {
-                                        sm.RawMarks = null;
-                                        sm.Marks = null;
-                                        sm.Remark = null;
-                                    }
-                                    else if (markValue.ToLower() == "ab")
-                                    {
-                                        sm.RawMarks = null;
-                                        sm.Marks = null;
-                                        sm.Remark = "Ab";
-                                    }
-                                    else if (int.TryParse(markValue, out int marks))
-                                    {
-                                        var outOf = 100;
-                                        var credit = sm.CreditMaster?.Credits?.FirstOrDefault(c => c.Head == sm.Head);
-                                        if (credit != null && int.TryParse(credit.HeadOutOf, out var o)) outOf = o;
-
-                                        if (marks < 0 || marks > outOf)
-                                        {
-                                            return new ApiResponseDto<object> { Success = false, Message = $"Import Error: Row {row} contains invalid marks ({marks}) exceeding Max Marks ({outOf}) for {sm.Head}." };
-                                        }
-
-                                        sm.RawMarks = marks;
-                                        sm.Marks = marks;
-                                        
-                                        // Check for Passing and Resolution
-                                        var passing = 40;
-                                        var passCredit = sm.CreditMaster?.Credits?.FirstOrDefault(c => c.Head == sm.Head);
-                                        if (passCredit != null && int.TryParse(passCredit.HeadPass, out var p)) passing = p;
-
-                                        if (marks >= passing)
-                                        {
-                                            sm.Remark = "Successful";
-                                        }
-                                        else if (sm.MarksMaster != null && sm.MarksMaster.ExamId.HasValue)
-                                        {
-                                            // Check Resolution
-                                            var resolution = await _context.Resolution.FirstOrDefaultAsync(r => 
-                                                r.ExamID == sm.MarksMaster.ExamId && 
-                                                r.CreditID == sm.CreditsId && 
-                                                r.Head == sm.Head && 
-                                                !r.IsDeleted);
-                                            
-                                            if (resolution != null && int.TryParse(resolution.Resolution, out var resLimit) && (passing - marks) <= resLimit)
-                                            {
-                                                sm.Resolution = passing - marks;
-                                                sm.Marks = passing;
-                                                sm.Grace = (sm.Grace ?? "") + "^";
-                                                sm.Remark = "Successful";
-                                            }
-                                            else
-                                            {
-                                                sm.Remark = "Unsuccessful";
-                                            }
-                                        }
-                                        else
-                                        {
-                                            sm.Remark = "Unsuccessful";
-                                        }
-                                    }
-                                    sm.UpdatedAt = DateTime.UtcNow;
-                                    updatedCount++;
+                                    return new ApiResponseDto<object> { Success = false, Message = $"Import Error: Row {row} does not match the selected exam, subject, or college." };
                                 }
+
+                                var error = await ApplyMarkAsync(sm, markValue);
+                                if (error != null)
+                                {
+                                    return new ApiResponseDto<object> { Success = false, Message = $"Import Error: Row {row}. {error}" };
+                                }
+
+                                updatedCount++;
                             }
                         }
                     }

@@ -33,6 +33,7 @@ namespace ExamAPI.Services.Result.Engine.ActionHandlers
                     {
                         if (sm.GradePoint >= minThreshold)
                         {
+                            sm.RawGradePoint = sm.GradePoint; // Preserve original
                             sm.GradePoint = (int)Math.Max(minThreshold, sm.GradePoint.Value - downgradeVal);
                             sm.Grade = sm.GradePoint < minThreshold ? "F" : sm.Grade;
                         }

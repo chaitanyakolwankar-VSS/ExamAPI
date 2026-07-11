@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace ExamAPI.Models
@@ -23,6 +23,7 @@ namespace ExamAPI.Models
         public Guid? AcademicYearAYID { get; set; }
 
         public bool? IsActive { get; set; }
+        public bool IsLocked { get; set; }
         // Foreign Key
         public Guid? CourseId { get; set; }
         [ForeignKey(nameof(CourseId))]

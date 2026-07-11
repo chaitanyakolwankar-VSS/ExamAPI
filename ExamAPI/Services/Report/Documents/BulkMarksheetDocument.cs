@@ -79,8 +79,7 @@ namespace ExamAPI.Services.Report.Documents
                     {
                         columns.ConstantColumn(50); // Course Code
                         columns.RelativeColumn(3);  // Course Name
-                        columns.RelativeColumn(1);  // Head 1
-                        columns.RelativeColumn(1);  // Head 2
+                        columns.RelativeColumn(2);  // Configured heads
                         columns.RelativeColumn(1);  // Total
                         columns.RelativeColumn(1);  // Grd
                         columns.RelativeColumn(1);  // GP
@@ -92,8 +91,7 @@ namespace ExamAPI.Services.Report.Documents
                     {
                         header.Cell().Border(1).Padding(2).AlignCenter().Text("Code").Bold();
                         header.Cell().Border(1).Padding(2).AlignLeft().Text("Course Name").Bold();
-                        header.Cell().Border(1).Padding(2).AlignCenter().Text("TH/PR").Bold();
-                        header.Cell().Border(1).Padding(2).AlignCenter().Text("IA/TW").Bold();
+                        header.Cell().Border(1).Padding(2).AlignCenter().Text("Heads (obt/max)").Bold();
                         header.Cell().Border(1).Padding(2).AlignCenter().Text("Total").Bold();
                         header.Cell().Border(1).Padding(2).AlignCenter().Text("Grd").Bold();
                         header.Cell().Border(1).Padding(2).AlignCenter().Text("GP").Bold();
@@ -105,8 +103,13 @@ namespace ExamAPI.Services.Report.Documents
                     {
                         table.Cell().Border(1).Padding(2).AlignCenter().Text(sub.SubjectCode);
                         table.Cell().Border(1).Padding(2).AlignLeft().Text(sub.SubjectName);
-                        table.Cell().Border(1).Padding(2).AlignCenter().Text($"{sub.Head1Marks}{sub.Head1Grace}/{sub.Head1Max}");
-                        table.Cell().Border(1).Padding(2).AlignCenter().Text($"{sub.Head2Marks}{sub.Head2Grace}/{sub.Head2Max}");
+                        table.Cell().Border(1).Padding(2).AlignCenter().Text(text =>
+                        {
+                            foreach (var head in sub.Heads)
+                            {
+                                text.Line($"{head.Head}: {head.Marks}{head.Grace}/{head.Max:0.##}");
+                            }
+                        });
                         table.Cell().Border(1).Padding(2).AlignCenter().Text($"{sub.TotalObtained}/{sub.TotalMax}");
                         table.Cell().Border(1).Padding(2).AlignCenter().Text(sub.Grade);
                         table.Cell().Border(1).Padding(2).AlignCenter().Text(sub.GradePoint.ToString());

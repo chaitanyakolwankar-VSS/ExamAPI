@@ -17,7 +17,7 @@ namespace ExamAPI.Services.Result.Engine.ActionHandlers
                 .Where(sm => sm.Marks.HasValue && sm.Marks < GetPassingMarks(sm));
 
             // Apply Action Target Filter (Head-Specific Grace)
-            if (!string.IsNullOrWhiteSpace(action.Target) && !string.Equals(action.Target, "All", StringComparison.OrdinalIgnoreCase))
+            if (!IsAllFailingHeadsTarget(action.Target))
             {
                 var targets = action.Target.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
                                            .Select(t => t.Trim().ToUpperInvariant())
@@ -31,23 +31,27 @@ namespace ExamAPI.Services.Result.Engine.ActionHandlers
                 .ToList();
 
             decimal totalGraceAvailable = action.MaxLimit ?? action.Param1Value ?? 0;
+            var maxTargetCount = action.MaxTargetCount.GetValueOrDefault();
+            var appliedTargetCount = 0;
 
             foreach (var sm in failedSubjects)
             {
                 if (totalGraceAvailable <= 0) break;
+                if (maxTargetCount > 0 && appliedTargetCount >= maxTargetCount) break;
 
                 int required = GetPassingMarks(sm) - (sm.Marks ?? 0);
                 
                 decimal limit1 = CalculateActionLimit(action.Param1Type, action.Param1Value, marksMaster, sm, false, action.Expression);
                 decimal limit2 = CalculateActionLimit(action.Param2Type, action.Param2Value, marksMaster, sm, true, action.Expression);
 
-                decimal allowedForThisSubject = Math.Min(limit1, limit2);
+                decimal allowedForThisSubject = CalculateAllowedGrace(action.CalculationMode, limit1, limit2);
                 allowedForThisSubject = Math.Min(allowedForThisSubject, totalGraceAvailable);
 
                 if (required <= allowedForThisSubject)
                 {
                     ApplyGraceToMark(sm, required, symbol, "Passed by Ordinance");
                     totalGraceAvailable -= required;
+                    appliedTargetCount++;
                 }
             }
 
@@ -103,13 +107,33 @@ namespace ExamAPI.Services.Result.Engine.ActionHandlers
             };
         }
 
+        private static decimal CalculateAllowedGrace(string? calculationMode, decimal limit1, decimal limit2)
+        {
+            var mode = NormalizeKey(calculationMode);
+            return mode switch
+            {
+                "MINOF" => Math.Min(limit1, limit2),
+                "MAXOF" => Math.Max(limit1, limit2),
+                "FIXED" => limit1,
+                "PERCENTOFSUBJECT" or "PERCENTOFAGGREGATE" => limit1,
+                _ => limit1
+            };
+        }
+
+        private static bool IsAllFailingHeadsTarget(string? target)
+        {
+            var key = NormalizeKey(target);
+            return string.IsNullOrEmpty(key)
+                || key is "ALL" or "FAILINGHEADS" or "FAILINGHEAD" or "FAILINGSUBJECTS" or "FAILINGSUBJECT" or "SUBJECT";
+        }
+
         private int GetOutOf(StudentMarks sm)
         {
             var credit = sm.CreditMaster?.Credits?.FirstOrDefault(c => c.Head == sm.Head);
             return int.TryParse(credit?.HeadOutOf, out int o) ? o : 100;
         }
 
-        private string NormalizeKey(string? value)
+        private static string NormalizeKey(string? value)
         {
             return string.IsNullOrWhiteSpace(value)
                 ? string.Empty

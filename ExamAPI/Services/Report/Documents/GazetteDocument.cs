@@ -56,7 +56,9 @@ namespace ExamAPI.Services.Report.Documents
 
         void ComposeContent(IContainer container)
         {
-            var studentChunks = Model.Students.Chunk(Request.StudentsPerPage).ToList();
+            var studentsPerPage = Math.Clamp(Request.StudentsPerPage, 1, 100);
+            var subjectsPerRow = Math.Clamp(Request.SubjectsPerRow, 1, 20);
+            var studentChunks = Model.Students.Chunk(studentsPerPage).ToList();
 
             container.PaddingVertical(10).Column(column =>
             {
@@ -69,7 +71,7 @@ namespace ExamAPI.Services.Report.Documents
                         table.ColumnsDefinition(columns =>
                         {
                             columns.RelativeColumn(3); // SeatNo / PRN / Name
-                            for (int i = 0; i < Request.SubjectsPerRow; i++)
+                            for (int i = 0; i < subjectsPerRow; i++)
                             {
                                 columns.RelativeColumn(2); // Sub
                             }
@@ -87,7 +89,7 @@ namespace ExamAPI.Services.Report.Documents
                         {
                             header.Cell().Border(1).Padding(2).AlignCenter().Text("Seat No / PRN /\nName of Student / Stud ID").Bold();
                             // Dynamically render subject headers
-                            for(int i = 0; i < Request.SubjectsPerRow; i++) 
+                            for(int i = 0; i < subjectsPerRow; i++) 
                             {
                                 header.Cell().Border(1).Padding(2).AlignCenter().Text($"SubCode\nHead types\nMin/Max").Bold();
                             }
@@ -103,36 +105,54 @@ namespace ExamAPI.Services.Report.Documents
 
                         foreach (var student in chunk)
                         {
-                            table.Cell().Border(1).Padding(2).Text($"{student.SeatNo} /\n{student.PRN} /\n{student.StudentName} /\n{student.StudentId}");
-                            
-                            // Subjects
-                            int subCount = 0;
-                            foreach(var sub in student.Subjects)
+                            var subjectRows = student.Subjects.Chunk(subjectsPerRow).ToList();
+                            if (subjectRows.Count == 0)
                             {
-                                table.Cell().Border(1).Padding(2).AlignCenter().Text(text =>
-                                {
-                                    text.Line($"{sub.SubjectCode}").Bold();
-                                    text.Line($"{sub.Head1Type} / {sub.Head2Type}");
-                                    text.Line($"{sub.Head1Max} / {sub.Head2Max}");
-                                    text.Line($"{sub.Head1Marks}{sub.Head1Grace} / {sub.Head2Marks}");
-                                    text.Line($"C: {sub.Credits} G: {sub.Grade} GP: {sub.GradePoint} CG: {sub.EarnedGradePoints}");
-                                });
-                                subCount++;
-                            }
-                            // Fill remaining subject columns if less than config
-                            for(int i = subCount; i < Request.SubjectsPerRow; i++)
-                            {
-                                table.Cell().Border(1).Padding(2).Text("");
+                                subjectRows.Add(Array.Empty<SubjectMarksDto>());
                             }
 
-                            table.Cell().Border(1).Padding(2).AlignCenter().Text($"{student.TotalObtained}/{student.TotalMax}").Bold();
-                            table.Cell().Border(1).Padding(2).AlignCenter().Text($"{student.SGPI} / {student.CreditsEarned}").Bold();
-                            table.Cell().Border(1).Padding(2).AlignCenter().Text($"{student.SGPI}").Bold();
-                            if(Model.ShowCgpi)
+                            for (var rowIndex = 0; rowIndex < subjectRows.Count; rowIndex++)
                             {
-                                table.Cell().Border(1).Padding(2).AlignCenter().Text($"{student.CGPI}").Bold();
+                                var subjectRow = subjectRows[rowIndex];
+                                var isFirstRow = rowIndex == 0;
+                                var hasFailure = student.Subjects.Any(subject => string.Equals(subject.Grade, "F", StringComparison.OrdinalIgnoreCase));
+                                var displayRemark = hasFailure && Request.NoRleForFail && string.Equals(student.Remark, "RLE", StringComparison.OrdinalIgnoreCase)
+                                    ? "Fail"
+                                    : student.Remark;
+                                var sgpi = hasFailure && !Request.SgpiForFail ? "--" : FormatNumber(student.SGPI);
+                                var cgpi = hasFailure && !Request.CgpiForFail ? "--" : FormatNumber(student.CGPI ?? 0);
+
+                                table.Cell().Border(1).Padding(2).Text(isFirstRow
+                                    ? $"{student.SeatNo} /\n{student.PRN} /\n{student.StudentName} /\n{student.StudentId}"
+                                    : string.Empty);
+
+                                foreach (var sub in subjectRow)
+                                {
+                                    table.Cell().Border(1).Padding(2).AlignCenter().Text(text =>
+                                    {
+                                        text.Line($"{sub.SubjectCode}").Bold();
+                                        foreach (var head in sub.Heads)
+                                        {
+                                            text.Line($"{head.Head}: {head.Marks}{head.Grace}/{FormatNumber(head.Max)}");
+                                        }
+                                        text.Line($"C: {sub.Credits} G: {sub.Grade} GP: {sub.GradePoint} CG: {sub.EarnedGradePoints}");
+                                    });
+                                }
+
+                                for (var subjectIndex = subjectRow.Length; subjectIndex < subjectsPerRow; subjectIndex++)
+                                {
+                                    table.Cell().Border(1).Padding(2).Text(string.Empty);
+                                }
+
+                                table.Cell().Border(1).Padding(2).AlignCenter().Text(isFirstRow ? $"{FormatNumber(student.TotalObtained)}/{FormatNumber(student.TotalMax)}" : string.Empty).Bold();
+                                table.Cell().Border(1).Padding(2).AlignCenter().Text(isFirstRow ? $"{FormatNumber(student.CumulativeGrade ?? 0)} / {FormatNumber(student.CreditsEarned)}" : string.Empty).Bold();
+                                table.Cell().Border(1).Padding(2).AlignCenter().Text(isFirstRow ? sgpi : string.Empty).Bold();
+                                if(Model.ShowCgpi)
+                                {
+                                    table.Cell().Border(1).Padding(2).AlignCenter().Text(isFirstRow ? cgpi : string.Empty).Bold();
+                                }
+                                table.Cell().Border(1).Padding(2).AlignCenter().Text(isFirstRow ? displayRemark : string.Empty).Bold();
                             }
-                            table.Cell().Border(1).Padding(2).AlignCenter().Text($"{student.Remark}").Bold();
                         }
                     });
 
@@ -142,6 +162,13 @@ namespace ExamAPI.Services.Report.Documents
                     }
                 }
             });
+        }
+
+        private string FormatNumber(double value)
+        {
+            return Request.RoundNumber
+                ? Math.Round(value, MidpointRounding.AwayFromZero).ToString()
+                : value.ToString("0.##");
         }
 
         void ComposeFooter(IContainer container)

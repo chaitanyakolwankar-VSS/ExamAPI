@@ -3,6 +3,9 @@ using ExamAPI.DTOs;
 using ExamAPI.Models;
 using ExamAPI.Services.Result.Engine;
 using Microsoft.EntityFrameworkCore;
+using QuestPDF.Fluent;
+using QuestPDF.Helpers;
+using QuestPDF.Infrastructure;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -22,10 +25,10 @@ namespace ExamAPI.Services.Result
             _registry = registry;
         }
 
-        public async Task<IEnumerable<ExamOptionDto>> GetExamsAsync(Guid branchId, string semId, string pattern)
+        public async Task<IEnumerable<ExamOptionDto>> GetExamsAsync(Guid branchId, string semId, string pattern, Guid collegeId)
         {
             var exams = await _context.Exams
-                .Where(e => e.CourseId == branchId && e.Semester == semId && !e.IsDeleted)
+                .Where(e => e.Course != null && e.Course.CollegeId == collegeId && e.CourseId == branchId && e.Semester == semId && !e.IsDeleted)
                 .Select(e => new ExamOptionDto
                 {
                     ExamId = e.ExamId,
@@ -45,7 +48,7 @@ namespace ExamAPI.Services.Result
                 var marksQuery = _context.MarksMasters
                     .Include(mm => mm.Student)
                     .Include(mm => mm.StudentMarks)
-                    .Where(mm => mm.ExamId == request.ExamId && mm.SemesterId == request.SemId && mm.Pattern == request.Pattern && !mm.IsDeleted);
+                    .Where(mm => mm.Student != null && mm.Student.CollegeId == collegeId && mm.ExamId == request.ExamId && mm.SemesterId == request.SemId && mm.Pattern == request.Pattern && !mm.IsDeleted);
 
                 if (request.IsSingleStudent && !string.IsNullOrEmpty(request.StudentId))
                 {
@@ -65,6 +68,11 @@ namespace ExamAPI.Services.Result
                 if (exam == null)
                 {
                     return new ApiResponseDto<object> { Success = false, Message = "Selected exam was not found." };
+                }
+                
+                if (exam.IsLocked)
+                {
+                    return new ApiResponseDto<object> { Success = false, Message = "This exam is locked. Result processing is not allowed." };
                 }
 
                 // 2. Validation: Check if all marks are entered. Absent marks are complete entries and remain failures.
@@ -174,7 +182,7 @@ namespace ExamAPI.Services.Result
             }
 
             // Phase 1b: Pre-calculation Handlers (e.g. AddGrace)
-            foreach (var (rule, action) in pendingActions.Where(x => x.Action.ActionType != "DowngradeGP" && x.Action.ActionType != "AddBonusSGPI"))
+            foreach (var (rule, action) in pendingActions.Where(x => x.Action.ActionType != "DowngradeGP" && x.Action.ActionType != "AddBonusSGPI" && x.Action.ActionType != "SetResult"))
             {
                 var handler = _registry.GetActionHandler(action.ActionType);
                 if (handler != null)
@@ -210,18 +218,32 @@ namespace ExamAPI.Services.Result
             }
 
             // Phase 6: Finalize Results
+            foreach (var (rule, action) in pendingActions.Where(x => x.Action.ActionType == "SetResult"))
+            {
+                var handler = _registry.GetActionHandler(action.ActionType);
+                if (handler != null)
+                {
+                    await handler.ExecuteAsync(marksMaster, action, rule.OrdinanceSymbol);
+                }
+            }
+
             marksMaster.SGPI = (decimal)Math.Round((double)(marksMaster.SGPI ?? 0), 2);
             await UpdateAcademicRecord(marksMaster);
         }
 
         private void CalculateBaseGradePoints(MarksMaster marksMaster, RuleSet ruleSet)
         {
-            var isFail = marksMaster.StudentMarks!.Any(sm => (sm.Marks ?? 0) < GetPassingMarks(sm));
-            marksMaster.OverallRemark = isFail ? "Fail" : "Pass";
+            var passingStrategyAction = ruleSet.Rules?
+                .SelectMany(r => r.Actions ?? Enumerable.Empty<RuleAction>())
+                .FirstOrDefault(a => string.Equals(a.ActionType, "SetPassingStrategy", StringComparison.OrdinalIgnoreCase));
 
-            var subjectGroups = marksMaster.StudentMarks
+            bool isCombined = string.Equals(passingStrategyAction?.Target, "Combined", StringComparison.OrdinalIgnoreCase);
+
+            var subjectGroups = marksMaster.StudentMarks!
                 .GroupBy(sm => sm.SubjectId)
                 .ToList();
+
+            bool isFail = false;
 
             foreach (var group in subjectGroups)
             {
@@ -230,13 +252,42 @@ namespace ExamAPI.Services.Result
                 double percentage = subjectOutOf > 0 ? (subjectTotal * 100 / subjectOutOf) : 0;
                 
                 var (gp, gradeStr) = GetGradePointFromPercentage(percentage, ruleSet.GradeMaster);
+                bool subjectPassed = false;
+
+                if (isCombined)
+                {
+                    var firstHead = group.FirstOrDefault();
+                    var headFormulaStr = firstHead?.CreditMaster?.Credits?.FirstOrDefault(c => c.Head == firstHead?.Head)?.HeadFormula;
+                    
+                    if (!string.IsNullOrEmpty(headFormulaStr) && int.TryParse(headFormulaStr, out int formulaPercentage))
+                    {
+                        var requiredTotal = (subjectOutOf * formulaPercentage) / 100.0;
+                        subjectPassed = subjectTotal >= requiredTotal;
+                    }
+                    else
+                    {
+                        var totalPassingMarks = group.Sum(sm => (double)GetPassingMarks(sm));
+                        subjectPassed = subjectTotal >= totalPassingMarks;
+                    }
+                }
+                else
+                {
+                    subjectPassed = group.All(sm => (sm.Marks ?? 0) >= GetPassingMarks(sm));
+                }
+
+                if (!subjectPassed)
+                {
+                    isFail = true;
+                }
 
                 foreach (var sm in group)
                 {
-                    sm.GradePoint = (int)gp;
+                    sm.GradePoint = subjectPassed ? (int)gp : 0;
                     sm.Grade = gradeStr;
                 }
             }
+
+            marksMaster.OverallRemark = isFail ? "Fail" : "Pass";
         }
 
         private void CalculateBaseSGPI(MarksMaster marksMaster)
@@ -295,7 +346,11 @@ namespace ExamAPI.Services.Result
                 _context.StudentsOverallResults.Add(overallResult);
             }
 
-            int failedCount = marksMaster.StudentMarks!.Count(sm => (sm.Marks ?? 0) < GetPassingMarks(sm));
+            var subjectGroups = marksMaster.StudentMarks!
+                .GroupBy(sm => sm.SubjectId)
+                .ToList();
+            // A GradePoint of 0 means the subject is failed (calculated in CalculateBaseGradePoints)
+            int failedCount = subjectGroups.Count(group => group.First().GradePoint == 0);
             overallResult.KtTheory = failedCount.ToString();
             overallResult.SGPI = marksMaster.SGPI;
             overallResult.Credits = marksMaster.StudentMarks
@@ -304,6 +359,9 @@ namespace ExamAPI.Services.Result
                 .Where(cm => cm != null)
                 .Sum(cm => double.TryParse(cm!.TotalCredits, out var val) ? val : 0)
                 .ToString();
+            
+            double totalCreditsForSem = double.TryParse(overallResult.Credits, out var semCred) ? semCred : 0;
+            overallResult.CreditGradePoint = ((double)(marksMaster.SGPI ?? 0) * totalCreditsForSem).ToString();
 
             bool hasBacklog = await _context.StudentsOverallResults
                 .AnyAsync(r => r.StdMstId == marksMaster.StdMstId && 
@@ -321,8 +379,24 @@ namespace ExamAPI.Services.Result
                     .Where(r => r.StdMstId == marksMaster.StdMstId && r.SGPI.HasValue)
                     .ToListAsync();
                 
-                decimal totalSGPI = allSems.Sum(r => r.SGPI ?? 0);
-                marksMaster.CGPI = allSems.Count > 0 ? Math.Round(totalSGPI / allSems.Count, 2) : marksMaster.SGPI;
+                decimal totalEarnedGradePoints = 0;
+                decimal totalCreditsAllSems = 0;
+                
+                foreach (var sem in allSems)
+                {
+                    if (decimal.TryParse(sem.CreditGradePoint, out var cgp)) totalEarnedGradePoints += cgp;
+                    if (decimal.TryParse(sem.Credits, out var c)) totalCreditsAllSems += c;
+                }
+                
+                if (totalCreditsAllSems > 0)
+                {
+                    marksMaster.CGPI = Math.Round(totalEarnedGradePoints / totalCreditsAllSems, 2);
+                }
+                else
+                {
+                    marksMaster.CGPI = marksMaster.SGPI;
+                }
+                
                 overallResult.CGPI = marksMaster.CGPI;
             }
         }
@@ -341,7 +415,10 @@ namespace ExamAPI.Services.Result
             foreach (var condition in rule.Conditions)
             {
                 var provider = _registry.GetFactProvider(condition.FactName);
-                if (provider == null) continue;
+                if (provider == null) 
+                {
+                    throw new InvalidOperationException($"Fact provider for '{condition.FactName}' not found. Rule evaluation aborted.");
+                }
 
                 double factValue = await provider.GetValueAsync(student, marksMaster);
                 if (!CompareValues(factValue, condition.Operator, condition.Value))
@@ -380,7 +457,7 @@ namespace ExamAPI.Services.Result
                     .Include(mm => mm.StudentMarks)
                         .ThenInclude(sm => sm.CreditMaster)
                             .ThenInclude(cm => cm.Credits)
-                    .Where(mm => mm.ExamId == request.ExamId && mm.Pattern == request.Pattern && mm.SemesterId == request.SemId && !mm.IsDeleted);
+                    .Where(mm => mm.Student != null && mm.Student.CollegeId == collegeId && mm.ExamId == request.ExamId && mm.Pattern == request.Pattern && mm.SemesterId == request.SemId && !mm.IsDeleted);
 
                 if (request.IsSingleStudent && !string.IsNullOrEmpty(request.StudentId))
                 {
@@ -606,6 +683,96 @@ namespace ExamAPI.Services.Result
             }
         }
 
-    }
+        public async Task<byte[]> ExportResultsPdfAsync(ProcessResultRequest request, Guid collegeId)
+        {
+            var resultsResponse = await GetResultsAsync(request, collegeId);
+            if (!resultsResponse.Success || resultsResponse.Data == null) return Array.Empty<byte>();
 
+            var results = resultsResponse.Data.ToList();
+            if (!results.Any()) return Array.Empty<byte>();
+
+            var subjectIds = results.SelectMany(r => r.SubjectMarks.Keys).Distinct().OrderBy(id => id).ToList();
+
+            var pdf = Document.Create(container =>
+            {
+                container.Page(page =>
+                {
+                    page.Size(PageSizes.A4.Landscape());
+                    page.Margin(20, Unit.Point);
+                    page.PageColor(Colors.White);
+                    page.DefaultTextStyle(x => x.FontSize(9).FontFamily(Fonts.Arial));
+
+                    page.Header().Element(header =>
+                    {
+                        header.AlignCenter().Text("Overall Result Report").FontSize(16).SemiBold();
+                    });
+
+                    page.Content().Element(content =>
+                    {
+                        content.PaddingVertical(10).Table(table =>
+                        {
+                            table.ColumnsDefinition(columns =>
+                            {
+                                columns.RelativeColumn(2); // Seat No
+                                columns.RelativeColumn(3); // Student ID
+                                columns.RelativeColumn(4); // Student Name
+                                foreach (var id in subjectIds) columns.RelativeColumn(2);
+                                columns.RelativeColumn(1); // Total
+                                columns.RelativeColumn(1); // OutOf
+                                columns.RelativeColumn(1); // %
+                                columns.RelativeColumn(1); // SGPI
+                                columns.RelativeColumn(1); // CGPI
+                                columns.RelativeColumn(2); // Result
+                            });
+
+                            table.Header(header =>
+                            {
+                                header.Cell().BorderBottom(1).Padding(2).Text("Seat No").Bold();
+                                header.Cell().BorderBottom(1).Padding(2).Text("Student ID").Bold();
+                                header.Cell().BorderBottom(1).Padding(2).Text("Student Name").Bold();
+                                foreach (var id in subjectIds)
+                                {
+                                    header.Cell().BorderBottom(1).Padding(2).Text(id).Bold();
+                                }
+                                header.Cell().BorderBottom(1).Padding(2).Text("Total").Bold();
+                                header.Cell().BorderBottom(1).Padding(2).Text("OutOf").Bold();
+                                header.Cell().BorderBottom(1).Padding(2).Text("%").Bold();
+                                header.Cell().BorderBottom(1).Padding(2).Text("SGPI").Bold();
+                                header.Cell().BorderBottom(1).Padding(2).Text("CGPI").Bold();
+                                header.Cell().BorderBottom(1).Padding(2).Text("Result").Bold();
+                            });
+
+                            foreach (var r in results)
+                            {
+                                table.Cell().Padding(2).Text(r.SeatNo);
+                                table.Cell().Padding(2).Text(r.StudentId);
+                                table.Cell().Padding(2).Text(r.StudentName);
+                                foreach (var id in subjectIds)
+                                {
+                                    var val = r.SubjectMarks.ContainsKey(id) ? r.SubjectMarks[id] : "-";
+                                    table.Cell().Padding(2).Text(val);
+                                }
+                                table.Cell().Padding(2).Text(r.TotalMarks.ToString());
+                                table.Cell().Padding(2).Text(r.OutOf.ToString());
+                                table.Cell().Padding(2).Text(r.Percentage.ToString("0.00"));
+                                table.Cell().Padding(2).Text(r.Sgpi.ToString("0.00"));
+                                table.Cell().Padding(2).Text(r.Cgpi.ToString("0.00"));
+                                table.Cell().Padding(2).Text(r.ResultStatus);
+                            }
+                        });
+                    });
+
+                    page.Footer().AlignCenter().Text(x =>
+                    {
+                        x.Span("Page ");
+                        x.CurrentPageNumber();
+                        x.Span(" of ");
+                        x.TotalPages();
+                    });
+                });
+            });
+
+            return pdf.GeneratePdf();
+        }
+    }
 }

@@ -89,18 +89,10 @@ namespace ExamAPI.DTOs
         public string SubjectCode { get; set; } = string.Empty;
         public string SubjectName { get; set; } = string.Empty;
         public double Credits { get; set; }
-        
-        // ESE / PR / OR (Head 1)
-        public string Head1Type { get; set; } = string.Empty;
-        public double Head1Max { get; set; }
-        public string Head1Marks { get; set; } = string.Empty;
-        public string Head1Grace { get; set; } = string.Empty;
-        
-        // IA / TW (Head 2)
-        public string Head2Type { get; set; } = string.Empty;
-        public double Head2Max { get; set; }
-        public string Head2Marks { get; set; } = string.Empty;
-        public string Head2Grace { get; set; } = string.Empty;
+
+        // Heads are configured by staff per subject.  A subject is not limited to
+        // a theory/internal pair, so reports must preserve every configured head.
+        public List<HeadMarksDto> Heads { get; set; } = new();
 
         public double TotalMax { get; set; }
         public double PassingMax { get; set; }
@@ -109,6 +101,14 @@ namespace ExamAPI.DTOs
         public string Grade { get; set; } = string.Empty;
         public int GradePoint { get; set; }
         public double EarnedGradePoints => Credits * GradePoint;
+    }
+
+    public class HeadMarksDto
+    {
+        public string Head { get; set; } = string.Empty;
+        public double Max { get; set; }
+        public string Marks { get; set; } = string.Empty;
+        public string Grace { get; set; } = string.Empty;
     }
 
     public class SemesterRecordDto

@@ -24,7 +24,13 @@ namespace ExamAPI.Controllers
         [HttpGet("Exams")]
         public async Task<IActionResult> GetExams(Guid branchId, string semId, string pattern)
         {
-            var exams = await _resultService.GetExamsAsync(branchId, semId, pattern);
+            var collegeIdClaim = User.FindFirstValue("CollegeId");
+            if (string.IsNullOrEmpty(collegeIdClaim) || !Guid.TryParse(collegeIdClaim, out var collegeId))
+            {
+                return Unauthorized(new ApiResponseDto<object> { Success = false, Message = "Invalid or missing CollegeId in token." });
+            }
+
+            var exams = await _resultService.GetExamsAsync(branchId, semId, pattern, collegeId);
             return Ok(new ApiResponseDto<IEnumerable<ExamOptionDto>> 
             { 
                 Success = true, 
@@ -85,6 +91,23 @@ namespace ExamAPI.Controllers
 
             var bytes = await _resultService.ExportResultsExcelAsync(request, collegeId);
             return File(bytes, "text/csv", $"Results_{request.ExamId}.csv");
+        }
+        [HttpPost("ExportPdf")]
+        public async Task<IActionResult> ExportPdf([FromBody] ProcessResultRequest request)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(new ApiResponseDto<object> { Success = false, Message = "Invalid data.", Data = ModelState });
+            }
+
+            var collegeIdClaim = User.FindFirstValue("CollegeId");
+            if (string.IsNullOrEmpty(collegeIdClaim) || !Guid.TryParse(collegeIdClaim, out var collegeId))
+            {
+                return Unauthorized(new ApiResponseDto<object> { Success = false, Message = "Invalid or missing CollegeId in token." });
+            }
+
+            var bytes = await _resultService.ExportResultsPdfAsync(request, collegeId);
+            return File(bytes, "application/pdf", $"Results_{request.ExamId}.pdf");
         }
     }
 }
