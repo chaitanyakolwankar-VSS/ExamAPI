@@ -7,12 +7,17 @@ namespace ExamAPI.Data
     public class ApplicationDbContext : DbContext
     {
         private readonly IHttpContextAccessor _httpContextAccessor;
-
+        internal object ExamMaster;
 
         public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options, IHttpContextAccessor httpContextAccessor) : base(options)
         {
             _httpContextAccessor = httpContextAccessor;
         }
+
+        // =========================================
+        // 0. PasswordReset and OTP for User Master
+        // =========================================
+        public DbSet<PasswordResetOTP> PasswordResetOTPs { get; set; }
 
         // =========================================
         // 1. Organization & Settings

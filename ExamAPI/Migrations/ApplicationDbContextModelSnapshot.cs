@@ -201,12 +201,17 @@ namespace ExamAPI.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
+                    b.Property<Guid?>("StudentMasterStdMstId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
 
                     b.HasKey("CourseId");
 
                     b.HasIndex("CollegeId");
+
+                    b.HasIndex("StudentMasterStdMstId");
 
                     b.ToTable("CourseMaster");
                 });
@@ -259,7 +264,7 @@ namespace ExamAPI.Migrations
 
                     b.Property<string>("Semester")
                         .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
@@ -444,20 +449,6 @@ namespace ExamAPI.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
 
-                    b.Property<string>("QuotaType")
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
-
-                    b.Property<int?>("Rank")
-                        .HasColumnType("int");
-
-                    b.Property<string>("ResultRemark")
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<decimal?>("SGPI")
-                        .HasColumnType("decimal(18, 2)");
-
                     b.Property<string>("SeatNo")
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
@@ -485,6 +476,40 @@ namespace ExamAPI.Migrations
                     b.HasIndex("StdMstId");
 
                     b.ToTable("MarksMaster");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.PasswordResetOTP", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("ExpiryTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsUsed")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("OTP")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("PasswordResetOTP");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.PatternMaster", b =>
@@ -1082,6 +1107,10 @@ namespace ExamAPI.Migrations
                     b.Property<DateTime?>("DeletedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<bool>("Dyslexia")
+                        .HasColumnType("bit")
+                        .HasColumnName("DyslexiaStudent");
+
                     b.Property<string>("Email")
                         .HasMaxLength(255)
                         .HasColumnType("nvarchar(255)");
@@ -1536,6 +1565,10 @@ namespace ExamAPI.Migrations
                         .WithMany("Courses")
                         .HasForeignKey("CollegeId");
 
+                    b.HasOne("ExamAPI.Models.StudentMaster", null)
+                        .WithMany("CourseMasters")
+                        .HasForeignKey("StudentMasterStdMstId");
+
                     b.Navigation("College");
                 });
 
@@ -1591,6 +1624,17 @@ namespace ExamAPI.Migrations
                     b.Navigation("Exam");
 
                     b.Navigation("Student");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.PasswordResetOTP", b =>
+                {
+                    b.HasOne("ExamAPI.Models.UserMaster", "UserMaster")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("UserMaster");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.PatternMaster", b =>
@@ -1923,6 +1967,8 @@ namespace ExamAPI.Migrations
 
             modelBuilder.Entity("ExamAPI.Models.StudentMaster", b =>
                 {
+                    b.Navigation("CourseMasters");
+
                     b.Navigation("Eligibilities");
 
                     b.Navigation("Marks");

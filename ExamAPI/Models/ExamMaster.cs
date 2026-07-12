@@ -15,10 +15,10 @@ namespace ExamAPI.Models
         [MaxLength(50)]
         public string? ExamType { get; set; } // e.g., "Regular", "KT"
 
-        [MaxLength(20)]
+        
         public Guid? RevaluationForExamId { get; set; } // Academic Year Reference
 
-        [MaxLength(20)]
+        
         public string? Semester { get; set; }
         public Guid? AcademicYearAYID { get; set; }
 

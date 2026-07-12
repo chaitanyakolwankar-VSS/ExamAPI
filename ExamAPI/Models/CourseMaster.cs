@@ -25,5 +25,6 @@ namespace ExamAPI.Models
         public ICollection<SubjectMaster>? Subjects { get; set; }
 
         public ICollection<ExamMaster>? Exams { get; set; }
+
     }
 }
