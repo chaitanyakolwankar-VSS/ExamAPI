@@ -136,25 +136,36 @@ namespace ExamAPI.Services.RegularExam
 
                 foreach (var student in dto.Students.Where(x => x.Assigned))
                 {
-                    //Insert in MarksMaster
-                    var entity = new MarksMaster
+                    //Searchthe Entry in the MarksMaster
+                    var StdMstId = _context.MarksMasters.Where(a => a.SemesterId == dto.ExamInfo.Semester && a.ExamId == dto.ExamInfo.ExamId && a.AcademicYearAYID == dto.ExamInfo.Ayid && a.Pattern == dto.ExamInfo.Pattern && a.StdMstId == student.StdMstId).FirstOrDefault();
+                    var MarksId = Guid.NewGuid();
+                    if (StdMstId != null)
                     {
-                        MarksId = Guid.NewGuid(),
-                        StudentID = student.StudentId,
-                        AcademicYearAYID = dto.ExamInfo.Ayid,
-                        SemesterId = dto.ExamInfo.Semester,
-                        StdMstId = student.StdMstId,
-                        ExamId = dto.ExamInfo.ExamId,
-                        Pattern = dto.ExamInfo.Pattern,
-                    };
-                    _context.MarksMasters.Add(entity);
+                        MarksId = StdMstId.MarksId;
+                    }
+                    if (StdMstId == null)
+                    {
+                        //Insert in MarksMaster
+                        var entity = new MarksMaster
+                        {
+                            MarksId = MarksId,
+                            StudentID = student.StudentId,
+                            AcademicYearAYID = dto.ExamInfo.Ayid,
+                            SemesterId = dto.ExamInfo.Semester,
+                            StdMstId = student.StdMstId,
+                            ExamId = dto.ExamInfo.ExamId,
+                            Pattern = dto.ExamInfo.Pattern,
+                        };
+                        _context.MarksMasters.Add(entity);
+                    }
+                    
                     foreach (var cm in credits)
                     {
                         var marksentity = new StudentMarks
                         {
                             Id = Guid.NewGuid(),
                             Head = cm.Credit.Head,
-                            MarksId = entity.MarksId,
+                            MarksId = MarksId,
                             //SubjectId = dto.ExamInfo.SubjectId,
                             SubjectId = cm.SubjectId,
                             CreditsId = cm.Credit.CreditsId,
@@ -172,7 +183,7 @@ namespace ExamAPI.Services.RegularExam
                     Message = "Students saved successfully!!"
                 };
             }
-            catch
+            catch(Exception ex)
             {
 
                 await transaction.RollbackAsync();
@@ -202,10 +213,6 @@ namespace ExamAPI.Services.RegularExam
                 foreach (var student in dto.Students.Where(x => x.Assigned == false))
                 {
                     //Search Student from the MarksMaster
-
-                    var marksId1 = _context.MarksMasters.Where(x => x.StdMstId == student.StdMstId && x.ExamId == dto.ExamInfo.ExamId && x.AcademicYearAYID == dto.ExamInfo.Ayid && x.Pattern == dto.ExamInfo.Pattern).Select(a => a.MarksId);
-
-
                     var marksId = await _context.MarksMasters.Where(x => x.StdMstId == student.StdMstId && x.ExamId == dto.ExamInfo.ExamId && x.AcademicYearAYID == dto.ExamInfo.Ayid && x.Pattern == dto.ExamInfo.Pattern).Select(a => a.MarksId).FirstOrDefaultAsync();
 
                     // Delete All entry from the StudentMarks Subject Credit Id wise 
@@ -218,14 +225,17 @@ namespace ExamAPI.Services.RegularExam
                                 x.MarksId == marksId
                         );
                     }
+                    await _context.SaveChangesAsync();
+                    var hasEntries = await _context.StudentMarks
+               .AnyAsync(x => x.MarksId == marksId);
 
-                    // Delete All entry from the MarksMaster 
-                    await _genericRepository.DeleteAsync<MarksMaster>(marksId);
-
-
-
+                    if (!hasEntries)
+                    {
+                        await _genericRepository.DeleteAsync<MarksMaster>(marksId);
+                        await _context.SaveChangesAsync();
+                    }
                 }
-                await _context.SaveChangesAsync();
+               
                 await transaction.CommitAsync();
                 return new ApiResponseDto<object>
                 {
