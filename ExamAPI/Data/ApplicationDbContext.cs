@@ -15,6 +15,11 @@ namespace ExamAPI.Data
         }
 
         // =========================================
+        // 0. PasswordReset and OTP for User Master
+        // =========================================
+        public DbSet<PasswordResetOTP> PasswordResetOTPs { get; set; }
+
+        // =========================================
         // 1. Organization & Settings
         // =========================================
         public DbSet<College> Colleges { get; set; }

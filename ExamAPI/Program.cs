@@ -1,5 +1,8 @@
 using CloudinaryDotNet;
 using ExamAPI.Data;
+using ExamAPI.Models;
+using ExamAPI.Services.Email;
+using ExamAPI.Services.PasswordResetOTP;
 using ExamAPI.Services.RoleMaster;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -11,13 +14,14 @@ using Microsoft.IdentityModel.Tokens;
 using OfficeOpenXml;
 using System.Text;
 
+using System.Text; 
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHttpContextAccessor();
-
+builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
 
 var cloudConfig = builder.Configuration.GetSection("Cloudinary");
 var account = new Account(
@@ -35,6 +39,7 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 
 
 //--services and interface ------//
+builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<ExamAPI.Services.Auth.IAuthService, ExamAPI.Services.Auth.AuthService>();
 builder.Services.AddScoped<ExamAPI.Services.Common.IGenericRepository, ExamAPI.Services.Common.GenericRepository>();
 builder.Services.AddScoped<ExamAPI.Services.Common.IAcademicYearService, ExamAPI.Services.Common.AcademicYearService>();
@@ -45,6 +50,12 @@ builder.Services.AddScoped<ExamAPI.Services.Subject.ISubjectService, ExamAPI.Ser
 builder.Services.AddScoped<ExamAPI.Services.StudentMaster.IStudentMasterService, ExamAPI.Services.StudentMaster.StudentMasterService>();
 builder.Services.AddScoped<ExamAPI.Services.Exam.IExamService, ExamAPI.Services.Exam.ExamService>();
 builder.Services.AddScoped<ExamAPI.Services.RegularExam.IRegularExamService, ExamAPI.Services.RegularExam.RegularExamService>();
+builder.Services.AddScoped<ExamAPI.Services.Eligibility.IEligibilityService,ExamAPI.Services.Eligibility.EligibilityService>();
+builder.Services.AddScoped<ExamAPI.Services.GenerateHallTicket.IGenerateHallTicketService, ExamAPI.Services.GenerateHallTicket.GenerateHallTicketService>();
+builder.Services.AddScoped<ExamAPI.Services.UsersMaster.IUserMasterService, ExamAPI.Services.UsersMaster.UserMasterService>();
+builder.Services.AddScoped<IPasswordResetService, PasswordResetService>();
+builder.Services.AddScoped<ExamAPI.Services.AssignSeatNo.IAssignSeatNoService, ExamAPI.Services.AssignSeatNo.AssignSeatNoService>();
+
 //--services and interface end ------//
 
 
@@ -76,7 +87,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReactApp",
         policy => policy
-            .WithOrigins("http://localhost:5173", "https://localhost:5174") //  local React URL  
+            .WithOrigins("http://localhost:5173", "http://localhost:5174") //  local React URL  
             .AllowAnyMethod()
             .AllowAnyHeader());
 

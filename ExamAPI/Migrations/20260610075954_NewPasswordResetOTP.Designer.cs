@@ -4,6 +4,7 @@ using ExamAPI.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace ExamAPI.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260610075954_NewPasswordResetOTP")]
+    partial class NewPasswordResetOTP
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -201,17 +204,12 @@ namespace ExamAPI.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
-                    b.Property<Guid?>("StudentMasterStdMstId")
-                        .HasColumnType("uniqueidentifier");
-
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
 
                     b.HasKey("CourseId");
 
                     b.HasIndex("CollegeId");
-
-                    b.HasIndex("StudentMasterStdMstId");
 
                     b.ToTable("CourseMaster");
                 });
@@ -260,7 +258,8 @@ namespace ExamAPI.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("Semester")
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
@@ -319,6 +318,10 @@ namespace ExamAPI.Migrations
                     b.Property<Guid>("MarksId")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AYID")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
 
                     b.Property<Guid?>("AcademicYearAYID")
                         .HasColumnType("uniqueidentifier");
@@ -492,66 +495,6 @@ namespace ExamAPI.Migrations
                     b.HasKey("PermissionId");
 
                     b.ToTable("Permission");
-                });
-
-            modelBuilder.Entity("ExamAPI.Models.ResolutionMaster", b =>
-                {
-                    b.Property<Guid>("ID")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid?>("AYID")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid?>("CourseID")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<Guid?>("CreditID")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime?>("DeletedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<Guid?>("ExamID")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Head")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("bit");
-
-                    b.Property<string>("Remark")
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
-                    b.Property<string>("Resolution")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<Guid>("SubjectCreditID")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.HasKey("ID");
-
-                    b.HasIndex("AYID");
-
-                    b.HasIndex("CourseID");
-
-                    b.HasIndex("CreditID");
-
-                    b.HasIndex("ExamID");
-
-                    b.HasIndex("SubjectCreditID");
-
-                    b.ToTable("ResolutionMaster");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.RoleMaster", b =>
@@ -973,10 +916,6 @@ namespace ExamAPI.Migrations
 
                     b.Property<DateTime?>("DeletedAt")
                         .HasColumnType("datetime2");
-
-                    b.Property<bool>("Dyslexia")
-                        .HasColumnType("bit")
-                        .HasColumnName("DyslexiaStudent");
 
                     b.Property<string>("Email")
                         .HasMaxLength(255)
@@ -1426,10 +1365,6 @@ namespace ExamAPI.Migrations
                         .WithMany("Courses")
                         .HasForeignKey("CollegeId");
 
-                    b.HasOne("ExamAPI.Models.StudentMaster", null)
-                        .WithMany("CourseMasters")
-                        .HasForeignKey("StudentMasterStdMstId");
-
                     b.Navigation("College");
                 });
 
@@ -1494,41 +1429,6 @@ namespace ExamAPI.Migrations
                         .HasForeignKey("CollegeId");
 
                     b.Navigation("College");
-                });
-
-            modelBuilder.Entity("ExamAPI.Models.ResolutionMaster", b =>
-                {
-                    b.HasOne("ExamAPI.Models.AcademicYear", "AcademicYear")
-                        .WithMany()
-                        .HasForeignKey("AYID");
-
-                    b.HasOne("ExamAPI.Models.CourseMaster", "Course")
-                        .WithMany()
-                        .HasForeignKey("CourseID");
-
-                    b.HasOne("ExamAPI.Models.SubjectCreditMaster", "Credit")
-                        .WithMany()
-                        .HasForeignKey("CreditID");
-
-                    b.HasOne("ExamAPI.Models.ExamMaster", "Exam")
-                        .WithMany()
-                        .HasForeignKey("ExamID");
-
-                    b.HasOne("ExamAPI.Models.SubjectCredits", "SubjectCredit")
-                        .WithMany()
-                        .HasForeignKey("SubjectCreditID")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("AcademicYear");
-
-                    b.Navigation("Course");
-
-                    b.Navigation("Credit");
-
-                    b.Navigation("Exam");
-
-                    b.Navigation("SubjectCredit");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.RolePermission", b =>
@@ -1802,8 +1702,6 @@ namespace ExamAPI.Migrations
 
             modelBuilder.Entity("ExamAPI.Models.StudentMaster", b =>
                 {
-                    b.Navigation("CourseMasters");
-
                     b.Navigation("Eligibilities");
 
                     b.Navigation("Marks");
