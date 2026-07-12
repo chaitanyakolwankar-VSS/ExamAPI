@@ -183,7 +183,7 @@ namespace ExamAPI.Services.RegularExam
                     Message = "Students saved successfully!!"
                 };
             }
-            catch
+            catch(Exception ex)
             {
 
                 await transaction.RollbackAsync();
