@@ -250,6 +250,9 @@ namespace ExamAPI.Migrations
                         .HasColumnType("bit")
                         .HasDefaultValue(false);
 
+                    b.Property<bool>("IsLocked")
+                        .HasColumnType("bit");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -260,7 +263,8 @@ namespace ExamAPI.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("Semester")
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(20)
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
@@ -314,6 +318,96 @@ namespace ExamAPI.Migrations
                     b.ToTable("GraceLookup");
                 });
 
+            modelBuilder.Entity("ExamAPI.Models.GradeMaster", b =>
+                {
+                    b.Property<Guid>("GradeMasterId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("GradeMasterId");
+
+                    b.ToTable("GradeMaster");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.GradeThreshold", b =>
+                {
+                    b.Property<Guid>("ThresholdId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Grade")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<Guid>("GradeMasterId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("GradePoint")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
+                    b.Property<decimal>("MaxPercentage")
+                        .HasColumnType("decimal(5,2)");
+
+                    b.Property<decimal>("MinPercentage")
+                        .HasColumnType("decimal(5,2)");
+
+                    b.Property<string>("PerformanceRemark")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("ThresholdId");
+
+                    b.HasIndex("GradeMasterId");
+
+                    b.ToTable("GradeThreshold");
+                });
+
             modelBuilder.Entity("ExamAPI.Models.MarksMaster", b =>
                 {
                     b.Property<Guid>("MarksId")
@@ -322,6 +416,9 @@ namespace ExamAPI.Migrations
 
                     b.Property<Guid?>("AcademicYearAYID")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal?>("CGPI")
+                        .HasColumnType("decimal(18, 2)");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
@@ -335,6 +432,9 @@ namespace ExamAPI.Migrations
 
                     b.Property<Guid?>("ExamId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("HMCheck")
+                        .HasColumnType("bit");
 
                     b.Property<bool>("IsDeleted")
                         .ValueGeneratedOnAdd()
@@ -654,11 +754,18 @@ namespace ExamAPI.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
+                    b.Property<string>("OrdinanceSymbol")
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
                     b.Property<int>("Priority")
                         .HasColumnType("int");
 
                     b.Property<Guid?>("RuleSetId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("StopOnSuccess")
+                        .HasColumnType("bit");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
@@ -693,6 +800,10 @@ namespace ExamAPI.Migrations
 
                     b.Property<DateTime?>("DeletedAt")
                         .HasColumnType("datetime2");
+
+                    b.Property<string>("Expression")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
 
                     b.Property<bool>("IsDeleted")
                         .ValueGeneratedOnAdd()
@@ -798,6 +909,13 @@ namespace ExamAPI.Migrations
                     b.Property<DateTime?>("DeletedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("ExamType")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<Guid?>("GradeMasterId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
 
@@ -811,13 +929,15 @@ namespace ExamAPI.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
-                    b.Property<Guid?>("PatternId")
+                    b.Property<Guid>("PatternId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
 
                     b.HasKey("RuleSetId");
+
+                    b.HasIndex("GradeMasterId");
 
                     b.HasIndex("PatternId");
 
@@ -902,6 +1022,13 @@ namespace ExamAPI.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
+                    b.Property<string>("Grade")
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<int?>("GradePoint")
+                        .HasColumnType("int");
+
                     b.Property<string>("Head")
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
@@ -919,6 +1046,12 @@ namespace ExamAPI.Migrations
 
                     b.Property<Guid?>("MarksId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<int?>("RawGradePoint")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("RawMarks")
+                        .HasColumnType("int");
 
                     b.Property<string>("Remark")
                         .HasMaxLength(100)
@@ -1045,6 +1178,9 @@ namespace ExamAPI.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<decimal?>("CGPI")
+                        .HasColumnType("decimal(18, 2)");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
@@ -1075,6 +1211,9 @@ namespace ExamAPI.Migrations
                     b.Property<string>("KtTheory")
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
+
+                    b.Property<decimal?>("SGPI")
+                        .HasColumnType("decimal(18, 2)");
 
                     b.Property<string>("SemesterId")
                         .HasMaxLength(20)
@@ -1455,6 +1594,17 @@ namespace ExamAPI.Migrations
                     b.Navigation("College");
                 });
 
+            modelBuilder.Entity("ExamAPI.Models.GradeThreshold", b =>
+                {
+                    b.HasOne("ExamAPI.Models.GradeMaster", "GradeMaster")
+                        .WithMany("Thresholds")
+                        .HasForeignKey("GradeMasterId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("GradeMaster");
+                });
+
             modelBuilder.Entity("ExamAPI.Models.MarksMaster", b =>
                 {
                     b.HasOne("ExamAPI.Models.AcademicYear", "AcademicYear")
@@ -1579,9 +1729,17 @@ namespace ExamAPI.Migrations
 
             modelBuilder.Entity("ExamAPI.Models.RuleSet", b =>
                 {
+                    b.HasOne("ExamAPI.Models.GradeMaster", "GradeMaster")
+                        .WithMany("RuleSets")
+                        .HasForeignKey("GradeMasterId");
+
                     b.HasOne("ExamAPI.Models.PatternMaster", "Pattern")
                         .WithMany("RuleSets")
-                        .HasForeignKey("PatternId");
+                        .HasForeignKey("PatternId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("GradeMaster");
 
                     b.Navigation("Pattern");
                 });
@@ -1762,6 +1920,13 @@ namespace ExamAPI.Migrations
                     b.Navigation("Marks");
 
                     b.Navigation("TimeTables");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.GradeMaster", b =>
+                {
+                    b.Navigation("RuleSets");
+
+                    b.Navigation("Thresholds");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.MarksMaster", b =>

@@ -17,6 +17,12 @@ namespace ExamAPI.Models
         [MaxLength(20)]
         public string? Credits { get; set; }
 
+        [Column(TypeName = "decimal(18, 2)")]
+        public decimal? SGPI { get; set; }
+
+        [Column(TypeName = "decimal(18, 2)")]
+        public decimal? CGPI { get; set; }
+
         [MaxLength(50)]
         public string? KtTheory { get; set; } // Count of KTs
 
