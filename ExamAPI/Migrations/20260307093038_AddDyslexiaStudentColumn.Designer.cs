@@ -4,6 +4,7 @@ using ExamAPI.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace ExamAPI.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260307093038_AddDyslexiaStudentColumn")]
+    partial class AddDyslexiaStudentColumn
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -222,6 +225,10 @@ namespace ExamAPI.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("AYID")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
                     b.Property<Guid?>("AcademicYearAYID")
                         .HasColumnType("uniqueidentifier");
 
@@ -242,9 +249,6 @@ namespace ExamAPI.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
-                    b.Property<bool?>("IsActive")
-                        .HasColumnType("bit");
-
                     b.Property<bool>("IsDeleted")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bit")
@@ -255,12 +259,9 @@ namespace ExamAPI.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
-                    b.Property<Guid?>("RevaluationForExamId")
-                        .HasMaxLength(20)
-                        .HasColumnType("uniqueidentifier");
-
                     b.Property<string>("Semester")
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
@@ -320,6 +321,10 @@ namespace ExamAPI.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("AYID")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
                     b.Property<Guid?>("AcademicYearAYID")
                         .HasColumnType("uniqueidentifier");
 
@@ -344,10 +349,6 @@ namespace ExamAPI.Migrations
                     b.Property<string>("OverallRemark")
                         .HasMaxLength(255)
                         .HasColumnType("nvarchar(255)");
-
-                    b.Property<string>("Pattern")
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
 
                     b.Property<string>("SeatNo")
                         .HasMaxLength(50)
@@ -376,40 +377,6 @@ namespace ExamAPI.Migrations
                     b.HasIndex("StdMstId");
 
                     b.ToTable("MarksMaster");
-                });
-
-            modelBuilder.Entity("ExamAPI.Models.PasswordResetOTP", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("AttemptCount")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<DateTime>("ExpiryTime")
-                        .HasColumnType("datetime2");
-
-                    b.Property<bool>("IsUsed")
-                        .HasColumnType("bit");
-
-                    b.Property<string>("OTP")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("UserId");
-
-                    b.ToTable("PasswordResetOTP");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.PatternMaster", b =>
@@ -492,66 +459,6 @@ namespace ExamAPI.Migrations
                     b.HasKey("PermissionId");
 
                     b.ToTable("Permission");
-                });
-
-            modelBuilder.Entity("ExamAPI.Models.ResolutionMaster", b =>
-                {
-                    b.Property<Guid>("ID")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid?>("AYID")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid?>("CourseID")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<Guid?>("CreditID")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime?>("DeletedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<Guid?>("ExamID")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Head")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("bit");
-
-                    b.Property<string>("Remark")
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
-                    b.Property<string>("Resolution")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<Guid>("SubjectCreditID")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.HasKey("ID");
-
-                    b.HasIndex("AYID");
-
-                    b.HasIndex("CourseID");
-
-                    b.HasIndex("CreditID");
-
-                    b.HasIndex("ExamID");
-
-                    b.HasIndex("SubjectCreditID");
-
-                    b.ToTable("ResolutionMaster");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.RoleMaster", b =>
@@ -830,9 +737,9 @@ namespace ExamAPI.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid?>("AYID")
+                    b.Property<string>("AYID")
                         .HasMaxLength(20)
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("nvarchar(20)");
 
                     b.Property<Guid?>("CourseId")
                         .HasColumnType("uniqueidentifier");
@@ -1457,7 +1364,7 @@ namespace ExamAPI.Migrations
 
             modelBuilder.Entity("ExamAPI.Models.MarksMaster", b =>
                 {
-                    b.HasOne("ExamAPI.Models.AcademicYear", "AcademicYear")
+                    b.HasOne("ExamAPI.Models.AcademicYear", null)
                         .WithMany("Marks")
                         .HasForeignKey("AcademicYearAYID");
 
@@ -1469,22 +1376,9 @@ namespace ExamAPI.Migrations
                         .WithMany("Marks")
                         .HasForeignKey("StdMstId");
 
-                    b.Navigation("AcademicYear");
-
                     b.Navigation("Exam");
 
                     b.Navigation("Student");
-                });
-
-            modelBuilder.Entity("ExamAPI.Models.PasswordResetOTP", b =>
-                {
-                    b.HasOne("ExamAPI.Models.UserMaster", "UserMaster")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("UserMaster");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.PatternMaster", b =>
@@ -1494,41 +1388,6 @@ namespace ExamAPI.Migrations
                         .HasForeignKey("CollegeId");
 
                     b.Navigation("College");
-                });
-
-            modelBuilder.Entity("ExamAPI.Models.ResolutionMaster", b =>
-                {
-                    b.HasOne("ExamAPI.Models.AcademicYear", "AcademicYear")
-                        .WithMany()
-                        .HasForeignKey("AYID");
-
-                    b.HasOne("ExamAPI.Models.CourseMaster", "Course")
-                        .WithMany()
-                        .HasForeignKey("CourseID");
-
-                    b.HasOne("ExamAPI.Models.SubjectCreditMaster", "Credit")
-                        .WithMany()
-                        .HasForeignKey("CreditID");
-
-                    b.HasOne("ExamAPI.Models.ExamMaster", "Exam")
-                        .WithMany()
-                        .HasForeignKey("ExamID");
-
-                    b.HasOne("ExamAPI.Models.SubjectCredits", "SubjectCredit")
-                        .WithMany()
-                        .HasForeignKey("SubjectCreditID")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("AcademicYear");
-
-                    b.Navigation("Course");
-
-                    b.Navigation("Credit");
-
-                    b.Navigation("Exam");
-
-                    b.Navigation("SubjectCredit");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.RolePermission", b =>

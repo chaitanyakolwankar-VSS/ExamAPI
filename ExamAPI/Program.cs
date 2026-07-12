@@ -6,7 +6,14 @@ using ExamAPI.Services.PasswordResetOTP;
 using ExamAPI.Services.RoleMaster;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+
+using Microsoft.Extensions.FileProviders;
+
 using Microsoft.IdentityModel.Tokens;
+using OfficeOpenXml;
+using System.Text;
+
 using System.Text; 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -27,6 +34,7 @@ builder.Services.AddSingleton(new Cloudinary(account));
 //  connection string
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+
 //  connection string end ------------//
 
 
@@ -39,6 +47,7 @@ builder.Services.AddScoped<ExamAPI.Services.Permissions.IPermissionService, Exam
 builder.Services.AddScoped<ExamAPI.Services.CollegeDetail.ICollegeDetailService, ExamAPI.Services.CollegeDetail.CollegeDetailService>();
 builder.Services.AddScoped<IRoleMasterService, RoleMasterService>();
 builder.Services.AddScoped<ExamAPI.Services.Subject.ISubjectService, ExamAPI.Services.Subject.SubjectService>();
+builder.Services.AddScoped<ExamAPI.Services.StudentMaster.IStudentMasterService, ExamAPI.Services.StudentMaster.StudentMasterService>();
 builder.Services.AddScoped<ExamAPI.Services.Exam.IExamService, ExamAPI.Services.Exam.ExamService>();
 builder.Services.AddScoped<ExamAPI.Services.RegularExam.IRegularExamService, ExamAPI.Services.RegularExam.RegularExamService>();
 builder.Services.AddScoped<ExamAPI.Services.Eligibility.IEligibilityService,ExamAPI.Services.Eligibility.EligibilityService>();
@@ -81,6 +90,7 @@ builder.Services.AddCors(options =>
             .WithOrigins("http://localhost:5173", "http://localhost:5174") //  local React URL  
             .AllowAnyMethod()
             .AllowAnyHeader());
+
 });
 //CORS config
 
@@ -95,7 +105,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
-
+app.UseStaticFiles();
 app.UseHttpsRedirection();
 
 app.UseCors("AllowReactApp");
@@ -107,3 +117,5 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+

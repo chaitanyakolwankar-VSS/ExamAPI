@@ -4,6 +4,7 @@ using ExamAPI.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace ExamAPI.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260327053311_Update")]
+    partial class Update
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -256,7 +259,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("nvarchar(100)");
 
                     b.Property<Guid?>("RevaluationForExamId")
-                        .HasMaxLength(20)
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("Semester")
@@ -349,6 +351,10 @@ namespace ExamAPI.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
 
+                    b.Property<string>("QuotaType")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
                     b.Property<string>("SeatNo")
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
@@ -376,40 +382,6 @@ namespace ExamAPI.Migrations
                     b.HasIndex("StdMstId");
 
                     b.ToTable("MarksMaster");
-                });
-
-            modelBuilder.Entity("ExamAPI.Models.PasswordResetOTP", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("AttemptCount")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<DateTime>("ExpiryTime")
-                        .HasColumnType("datetime2");
-
-                    b.Property<bool>("IsUsed")
-                        .HasColumnType("bit");
-
-                    b.Property<string>("OTP")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("UserId");
-
-                    b.ToTable("PasswordResetOTP");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.PatternMaster", b =>
@@ -1474,17 +1446,6 @@ namespace ExamAPI.Migrations
                     b.Navigation("Exam");
 
                     b.Navigation("Student");
-                });
-
-            modelBuilder.Entity("ExamAPI.Models.PasswordResetOTP", b =>
-                {
-                    b.HasOne("ExamAPI.Models.UserMaster", "UserMaster")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("UserMaster");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.PatternMaster", b =>
