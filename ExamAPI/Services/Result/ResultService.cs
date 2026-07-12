@@ -27,10 +27,17 @@ namespace ExamAPI.Services.Result
             _registry = registry;
         }
 
-        public async Task<IEnumerable<ExamOptionDto>> GetExamsAsync(Guid branchId, string semId, string pattern, Guid collegeId)
+        public async Task<IEnumerable<ExamOptionDto>> GetExamsAsync(Guid branchId, string semId, string pattern, Guid collegeId, Guid? ayid = null)
         {
-            var exams = await _context.Exams
-                .Where(e => e.Course != null && e.Course.CollegeId == collegeId && e.CourseId == branchId && e.Semester == semId && !e.IsDeleted)
+            var query = _context.Exams
+                .Where(e => e.Course != null && e.Course.CollegeId == collegeId && e.CourseId == branchId && e.Semester == semId && !e.IsDeleted);
+
+            if (ayid.HasValue && ayid.Value != Guid.Empty)
+            {
+                query = query.Where(e => e.AcademicYearAYID == ayid.Value);
+            }
+
+            var exams = await query
                 .Select(e => new ExamOptionDto
                 {
                     ExamId = e.ExamId,

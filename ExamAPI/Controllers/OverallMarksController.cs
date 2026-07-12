@@ -22,7 +22,7 @@ namespace ExamAPI.Controllers
         }
 
         [HttpGet("Exams")]
-        public async Task<IActionResult> GetExams(Guid branchId, string semId, string pattern)
+        public async Task<IActionResult> GetExams(Guid branchId, string semId, string pattern, Guid? ayid)
         {
             var collegeIdClaim = User.FindFirstValue("CollegeId");
             if (string.IsNullOrEmpty(collegeIdClaim) || !Guid.TryParse(collegeIdClaim, out var collegeId))
@@ -30,7 +30,7 @@ namespace ExamAPI.Controllers
                 return Unauthorized(new ApiResponseDto<object> { Success = false, Message = "Invalid or missing CollegeId in token." });
             }
 
-            var exams = await _resultService.GetExamsAsync(branchId, semId, pattern, collegeId);
+            var exams = await _resultService.GetExamsAsync(branchId, semId, pattern, collegeId, ayid);
             return Ok(new ApiResponseDto<IEnumerable<ExamOptionDto>> 
             { 
                 Success = true, 
