@@ -3,7 +3,7 @@ using DocumentFormat.OpenXml.Spreadsheet;
 using ExamAPI.DTOs;
 
 using ExamAPI.Services.RoleMaster;
-using ExamAPI.Services.StudentMaster;
+using ExamAPI.Services.StudentMasters;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 

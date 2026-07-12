@@ -1,4 +1,4 @@
-﻿using ExamAPI.Data;
+using ExamAPI.Data;
 using ExamAPI.DTOs;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Identity.Data;
@@ -15,7 +15,7 @@ namespace ExamAPI.Services.Auth
         private readonly IConfiguration _configuration;
         private readonly ApplicationDbContext _context;
 
-        public AuthService(IConfiguration configuration,ApplicationDbContext context)
+        public AuthService(IConfiguration configuration, ApplicationDbContext context)
         {
             _configuration = configuration;
             _context = context;
@@ -24,33 +24,31 @@ namespace ExamAPI.Services.Auth
 
         public async Task<LoginResponseDto?> LoginAsync(LoginRequestDto request)
         {
-            var user =await _context.UserMasters.FirstOrDefaultAsync(x => x.Username == request.Username && x.IsDeleted==false);
+            var user = await _context.UserMasters
+                .Include(x => x.Role)
+                .FirstOrDefaultAsync(x => x.Username == request.Username && x.IsDeleted == false);
 
-            if (user == null && !BCrypt.Net.BCrypt.Verify(request.Password, user.HashedPassword))
+            if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.HashedPassword))
             {
-                var user = new UserDto
-                {
-                    UserId = Guid.NewGuid(),
-                    Username = "admin",
-                    Email = "admin@Test.com",
-                    Role = "Admin",
-                    CollegeId = "103EBF99-FEB0-43BC-A312-56FE85D3BCC6"
-                };
+                throw new UnauthorizedAccessException("Invalid User Name or Password");
             }
 
-            var college = await _context.Colleges.FirstOrDefaultAsync(x => x.CollegeId == user.CollegeId);
+            var collegeId = user.CollegeId ?? Guid.Parse("103EBF99-FEB0-43BC-A312-56FE85D3BCC6");
+            var college = await _context.Colleges.FirstOrDefaultAsync(x => x.CollegeId == collegeId);
 
             var userDto = new UserDto
             {
                 UserId = user.UserId,
                 Username = user.Username,
-                Email=user.Email
+                Email = user.Email,
+                Role = user.Role?.Name ?? "User",
+                CollegeID = collegeId.ToString()
             };
 
             var collegeDto = new CollegeDetailDTO
             {
-                CollegeId = college.CollegeId,
-                Name = college.Name
+                CollegeId = college?.CollegeId ?? collegeId,
+                Name = college?.Name ?? "Dummy College"
             };
             var token = GenerateJwtToken(userDto);
 
@@ -72,7 +70,7 @@ namespace ExamAPI.Services.Auth
                 new Claim(ClaimTypes.NameIdentifier, user.UserId.ToString()),
                 new Claim(ClaimTypes.Name, user.Username),
                 new Claim(ClaimTypes.Role, user.Role),
-                new Claim("CollegeId", user.CollegeId)
+                new Claim("CollegeId", user.CollegeID)
             };
 
             var tokenDescriptor = new SecurityTokenDescriptor

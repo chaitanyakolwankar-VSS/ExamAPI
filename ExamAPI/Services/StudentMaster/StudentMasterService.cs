@@ -13,7 +13,7 @@ using System.Data;
 
 
 
-namespace ExamAPI.Services.StudentMaster
+namespace ExamAPI.Services.StudentMasters
 {
     public class StudentMasterService : IStudentMasterService
     {

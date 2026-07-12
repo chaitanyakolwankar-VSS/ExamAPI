@@ -49,7 +49,7 @@ builder.Services.AddScoped<ExamAPI.Services.Permissions.IPermissionService, Exam
 builder.Services.AddScoped<ExamAPI.Services.CollegeDetail.ICollegeDetailService, ExamAPI.Services.CollegeDetail.CollegeDetailService>();
 builder.Services.AddScoped<IRoleMasterService, RoleMasterService>();
 builder.Services.AddScoped<ExamAPI.Services.Subject.ISubjectService, ExamAPI.Services.Subject.SubjectService>();
-builder.Services.AddScoped<ExamAPI.Services.StudentMaster.IStudentMasterService, ExamAPI.Services.StudentMaster.StudentMasterService>();
+builder.Services.AddScoped<ExamAPI.Services.StudentMasters.IStudentMasterService, ExamAPI.Services.StudentMasters.StudentMasterService>();
 builder.Services.AddScoped<ExamAPI.Services.Exam.IExamService, ExamAPI.Services.Exam.ExamService>();
 builder.Services.AddScoped<ExamAPI.Services.RegularExam.IRegularExamService, ExamAPI.Services.RegularExam.RegularExamService>();
 builder.Services.AddScoped<ExamAPI.Services.Eligibility.IEligibilityService,ExamAPI.Services.Eligibility.EligibilityService>();
