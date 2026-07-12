@@ -24,6 +24,40 @@ namespace ExamAPI.Services.Auth
 
         public async Task<LoginResponseDto?> LoginAsync(LoginRequestDto request)
         {
+            // 1. Check for Dummy / Bypass Credentials
+            if (request.Username.ToLower() == "admin" && request.Password == "admin")
+            {
+                var dummyCollegeId = Guid.Parse("103EBF99-FEB0-43BC-A312-56FE85D3BCC6");
+                
+                // Try to find the college in DB, or fallback to dummy
+                var college = await _context.Colleges.FirstOrDefaultAsync(x => x.CollegeId == dummyCollegeId);
+
+                var userDto = new UserDto
+                {
+                    UserId = Guid.NewGuid(),
+                    Username = "admin",
+                    Email = "admin@Test.com",
+                    Role = "Admin",
+                    CollegeID = dummyCollegeId.ToString()
+                };
+
+                var collegeDto = new CollegeDetailDTO
+                {
+                    CollegeId = college?.CollegeId ?? dummyCollegeId,
+                    Name = college?.Name ?? "Dummy College"
+                };
+
+                var token = GenerateJwtToken(userDto);
+
+                return new LoginResponseDto
+                {
+                    Token = token,
+                    User = userDto,
+                    College = collegeDto
+                };
+            }
+
+            // 2. Fallback to Database Authentication
             var user = await _context.UserMasters
                 .Include(x => x.Role)
                 .FirstOrDefaultAsync(x => x.Username == request.Username && x.IsDeleted == false);
@@ -34,9 +68,9 @@ namespace ExamAPI.Services.Auth
             }
 
             var collegeId = user.CollegeId ?? Guid.Parse("103EBF99-FEB0-43BC-A312-56FE85D3BCC6");
-            var college = await _context.Colleges.FirstOrDefaultAsync(x => x.CollegeId == collegeId);
+            var dbCollege = await _context.Colleges.FirstOrDefaultAsync(x => x.CollegeId == collegeId);
 
-            var userDto = new UserDto
+            var dbUserDto = new UserDto
             {
                 UserId = user.UserId,
                 Username = user.Username,
@@ -45,20 +79,20 @@ namespace ExamAPI.Services.Auth
                 CollegeID = collegeId.ToString()
             };
 
-            var collegeDto = new CollegeDetailDTO
+            var dbCollegeDto = new CollegeDetailDTO
             {
-                CollegeId = college?.CollegeId ?? collegeId,
-                Name = college?.Name ?? "Dummy College"
+                CollegeId = dbCollege?.CollegeId ?? collegeId,
+                Name = dbCollege?.Name ?? "Dummy College"
             };
-            var token = GenerateJwtToken(userDto);
+
+            var dbToken = GenerateJwtToken(dbUserDto);
 
             return new LoginResponseDto
             {
-                Token = token,
-                User = userDto,
-                College = collegeDto
+                Token = dbToken,
+                User = dbUserDto,
+                College = dbCollegeDto
             };
-
         } 
 
         private string GenerateJwtToken(UserDto user)
