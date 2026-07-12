@@ -83,13 +83,14 @@ namespace ExamAPI.Services.Report
             {
                 throw new InvalidOperationException("The selected exam is unavailable for the current college.");
             }
-            
-            if (!exam.IsLocked)
-            {
-                exam.IsLocked = true;
-                await _context.SaveChangesAsync();
-            }
-            
+
+            // Commented out to prevent automatic exam locking during testing/run
+            // if (!exam.IsLocked)
+            // {
+            //     exam.IsLocked = true;
+            //     await _context.SaveChangesAsync();
+            // }
+
             var ruleSet = await _context.RuleSets
                 .Include(rs => rs.GradeMaster)
                     .ThenInclude(gm => gm!.Thresholds)
@@ -110,8 +111,8 @@ namespace ExamAPI.Services.Report
             var reportDto = new GazetteReportDto
             {
                 CollegeName = collegeName,
-                ProgramName = programName, 
-                Semester = $"Semester {request.SemId}", 
+                ProgramName = programName,
+                Semester = $"Semester {request.SemId}",
                 ExamName = exam?.Name ?? "Regular Exam",
                 ResultDate = DateTime.Now,
                 ShowCgpi = request.CgpiForFail,
@@ -158,7 +159,7 @@ namespace ExamAPI.Services.Report
             foreach (var studentGroup in groupedByStudent)
             {
                 var marksMaster = studentGroup.FirstOrDefault(m => m.ExamId == request.ExamId) ?? studentGroup.First();
-                
+
                 var student = marksMaster.Student;
                 var studentName = student != null ? $"{student.FirstName} {student.LastName}" : "N/A";
                 if (marksMaster.QuotaType == "LD") studentName = "~" + studentName;
@@ -168,7 +169,7 @@ namespace ExamAPI.Services.Report
                 if ((request.CxgSems.Any() || request.GpaSems.Any()) && marksMaster.StdMstId.HasValue && bulkHistory.ContainsKey(marksMaster.StdMstId.Value))
                 {
                     var history = bulkHistory[marksMaster.StdMstId.Value];
-                    
+
                     if (request.CxgSems.Any())
                     {
                         var relevantSems = history.Where(h =>
@@ -179,7 +180,7 @@ namespace ExamAPI.Services.Report
 
                         var cxgTotalCredits = relevantSems.Sum(h => h.Credits);
                         var cxgTotalEarnedGradePoints = relevantSems.Sum(h => h.EarnedGradePoints);
-                        
+
                         if (cxgTotalCredits > 0)
                         {
                             calculatedCgpi = (double)(cxgTotalEarnedGradePoints / cxgTotalCredits);
@@ -268,47 +269,99 @@ namespace ExamAPI.Services.Report
             ExcelPackage.License.SetNonCommercialPersonal("ReactApi Project");
             using var package = new ExcelPackage();
             var worksheet = package.Workbook.Worksheets.Add("Gazette");
+            worksheet.Cells.Style.Font.Name = "Arial";
+            worksheet.Cells.Style.Font.Size = 8;
 
-            // Add Headers
-            worksheet.Cells[1, 1].Value = "Seat No";
-            worksheet.Cells[1, 2].Value = "Student Name";
-            worksheet.Cells[1, 3].Value = "PRN";
+            var studentsPerPage = Math.Clamp(request.StudentsPerPage, 1, 4);
+            var subjectsPerRow = Math.Clamp(request.SubjectsPerRow, 1, 6);
+            var studentChunks = reportDto.Students.Chunk(studentsPerPage).ToList();
 
-            var reportSubjects = reportDto.Students
-                .SelectMany(student => student.Subjects)
-                .GroupBy(subject => subject.SubjectCode)
-                .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
-                .Select(group => new
-                {
-                    SubjectCode = group.Key,
-                    Heads = group
-                        .SelectMany(subject => subject.Heads)
-                        .Select(head => head.Head)
-                        .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .OrderBy(head => head, StringComparer.OrdinalIgnoreCase)
-                        .ToList()
-                })
-                .ToList();
+            int totalColumns = 1 + subjectsPerRow + 3 + (reportDto.ShowCgpi ? 1 : 0) + 1;
 
-            int col = 4;
-            foreach (var subject in reportSubjects)
+            worksheet.PrinterSettings.Orientation = eOrientation.Landscape;
+            worksheet.PrinterSettings.PaperSize = ePaperSize.A4; // Match PDF A4 Landscape
+            worksheet.PrinterSettings.LeftMargin = 0.2;
+            worksheet.PrinterSettings.RightMargin = 0.2;
+            worksheet.PrinterSettings.TopMargin = 0.2;
+            worksheet.PrinterSettings.BottomMargin = 0.2;
+            worksheet.PrinterSettings.HeaderMargin = 0.0;
+            worksheet.PrinterSettings.FooterMargin = 0.0;
+            worksheet.PrinterSettings.FitToPage = true;
+            worksheet.PrinterSettings.FitToWidth = 1;
+            worksheet.PrinterSettings.FitToHeight = 0;
+            worksheet.PrinterSettings.RepeatRows = new ExcelAddress("1:5"); // Rows 1 to 5 repeat on every printed page
+
+            int currentRow = 1;
+
+            // Header: College Name
+            worksheet.Cells[currentRow, 1, currentRow, totalColumns].Merge = true;
+            worksheet.Cells[currentRow, 1].Value = reportDto.CollegeName;
+            worksheet.Cells[currentRow, 1].Style.Font.Bold = true;
+            worksheet.Cells[currentRow, 1].Style.Font.Size = 18;
+            worksheet.Cells[currentRow, 1].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
+            currentRow++;
+
+            // Header: Program & Date
+            int halfCols = Math.Max(totalColumns / 2, 1);
+            worksheet.Cells[currentRow, 1, currentRow, halfCols].Merge = true;
+            worksheet.Cells[currentRow, 1].Value = $"Program Name: {reportDto.ProgramName}";
+            worksheet.Cells[currentRow, 1].Style.Font.Bold = true;
+            worksheet.Cells[currentRow, 1].Style.Font.Size = 12;
+
+            worksheet.Cells[currentRow, halfCols + 1, currentRow, totalColumns].Merge = true;
+            worksheet.Cells[currentRow, halfCols + 1].Value = $"Result Date : {reportDto.ResultDate:dd/MM/yyyy}";
+            worksheet.Cells[currentRow, halfCols + 1].Style.Font.Bold = true;
+            worksheet.Cells[currentRow, halfCols + 1].Style.Font.Size = 12;
+            worksheet.Cells[currentRow, halfCols + 1].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Right;
+            currentRow++;
+
+            // Header: Semester & Exam
+            worksheet.Cells[currentRow, 1, currentRow, halfCols].Merge = true;
+            worksheet.Cells[currentRow, 1].Value = $"{reportDto.Semester}";
+            worksheet.Cells[currentRow, 1].Style.Font.Bold = true;
+            worksheet.Cells[currentRow, 1].Style.Font.Size = 12;
+
+            worksheet.Cells[currentRow, halfCols + 1, currentRow, totalColumns].Merge = true;
+            worksheet.Cells[currentRow, halfCols + 1].Value = $"Exam: {reportDto.ExamName}";
+            worksheet.Cells[currentRow, halfCols + 1].Style.Font.Bold = true;
+            worksheet.Cells[currentRow, halfCols + 1].Style.Font.Size = 12;
+            worksheet.Cells[currentRow, halfCols + 1].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Right;
+            currentRow++;
+
+            currentRow++; // Empty row
+
+            int headerRow = currentRow;
+            // Add Table Headers
+            worksheet.Cells[headerRow, 1].Value = "Student Details";
+            for (int i = 0; i < subjectsPerRow; i++)
             {
-                foreach (var head in subject.Heads)
-                {
-                    worksheet.Cells[1, col++].Value = $"{subject.SubjectCode} ({head})";
-                }
-
-                worksheet.Cells[1, col++].Value = $"{subject.SubjectCode} Total";
+                worksheet.Cells[headerRow, 2 + i].Value = "SubCode\nHead types\nMin/Max";
             }
-            
-            worksheet.Cells[1, col++].Value = "Total Marks";
-            worksheet.Cells[1, col++].Value = "Credits";
-            worksheet.Cells[1, col++].Value = "SGPI";
+            int col = 2 + subjectsPerRow;
+            worksheet.Cells[headerRow, col++].Value = "Obt/Tot";
+            worksheet.Cells[headerRow, col++].Value = "CG\nCE";
+            worksheet.Cells[headerRow, col++].Value = "SGPA";
             if (reportDto.ShowCgpi)
             {
-                worksheet.Cells[1, col++].Value = "CGPI";
+                worksheet.Cells[headerRow, col++].Value = "CGPI";
             }
-            worksheet.Cells[1, col].Value = "Remark";
+            worksheet.Cells[headerRow, col].Value = "Remark";
+
+            worksheet.Row(headerRow).Height = 45;
+
+            using (var range = worksheet.Cells[headerRow, 1, headerRow, totalColumns])
+            {
+                range.Style.Font.Bold = true;
+                range.Style.WrapText = true;
+                range.Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Center;
+                range.Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
+                range.Style.Border.Top.Style = OfficeOpenXml.Style.ExcelBorderStyle.Thin;
+                range.Style.Border.Bottom.Style = OfficeOpenXml.Style.ExcelBorderStyle.Thin;
+                range.Style.Border.Left.Style = OfficeOpenXml.Style.ExcelBorderStyle.Thin;
+                range.Style.Border.Right.Style = OfficeOpenXml.Style.ExcelBorderStyle.Thin;
+                range.Style.Fill.PatternType = OfficeOpenXml.Style.ExcelFillStyle.Solid;
+                range.Style.Fill.BackgroundColor.SetColor(System.Drawing.Color.LightGray);
+            }
 
             string FormatNumber(double value)
             {
@@ -317,54 +370,132 @@ namespace ExamAPI.Services.Report
                     : value.ToString("0.##");
             }
 
-            // Add Data
-            int row = 2;
-            foreach (var student in reportDto.Students)
+            currentRow++;
+
+            var distinctSubjects = reportDto.Students
+                .SelectMany(s => s.Subjects)
+                .GroupBy(s => s.SubjectCode)
+                .Select(g => g.First())
+                .OrderBy(s => s.SubjectCode)
+                .ToList();
+
+            foreach (var chunk in studentChunks)
             {
-                var hasFailure = student.Subjects.Any(subject => string.Equals(subject.Grade, "F", StringComparison.OrdinalIgnoreCase));
-                var displayRemark = hasFailure && request.NoRleForFail && string.Equals(student.Remark, "RLE", StringComparison.OrdinalIgnoreCase)
-                    ? "Fail"
-                    : student.Remark;
-                var sgpi = hasFailure && !request.SgpiForFail ? "--" : FormatNumber(student.SGPI);
-                var cgpi = hasFailure && !request.CgpiForFail ? "--" : FormatNumber(student.CGPI ?? 0);
-
-                worksheet.Cells[row, 1].Value = student.SeatNo;
-                worksheet.Cells[row, 2].Value = student.StudentName;
-                worksheet.Cells[row, 3].Value = student.PRN;
-                
-                int dataCol = 4;
-                foreach (var subjectColumn in reportSubjects)
+                foreach (var student in chunk)
                 {
-                    var subject = student.Subjects.FirstOrDefault(sub =>
-                        string.Equals(sub.SubjectCode, subjectColumn.SubjectCode, StringComparison.OrdinalIgnoreCase));
-
-                    foreach (var headName in subjectColumn.Heads)
+                    var subjectRows = student.Subjects.Chunk(subjectsPerRow).ToList();
+                    if (subjectRows.Count == 0)
                     {
-                        var head = subject?.Heads.FirstOrDefault(item =>
-                            string.Equals(item.Head, headName, StringComparison.OrdinalIgnoreCase));
-                        worksheet.Cells[row, dataCol++].Value = head == null ? "-" : $"{head.Marks}{head.Grace}";
+                        subjectRows.Add(Array.Empty<SubjectMarksDto>());
                     }
 
-                    if (subject != null && double.TryParse(subject.TotalObtained, out var subTotal))
+                    int startRow = currentRow;
+                    int rowSpan = subjectRows.Count;
+
+                    for (int rowIndex = 0; rowIndex < subjectRows.Count; rowIndex++)
                     {
-                        worksheet.Cells[row, dataCol++].Value = FormatNumber(subTotal);
+                        var subjectRow = subjectRows[rowIndex];
+                        var isFirstRow = rowIndex == 0;
+                        var hasFailure = student.Subjects.Any(subject => string.Equals(subject.Grade, "F", StringComparison.OrdinalIgnoreCase));
+                        var displayRemark = hasFailure && request.NoRleForFail && string.Equals(student.Remark, "RLE", StringComparison.OrdinalIgnoreCase)
+                            ? "Fail"
+                            : student.Remark;
+                        var sgpi = hasFailure && !request.SgpiForFail ? "--" : FormatNumber(student.SGPI);
+                        var cgpi = hasFailure && !request.CgpiForFail ? "--" : FormatNumber(student.CGPI ?? 0);
+
+                        if (isFirstRow)
+                        {
+                            worksheet.Cells[startRow, 1].Value = $"{student.StudentName}\nSeat No: {student.SeatNo}\nPRN: {student.PRN}";
+
+                            int trailingCol = 2 + subjectsPerRow;
+                            worksheet.Cells[startRow, trailingCol++].Value = $"{FormatNumber(student.TotalObtained)}/{FormatNumber(student.TotalMax)}";
+                            worksheet.Cells[startRow, trailingCol++].Value = $"{FormatNumber(student.CumulativeGrade ?? 0)} / {FormatNumber(student.CreditsEarned)}";
+                            worksheet.Cells[startRow, trailingCol++].Value = sgpi;
+                            if (reportDto.ShowCgpi) worksheet.Cells[startRow, trailingCol++].Value = cgpi;
+                            worksheet.Cells[startRow, trailingCol].Value = displayRemark;
+                        }
+
+                        for (int i = 0; i < subjectRow.Length; i++)
+                        {
+                            var sub = subjectRow[i];
+                            var subLines = new List<string> { sub.SubjectCode };
+                            foreach (var head in sub.Heads)
+                            {
+                                subLines.Add($"{head.Head}: {head.Marks}{head.Grace}/{FormatNumber(head.Max)}");
+                            }
+
+                            subLines.Add($"C: {FormatNumber(sub.Credits)}  G: {sub.Grade}");
+                            subLines.Add($"GP: {FormatNumber(sub.GradePoint)}  CG: {FormatNumber(sub.EarnedGradePoints)}");
+
+                            worksheet.Cells[currentRow, 2 + i].Value = string.Join("\n", subLines);
+                        }
+
+                        currentRow++;
                     }
-                    else
+
+                    if (rowSpan > 1)
                     {
-                        worksheet.Cells[row, dataCol++].Value = subject?.TotalObtained ?? "-";
+                        worksheet.Cells[startRow, 1, startRow + rowSpan - 1, 1].Merge = true;
+
+                        int trailingCol = 2 + subjectsPerRow;
+                        for (int i = 0; i < (totalColumns - 1 - subjectsPerRow); i++)
+                        {
+                            worksheet.Cells[startRow, trailingCol + i, startRow + rowSpan - 1, trailingCol + i].Merge = true;
+                        }
                     }
+
+                    using (var range = worksheet.Cells[startRow, 1, startRow + rowSpan - 1, totalColumns])
+                    {
+                        range.Style.WrapText = true;
+                        range.Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Top;
+                        range.Style.Border.Top.Style = OfficeOpenXml.Style.ExcelBorderStyle.Thin;
+                        range.Style.Border.Bottom.Style = OfficeOpenXml.Style.ExcelBorderStyle.Thin;
+                        range.Style.Border.Left.Style = OfficeOpenXml.Style.ExcelBorderStyle.Thin;
+                        range.Style.Border.Right.Style = OfficeOpenXml.Style.ExcelBorderStyle.Thin;
+
+                        // Center align horizontally for subject columns and trailing columns
+                        worksheet.Cells[startRow, 2, startRow + rowSpan - 1, totalColumns].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
+                    }
+
+                    // Keep Student Details and the Trailing summary columns vertically centered
+                    worksheet.Cells[startRow, 1, startRow + rowSpan - 1, 1].Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Center;
+                    worksheet.Cells[startRow, 2 + subjectsPerRow, startRow + rowSpan - 1, totalColumns].Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Center;
                 }
-                
-                worksheet.Cells[row, dataCol++].Value = FormatNumber(student.TotalObtained);
-                worksheet.Cells[row, dataCol++].Value = FormatNumber(student.CreditsEarned);
-                worksheet.Cells[row, dataCol++].Value = sgpi;
-                if (reportDto.ShowCgpi)
+
+                // Add legends at the end of each page chunk
+                currentRow++;
+                var subjectText = string.Join("  |  ", distinctSubjects.Select(s => $"{s.SubjectCode}: {s.SubjectName ?? "-"}"));
+                worksheet.Cells[currentRow, 1, currentRow, totalColumns].Merge = true;
+                worksheet.Cells[currentRow, 1].Value = "Subjects: " + subjectText;
+                worksheet.Cells[currentRow, 1].Style.WrapText = true;
+                worksheet.Cells[currentRow, 1].Style.Font.Size = 8;
+                currentRow++;
+
+                var abbrText = "C: Credits  |  G: Grade  |  GP: Grade Point  |  CG: Credits * Grade Point  |  CE: Credits Earned  |  SGPA: Semester Grade Point Average  |  CGPI: Cumulative Grade Point Index  |  --: Not Applicable  |  F: Fail  |  AB: Absent";
+                worksheet.Cells[currentRow, 1, currentRow, totalColumns].Merge = true;
+                worksheet.Cells[currentRow, 1].Value = "Abbreviations: " + abbrText;
+                worksheet.Cells[currentRow, 1].Style.WrapText = true;
+                worksheet.Cells[currentRow, 1].Style.Font.Size = 8;
+                currentRow++;
+
+                if (chunk != studentChunks.Last())
                 {
-                    worksheet.Cells[row, dataCol++].Value = cgpi;
+                    worksheet.Row(currentRow - 1).PageBreak = true;
                 }
-                worksheet.Cells[row, dataCol].Value = displayRemark;
-                row++;
             }
+
+            // Adjust column widths explicitly
+            worksheet.Column(1).Width = 24; // Student Details
+            for (int i = 0; i < subjectsPerRow; i++)
+            {
+                worksheet.Column(2 + i).Width = 14; // Subjects
+            }
+            int c = 2 + subjectsPerRow;
+            worksheet.Column(c++).Width = 9; // Obt/Tot
+            worksheet.Column(c++).Width = 9; // CG/CE
+            worksheet.Column(c++).Width = 8; // SGPA
+            if (reportDto.ShowCgpi) worksheet.Column(c++).Width = 8; // CGPI
+            worksheet.Column(c).Width = 12; // Remark
 
             return await package.GetAsByteArrayAsync();
         }
@@ -412,13 +543,13 @@ namespace ExamAPI.Services.Report
             else if (programName == "CS & E") programName = "Computer Science & Engineering";
 
             var examName = exam?.Name ?? "Regular Exam";
-            if (marksMaster.Exam?.ExamType == "KT" || marksMaster.Exam?.ExamType == "ATKT" || exam?.ExamType == "KT" || exam?.ExamType == "ATKT") 
+            if (marksMaster.Exam?.ExamType == "KT" || marksMaster.Exam?.ExamType == "ATKT" || exam?.ExamType == "KT" || exam?.ExamType == "ATKT")
             {
                 if (!examName.Contains("(ATKT)")) examName += " (ATKT)";
             }
 
             var subjectGroups = marksMaster.StudentMarks?.Where(sm => !sm.IsDeleted).GroupBy(sm => sm.SubjectId) ?? Enumerable.Empty<IGrouping<Guid?, StudentMarks>>();
-            
+
             var hasFailure = subjectGroups.Any(group => group.FirstOrDefault()?.GradePoint == 0);
             var displayRemark = marksMaster.ResultRemark ?? marksMaster.OverallRemark ?? "Pending";
             if (hasFailure && noRleForFail && string.Equals(displayRemark, "RLE", StringComparison.OrdinalIgnoreCase))
@@ -434,7 +565,7 @@ namespace ExamAPI.Services.Report
                 StudentId = marksMaster.StudentID ?? "N/A",
                 ProgramName = programName,
                 ExamName = examName,
-                Semester = $"Semester {semId}", 
+                Semester = $"Semester {semId}",
                 ResultDate = resultDate?.Date ?? DateTime.Today,
                 SGPI = (double)(marksMaster.SGPI ?? 0),
                 CGPI = marksMaster.CGPI.HasValue ? (double)marksMaster.CGPI.Value : null,
@@ -547,7 +678,7 @@ namespace ExamAPI.Services.Report
                 }
 
                 var subjectGroups = marksMaster.StudentMarks?.Where(sm => !sm.IsDeleted).GroupBy(sm => sm.SubjectId) ?? Enumerable.Empty<IGrouping<Guid?, StudentMarks>>();
-                
+
                 var hasFailure = subjectGroups.Any(group => group.FirstOrDefault()?.GradePoint == 0);
                 var displayRemark = marksMaster.ResultRemark ?? marksMaster.OverallRemark ?? "Pending";
                 if (hasFailure && noRleForFail && string.Equals(displayRemark, "RLE", StringComparison.OrdinalIgnoreCase))
@@ -614,7 +745,7 @@ namespace ExamAPI.Services.Report
                 .ToListAsync();
 
             return overallResults
-                .OrderBy(r => 
+                .OrderBy(r =>
                 {
                     var match = System.Text.RegularExpressions.Regex.Match(r.SemesterId ?? "", @"\d+");
                     return match.Success ? int.Parse(match.Value) : 0;
@@ -636,11 +767,11 @@ namespace ExamAPI.Services.Report
                 .ToListAsync();
 
             var historyMap = new Dictionary<Guid, List<SemesterRecordDto>>();
-            
+
             foreach (var studentGroup in overallResults.GroupBy(r => r.StdMstId!.Value))
             {
                 var history = studentGroup
-                    .OrderBy(r => 
+                    .OrderBy(r =>
                     {
                         var match = System.Text.RegularExpressions.Regex.Match(r.SemesterId ?? "", @"\d+");
                         return match.Success ? int.Parse(match.Value) : 0;

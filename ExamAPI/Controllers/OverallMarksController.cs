@@ -90,8 +90,9 @@ namespace ExamAPI.Controllers
             }
 
             var bytes = await _resultService.ExportResultsExcelAsync(request, collegeId);
-            return File(bytes, "text/csv", $"Results_{request.ExamId}.csv");
+            return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"Results_{request.ExamId}.xlsx");
         }
+
         [HttpPost("ExportPdf")]
         public async Task<IActionResult> ExportPdf([FromBody] ProcessResultRequest request)
         {

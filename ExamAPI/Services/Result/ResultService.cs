@@ -10,6 +10,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using OfficeOpenXml;
+using OfficeOpenXml.Style;
 
 namespace ExamAPI.Services.Result
 {
@@ -44,11 +46,19 @@ namespace ExamAPI.Services.Result
         {
             try
             {
-                // 1. Fetch Students who have marks entry for this exam
+                // 1. Fetch Students who have marks entry for this exam and match the requested branch
                 var marksQuery = _context.MarksMasters
                     .Include(mm => mm.Student)
                     .Include(mm => mm.StudentMarks)
-                    .Where(mm => mm.Student != null && mm.Student.CollegeId == collegeId && mm.ExamId == request.ExamId && mm.SemesterId == request.SemId && mm.Pattern == request.Pattern && !mm.IsDeleted);
+                    .Include(mm => mm.Exam)
+                    .Where(mm => mm.Student != null 
+                        && mm.Student.CollegeId == collegeId 
+                        && mm.ExamId == request.ExamId 
+                        && mm.SemesterId == request.SemId 
+                        && mm.Pattern == request.Pattern 
+                        && mm.Exam != null 
+                        && mm.Exam.CourseId == request.BranchId
+                        && !mm.IsDeleted);
 
                 if (request.IsSingleStudent && !string.IsNullOrEmpty(request.StudentId))
                 {
@@ -69,6 +79,11 @@ namespace ExamAPI.Services.Result
                 {
                     return new ApiResponseDto<object> { Success = false, Message = "Selected exam was not found." };
                 }
+
+                if (exam.CourseId != request.BranchId)
+                {
+                    return new ApiResponseDto<object> { Success = false, Message = "Selected exam does not belong to the requested branch." };
+                }
                 
                 if (exam.IsLocked)
                 {
@@ -87,18 +102,6 @@ namespace ExamAPI.Services.Result
                         Success = false, 
                         Message = $"Marks entry incomplete for some students (e.g., {studentIds}). Kindly complete marks entry first." 
                     };
-                }
-
-                // 3. Validation: Check if grace already exists (optional, based on legacy behavior)
-                // In legacy: "Grace found in some of the students marks entry, Kindly update marks entry first!"
-                var alreadyGraced = marksRecords.Where(mm => mm.StudentMarks.Any(sm => !string.IsNullOrEmpty(sm.Grace))).ToList();
-                if (alreadyGraced.Any() && !request.IsSingleStudent) // Allow re-processing for single student
-                {
-                     return new ApiResponseDto<object> 
-                     { 
-                         Success = false, 
-                         Message = "Grace already exists for some students. Please clear grace before re-processing." 
-                     };
                 }
 
                 // 4. Fetch RuleSet. Link via ExamType field, falling back to name matching for backward compatibility.
@@ -457,7 +460,15 @@ namespace ExamAPI.Services.Result
                     .Include(mm => mm.StudentMarks)
                         .ThenInclude(sm => sm.CreditMaster)
                             .ThenInclude(cm => cm.Credits)
-                    .Where(mm => mm.Student != null && mm.Student.CollegeId == collegeId && mm.ExamId == request.ExamId && mm.Pattern == request.Pattern && mm.SemesterId == request.SemId && !mm.IsDeleted);
+                    .Include(mm => mm.Exam)
+                    .Where(mm => mm.Student != null 
+                        && mm.Student.CollegeId == collegeId 
+                        && mm.ExamId == request.ExamId 
+                        && mm.Pattern == request.Pattern 
+                        && mm.SemesterId == request.SemId 
+                        && mm.Exam != null 
+                        && mm.Exam.CourseId == request.BranchId
+                        && !mm.IsDeleted);
 
                 if (request.IsSingleStudent && !string.IsNullOrEmpty(request.StudentId))
                 {
@@ -478,7 +489,7 @@ namespace ExamAPI.Services.Result
                     Cgpi = mm.CGPI ?? 0,
                     Remarks = (mm.ResultRemark == "RLE" ? "RLE, " : "") + string.Join(", ", mm.StudentMarks?.Where(sm => !string.IsNullOrEmpty(sm.Grace)).Select(sm => $"{sm.Subject?.SubjectCode}: {sm.Grace}") ?? Enumerable.Empty<string>()),
                     SubjectMarks = mm.StudentMarks?.ToDictionary(
-                        sm => sm.Subject?.SubjectCode ?? sm.Id.ToString(),
+                        sm => $"{(sm.Subject?.SubjectCode ?? sm.Id.ToString())} - {sm.Subject?.Name ?? "Unknown"}{(string.IsNullOrEmpty(sm.Head) ? string.Empty : $" ({sm.Head})")}",
                         sm => {
                             var markStr = sm.Marks?.ToString() ?? "0";
                             var symbol = sm.Grace != null ? new string(sm.Grace.Where(c => !char.IsDigit(c)).ToArray()) : "";
@@ -507,40 +518,174 @@ namespace ExamAPI.Services.Result
             if (!resultsResponse.Success || resultsResponse.Data == null) return Array.Empty<byte>();
 
             var results = resultsResponse.Data.ToList();
-            var sb = new System.Text.StringBuilder();
-
-            // Headers
-            var subjectIds = results.SelectMany(r => r.SubjectMarks.Keys).Distinct().OrderBy(id => id).ToList();
-            var headers = new List<string> { "Seat No", "Student ID", "Student Name" };
-            headers.AddRange(subjectIds);
-            headers.AddRange(new[] { "Total", "OutOf", "%", "Result", "Remarks" });
-            sb.AppendLine(string.Join(",", headers));
-
-            // Data
+            
+            // Gather all subject heads
+            var keys = new HashSet<string>();
             foreach (var r in results)
             {
-                var row = new List<string>
+                foreach (var k in r.SubjectMarks.Keys)
                 {
-                    r.SeatNo,
-                    r.StudentId,
-                    $"\"{r.StudentName}\"" // Quote names in case of commas
-                };
-
-                foreach (var subId in subjectIds)
-                {
-                    row.Add(r.SubjectMarks.ContainsKey(subId) ? r.SubjectMarks[subId] : "-");
+                    keys.Add(k);
                 }
-
-                row.Add(r.TotalMarks.ToString());
-                row.Add(r.OutOf.ToString());
-                row.Add(r.Percentage.ToString());
-                row.Add(r.ResultStatus);
-                row.Add($"\"{r.Remarks}\"");
-
-                sb.AppendLine(string.Join(",", row));
             }
 
-            return System.Text.Encoding.UTF8.GetBytes(sb.ToString());
+            var subjectHeads = keys.Select(k => {
+                var match = System.Text.RegularExpressions.Regex.Match(k, @"^(.+?)\s*\((.+?)\)$");
+                if (match.Success)
+                {
+                    return new { Key = k, Subject = match.Groups[1].Value, Head = match.Groups[2].Value };
+                }
+                return new { Key = k, Subject = k, Head = "" };
+            }).OrderBy(x => x.Subject).ThenBy(x => x.Head).ToList();
+
+            var subjectsGrouped = subjectHeads.GroupBy(x => x.Subject)
+                .Select(g => new { Subject = g.Key, Heads = g.ToList() })
+                .ToList();
+
+            ExcelPackage.License.SetNonCommercialPersonal("ReactApi Project");
+            using (var package = new ExcelPackage())
+            {
+                var ws = package.Workbook.Worksheets.Add("Results");
+                ws.View.ShowGridLines = true;
+
+                // Border styles
+                var thinBorder = ExcelBorderStyle.Thin;
+                var borderColor = System.Drawing.Color.Gray;
+
+                // Helper to apply border to a cell or range
+                Action<ExcelRange> applyBorders = (range) => {
+                    range.Style.Border.Top.Style = thinBorder;
+                    range.Style.Border.Bottom.Style = thinBorder;
+                    range.Style.Border.Left.Style = thinBorder;
+                    range.Style.Border.Right.Style = thinBorder;
+                    range.Style.Border.Top.Color.SetColor(borderColor);
+                    range.Style.Border.Bottom.Color.SetColor(borderColor);
+                    range.Style.Border.Left.Color.SetColor(borderColor);
+                    range.Style.Border.Right.Color.SetColor(borderColor);
+                };
+
+                // Base headers
+                ws.Cells["A1:A2"].Merge = true;
+                ws.Cells["A1"].Value = "Seat No";
+                ws.Cells["B1:B2"].Merge = true;
+                ws.Cells["B1"].Value = "Student ID";
+                ws.Cells["C1:C2"].Merge = true;
+                ws.Cells["C1"].Value = "Student Name";
+
+                int col = 4;
+                foreach (var group in subjectsGrouped)
+                {
+                    int startCol = col;
+                    int endCol = col + group.Heads.Count - 1;
+                    
+                    if (startCol == endCol)
+                    {
+                        ws.Cells[1, startCol].Value = group.Subject;
+                    }
+                    else
+                    {
+                        ws.Cells[1, startCol, 1, endCol].Merge = true;
+                        ws.Cells[1, startCol].Value = group.Subject;
+                    }
+
+                    for (int i = 0; i < group.Heads.Count; i++)
+                    {
+                        ws.Cells[2, col + i].Value = string.IsNullOrEmpty(group.Heads[i].Head) ? "-" : group.Heads[i].Head;
+                    }
+                    col += group.Heads.Count;
+                }
+
+                // Footer headers
+                ws.Cells[1, col, 2, col].Merge = true;
+                ws.Cells[1, col].Value = "Total";
+                
+                ws.Cells[1, col + 1, 2, col + 1].Merge = true;
+                ws.Cells[1, col + 1].Value = "%";
+
+                ws.Cells[1, col + 2, 2, col + 2].Merge = true;
+                ws.Cells[1, col + 2].Value = "SGPI";
+
+                ws.Cells[1, col + 3, 2, col + 3].Merge = true;
+                ws.Cells[1, col + 3].Value = "CGPI";
+
+                ws.Cells[1, col + 4, 2, col + 4].Merge = true;
+                ws.Cells[1, col + 4].Value = "Result";
+
+                ws.Cells[1, col + 5, 2, col + 5].Merge = true;
+                ws.Cells[1, col + 5].Value = "Remarks";
+
+                int totalCols = col + 5;
+
+                // Style the header cells (bold, centered, with borders, no fill colors)
+                var headerRange = ws.Cells[1, 1, 2, totalCols];
+                headerRange.Style.Font.Bold = true;
+                headerRange.Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
+                headerRange.Style.VerticalAlignment = ExcelVerticalAlignment.Center;
+                
+                // Set borders for all header cells individually
+                for (int r = 1; r <= 2; r++)
+                {
+                    for (int c = 1; c <= totalCols; c++)
+                    {
+                        applyBorders(ws.Cells[r, c]);
+                    }
+                }
+
+                // Write rows
+                int rowIdx = 3;
+                foreach (var r in results)
+                {
+                    ws.Cells[rowIdx, 1].Value = r.SeatNo;
+                    ws.Cells[rowIdx, 2].Value = r.StudentId;
+                    ws.Cells[rowIdx, 3].Value = r.StudentName;
+                    ws.Cells[rowIdx, 3].Style.HorizontalAlignment = ExcelHorizontalAlignment.Left;
+
+                    int cIdx = 4;
+                    foreach (var sh in subjectHeads)
+                    {
+                        ws.Cells[rowIdx, cIdx].Value = r.SubjectMarks.TryGetValue(sh.Key, out var val) ? val : "-";
+                        ws.Cells[rowIdx, cIdx].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
+                        cIdx++;
+                    }
+
+                    ws.Cells[rowIdx, cIdx].Value = r.TotalMarks;
+                    ws.Cells[rowIdx, cIdx + 1].Value = (double)(r.Percentage / 100.0m);
+                    ws.Cells[rowIdx, cIdx + 1].Style.Numberformat.Format = "0.00%";
+                    ws.Cells[rowIdx, cIdx + 2].Value = r.Sgpi;
+                    ws.Cells[rowIdx, cIdx + 3].Value = r.Cgpi;
+                    ws.Cells[rowIdx, cIdx + 4].Value = r.ResultStatus;
+                    ws.Cells[rowIdx, cIdx + 5].Value = r.Remarks;
+
+                    // Apply horizontal alignment
+                    ws.Cells[rowIdx, 1].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
+                    ws.Cells[rowIdx, 2].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
+                    ws.Cells[rowIdx, cIdx].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
+                    ws.Cells[rowIdx, cIdx + 1].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
+                    ws.Cells[rowIdx, cIdx + 2].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
+                    ws.Cells[rowIdx, cIdx + 3].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
+                    ws.Cells[rowIdx, cIdx + 4].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
+                    ws.Cells[rowIdx, cIdx + 5].Style.HorizontalAlignment = ExcelHorizontalAlignment.Left;
+
+                    // Apply borders
+                    for (int c = 1; c <= totalCols; c++)
+                    {
+                        applyBorders(ws.Cells[rowIdx, c]);
+                    }
+
+                    rowIdx++;
+                }
+
+                // Autofit columns
+                ws.Cells[1, 1, rowIdx - 1, totalCols].AutoFitColumns();
+
+                // Add padding to column widths
+                for (int c = 1; c <= totalCols; c++)
+                {
+                    ws.Column(c).Width = ws.Column(c).Width + 3;
+                }
+
+                return package.GetAsByteArray();
+            }
         }
 
         private int GetPassingMarks(StudentMarks sm)
@@ -709,55 +854,89 @@ namespace ExamAPI.Services.Result
 
                     page.Content().Element(content =>
                     {
+                        var headerStyle = TextStyle.Default.FontSize(7).Bold().FontColor(Colors.Black);
+                        var cellStyle = TextStyle.Default.FontSize(7).FontColor(Colors.Black);
+                        var pdfBorderColor = QuestPDF.Infrastructure.Color.FromHex("#CBD5E1");
+                        var pdfHeaderBgColor = QuestPDF.Infrastructure.Color.FromHex("#F1F5F9");
+
+                        Action<IContainer, string, bool, string> writeCell = (cellContainer, text, isHeader, align) =>
+                        {
+                            var cell = cellContainer
+                                .Border(0.5f)
+                                .BorderColor(pdfBorderColor)
+                                .PaddingVertical(4)
+                                .PaddingHorizontal(3);
+                            
+                            if (isHeader)
+                            {
+                                cell = cell.Background(pdfHeaderBgColor);
+                            }
+
+                            if (align == "center")
+                            {
+                                cell.AlignCenter().Text(text).Style(isHeader ? headerStyle : cellStyle);
+                            }
+                            else if (align == "right")
+                            {
+                                cell.AlignRight().Text(text).Style(isHeader ? headerStyle : cellStyle);
+                            }
+                            else
+                            {
+                                cell.AlignLeft().Text(text).Style(isHeader ? headerStyle : cellStyle);
+                            }
+                        };
+
                         content.PaddingVertical(10).Table(table =>
                         {
                             table.ColumnsDefinition(columns =>
                             {
-                                columns.RelativeColumn(2); // Seat No
-                                columns.RelativeColumn(3); // Student ID
-                                columns.RelativeColumn(4); // Student Name
-                                foreach (var id in subjectIds) columns.RelativeColumn(2);
-                                columns.RelativeColumn(1); // Total
-                                columns.RelativeColumn(1); // OutOf
-                                columns.RelativeColumn(1); // %
-                                columns.RelativeColumn(1); // SGPI
-                                columns.RelativeColumn(1); // CGPI
-                                columns.RelativeColumn(2); // Result
+                                columns.RelativeColumn(1.8f); // Seat No
+                                columns.RelativeColumn(2.2f); // Student ID
+                                columns.RelativeColumn(4.0f); // Student Name
+                                foreach (var id in subjectIds) columns.RelativeColumn(1.5f); // Subject columns
+                                columns.RelativeColumn(1.2f); // Total
+                                columns.RelativeColumn(1.2f); // OutOf
+                                columns.RelativeColumn(1.2f); // %
+                                columns.RelativeColumn(1.0f); // SGPI
+                                columns.RelativeColumn(1.0f); // CGPI
+                                columns.RelativeColumn(1.6f); // Result
                             });
 
                             table.Header(header =>
                             {
-                                header.Cell().BorderBottom(1).Padding(2).Text("Seat No").Bold();
-                                header.Cell().BorderBottom(1).Padding(2).Text("Student ID").Bold();
-                                header.Cell().BorderBottom(1).Padding(2).Text("Student Name").Bold();
+                                writeCell(header.Cell(), "Seat No", true, "center");
+                                writeCell(header.Cell(), "Student ID", true, "center");
+                                writeCell(header.Cell(), "Student Name", true, "left");
                                 foreach (var id in subjectIds)
                                 {
-                                    header.Cell().BorderBottom(1).Padding(2).Text(id).Bold();
+                                    // Wrap subject codes by changing space before head to newline
+                                    var displayId = id.Replace(" (", "\n(");
+                                    writeCell(header.Cell(), displayId, true, "center");
                                 }
-                                header.Cell().BorderBottom(1).Padding(2).Text("Total").Bold();
-                                header.Cell().BorderBottom(1).Padding(2).Text("OutOf").Bold();
-                                header.Cell().BorderBottom(1).Padding(2).Text("%").Bold();
-                                header.Cell().BorderBottom(1).Padding(2).Text("SGPI").Bold();
-                                header.Cell().BorderBottom(1).Padding(2).Text("CGPI").Bold();
-                                header.Cell().BorderBottom(1).Padding(2).Text("Result").Bold();
+                                writeCell(header.Cell(), "Total", true, "center");
+                                writeCell(header.Cell(), "OutOf", true, "center");
+                                writeCell(header.Cell(), "%", true, "center");
+                                writeCell(header.Cell(), "SGPI", true, "center");
+                                writeCell(header.Cell(), "CGPI", true, "center");
+                                writeCell(header.Cell(), "Result", true, "center");
                             });
 
                             foreach (var r in results)
                             {
-                                table.Cell().Padding(2).Text(r.SeatNo);
-                                table.Cell().Padding(2).Text(r.StudentId);
-                                table.Cell().Padding(2).Text(r.StudentName);
+                                writeCell(table.Cell(), r.SeatNo, false, "center");
+                                writeCell(table.Cell(), r.StudentId, false, "center");
+                                writeCell(table.Cell(), r.StudentName, false, "left");
                                 foreach (var id in subjectIds)
                                 {
                                     var val = r.SubjectMarks.ContainsKey(id) ? r.SubjectMarks[id] : "-";
-                                    table.Cell().Padding(2).Text(val);
+                                    writeCell(table.Cell(), val, false, "center");
                                 }
-                                table.Cell().Padding(2).Text(r.TotalMarks.ToString());
-                                table.Cell().Padding(2).Text(r.OutOf.ToString());
-                                table.Cell().Padding(2).Text(r.Percentage.ToString("0.00"));
-                                table.Cell().Padding(2).Text(r.Sgpi.ToString("0.00"));
-                                table.Cell().Padding(2).Text(r.Cgpi.ToString("0.00"));
-                                table.Cell().Padding(2).Text(r.ResultStatus);
+                                writeCell(table.Cell(), r.TotalMarks.ToString(), false, "center");
+                                writeCell(table.Cell(), r.OutOf.ToString(), false, "center");
+                                writeCell(table.Cell(), r.Percentage.ToString("0.00"), false, "center");
+                                writeCell(table.Cell(), r.Sgpi.ToString("0.00"), false, "center");
+                                writeCell(table.Cell(), r.Cgpi.ToString("0.00"), false, "center");
+                                writeCell(table.Cell(), r.ResultStatus, false, "center");
                             }
                         });
                     });

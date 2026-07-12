@@ -42,7 +42,24 @@ namespace ExamAPI.Tests
             var subjectId = Guid.NewGuid();
             var creditsId = Guid.NewGuid();
             
-            var marksMaster = new MarksMaster { MarksId = Guid.NewGuid(), ExamId = examId };
+            var student = new StudentMaster 
+            { 
+                StdMstId = Guid.NewGuid(), 
+                StudentId = "ST001", 
+                FirstName = "Test", 
+                LastName = "User", 
+                CollegeId = collegeId 
+            };
+
+            var marksMaster = new MarksMaster 
+            { 
+                MarksId = Guid.NewGuid(), 
+                ExamId = examId,
+                StdMstId = student.StdMstId,
+                Student = student,
+                StudentID = student.StudentId
+            };
+
             var creditMaster = new SubjectCreditMaster 
             { 
                 CreditsId = creditsId,
@@ -74,6 +91,7 @@ namespace ExamAPI.Tests
                 IsDeleted = false
             };
 
+            _context.StudentMasters.Add(student);
             _context.MarksMasters.Add(marksMaster);
             _context.SubjectCreditMasters.Add(creditMaster);
             _context.StudentMarks.Add(studentMarks);
@@ -87,14 +105,14 @@ namespace ExamAPI.Tests
                 var ws = package.Workbook.Worksheets.Add("Marks");
                 ws.Cells[1, 1].Value = "Dummy"; // Ensure Dimension starts at 1,1
                 
-                // Rows 1-3 are headers
-                // Row 4 contains the column labels
-                ws.Cells[4, 4].Value = "TH";
-                ws.Cells[4, 5].Value = "TH_ID";
+                // Rows 1-5 are headers/metadata
+                // Row 6 contains the column labels (e.g. TH_ID)
+                ws.Cells[6, 4].Value = "TH";
+                ws.Cells[6, 5].Value = "TH_ID";
                 
-                // Row 5 contains the data
-                ws.Cells[5, 4].Value = "35"; // Student typed 35 marks
-                ws.Cells[5, 5].Value = studentMarks.Id.ToString(); // The ID column
+                // Row 7 contains the data
+                ws.Cells[7, 4].Value = "35"; // Student typed 35 marks
+                ws.Cells[7, 5].Value = studentMarks.Id.ToString(); // The ID column
 
                 fileBytes = package.GetAsByteArray();
             }

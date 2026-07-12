@@ -2,6 +2,9 @@ using ExamAPI.DTOs;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
+using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace ExamAPI.Services.Report.Documents
 {
@@ -24,10 +27,10 @@ namespace ExamAPI.Services.Report.Documents
             container
                 .Page(page =>
                 {
-                    page.Size(PageSizes.A3.Landscape()); // Wide page for multiple columns
-                    page.Margin(20, Unit.Point);
+                    page.Size(PageSizes.A4.Landscape()); // Match A4 Landscape
+                    page.Margin(12, Unit.Point); // Minimal margins to maximize data area
                     page.PageColor(Colors.White);
-                    page.DefaultTextStyle(x => x.FontSize(10).FontFamily(Fonts.Arial));
+                    page.DefaultTextStyle(x => x.FontSize(8).FontFamily(Fonts.Arial)); // Size 8 for A4 Landscape
 
                     page.Header().Element(ComposeHeader);
                     page.Content().Element(ComposeContent);
@@ -39,25 +42,32 @@ namespace ExamAPI.Services.Report.Documents
         {
             container.Column(column =>
             {
-                column.Item().AlignCenter().Text(Model.CollegeName).FontSize(16).SemiBold(); // Dynamically fetched
-                column.Item().PaddingTop(10).Row(row =>
+                // Spacious header, allows room for a potential logo on the left/center
+                column.Item().Row(row => 
                 {
-                    row.RelativeItem().AlignLeft().Text($"Program Name: {Model.ProgramName}").FontSize(12).Bold();
-                    row.RelativeItem().AlignRight().Text($"Result Date : {Model.ResultDate:dd/MM/yyyy}").FontSize(12).Bold();
+                    row.RelativeItem().AlignCenter().Text(Model.CollegeName).FontSize(14).SemiBold();
                 });
-                column.Item().PaddingTop(5).Row(row =>
+                
+                column.Item().PaddingTop(8).Row(row =>
                 {
-                    row.RelativeItem().AlignLeft().Text($"{Model.Semester}").FontSize(12).Bold();
-                    row.RelativeItem().AlignRight().Text($"Exam: {Model.ExamName}").FontSize(12).Bold();
+                    row.RelativeItem().AlignLeft().Text($"Program Name: {Model.ProgramName}").FontSize(10).Bold();
+                    row.RelativeItem().AlignRight().Text($"Result Date : {Model.ResultDate:dd/MM/yyyy}").FontSize(10).Bold();
                 });
-                column.Item().PaddingTop(5).LineHorizontal(1).LineColor(Colors.Black);
+                
+                column.Item().PaddingTop(4).Row(row =>
+                {
+                    row.RelativeItem().AlignLeft().Text($"{Model.Semester}").FontSize(10).Bold();
+                    row.RelativeItem().AlignRight().Text($"Exam: {Model.ExamName}").FontSize(10).Bold();
+                });
+                
+                column.Item().PaddingTop(10).LineHorizontal(1).LineColor(Colors.Black);
             });
         }
 
         void ComposeContent(IContainer container)
         {
-            var studentsPerPage = Math.Clamp(Request.StudentsPerPage, 1, 100);
-            var subjectsPerRow = Math.Clamp(Request.SubjectsPerRow, 1, 20);
+            var studentsPerPage = Math.Clamp(Request.StudentsPerPage, 1, 4);
+            var subjectsPerRow = Math.Clamp(Request.SubjectsPerRow, 1, 6);
             var studentChunks = Model.Students.Chunk(studentsPerPage).ToList();
 
             container.PaddingVertical(10).Column(column =>
@@ -87,7 +97,7 @@ namespace ExamAPI.Services.Report.Documents
 
                         table.Header(header =>
                         {
-                            header.Cell().Border(1).Padding(2).AlignCenter().Text("Seat No / PRN /\nName of Student / Stud ID").Bold();
+                            header.Cell().Border(1).Padding(2).AlignCenter().Text("Student Details").Bold();
                             // Dynamically render subject headers
                             for(int i = 0; i < subjectsPerRow; i++) 
                             {
@@ -111,6 +121,8 @@ namespace ExamAPI.Services.Report.Documents
                                 subjectRows.Add(Array.Empty<SubjectMarksDto>());
                             }
 
+                            uint rowSpan = (uint)subjectRows.Count;
+
                             for (var rowIndex = 0; rowIndex < subjectRows.Count; rowIndex++)
                             {
                                 var subjectRow = subjectRows[rowIndex];
@@ -122,9 +134,15 @@ namespace ExamAPI.Services.Report.Documents
                                 var sgpi = hasFailure && !Request.SgpiForFail ? "--" : FormatNumber(student.SGPI);
                                 var cgpi = hasFailure && !Request.CgpiForFail ? "--" : FormatNumber(student.CGPI ?? 0);
 
-                                table.Cell().Border(1).Padding(2).Text(isFirstRow
-                                    ? $"{student.SeatNo} /\n{student.PRN} /\n{student.StudentName} /\n{student.StudentId}"
-                                    : string.Empty);
+                                if (isFirstRow)
+                                {
+                                    table.Cell().RowSpan(rowSpan).Border(1).Padding(2).AlignMiddle().Column(c => 
+                                    {
+                                        c.Item().Text(student.StudentName).Bold();
+                                        c.Item().Text($"Seat No: {student.SeatNo}").SemiBold();
+                                        c.Item().Text($"PRN: {student.PRN}");
+                                    });
+                                }
 
                                 foreach (var sub in subjectRow)
                                 {
@@ -144,14 +162,17 @@ namespace ExamAPI.Services.Report.Documents
                                     table.Cell().Border(1).Padding(2).Text(string.Empty);
                                 }
 
-                                table.Cell().Border(1).Padding(2).AlignCenter().Text(isFirstRow ? $"{FormatNumber(student.TotalObtained)}/{FormatNumber(student.TotalMax)}" : string.Empty).Bold();
-                                table.Cell().Border(1).Padding(2).AlignCenter().Text(isFirstRow ? $"{FormatNumber(student.CumulativeGrade ?? 0)} / {FormatNumber(student.CreditsEarned)}" : string.Empty).Bold();
-                                table.Cell().Border(1).Padding(2).AlignCenter().Text(isFirstRow ? sgpi : string.Empty).Bold();
-                                if(Model.ShowCgpi)
+                                if (isFirstRow)
                                 {
-                                    table.Cell().Border(1).Padding(2).AlignCenter().Text(isFirstRow ? cgpi : string.Empty).Bold();
+                                    table.Cell().RowSpan(rowSpan).Border(1).Padding(2).AlignCenter().AlignMiddle().Text($"{FormatNumber(student.TotalObtained)}/{FormatNumber(student.TotalMax)}").Bold();
+                                    table.Cell().RowSpan(rowSpan).Border(1).Padding(2).AlignCenter().AlignMiddle().Text($"{FormatNumber(student.CumulativeGrade ?? 0)} / {FormatNumber(student.CreditsEarned)}").Bold();
+                                    table.Cell().RowSpan(rowSpan).Border(1).Padding(2).AlignCenter().AlignMiddle().Text(sgpi).Bold();
+                                    if(Model.ShowCgpi)
+                                    {
+                                        table.Cell().RowSpan(rowSpan).Border(1).Padding(2).AlignCenter().AlignMiddle().Text(cgpi).Bold();
+                                    }
+                                    table.Cell().RowSpan(rowSpan).Border(1).Padding(2).AlignCenter().AlignMiddle().Text(displayRemark).Bold();
                                 }
-                                table.Cell().Border(1).Padding(2).AlignCenter().Text(isFirstRow ? displayRemark : string.Empty).Bold();
                             }
                         }
                     });
@@ -173,12 +194,51 @@ namespace ExamAPI.Services.Report.Documents
 
         void ComposeFooter(IContainer container)
         {
-            container.AlignCenter().Text(x =>
+            container.Column(column =>
             {
-                x.Span("Page ");
-                x.CurrentPageNumber();
-                x.Span(" of ");
-                x.TotalPages();
+                column.Item().PaddingTop(5).LineHorizontal(1).LineColor(Colors.Black);
+                
+                // Legends section - Row styled to fit every page
+                column.Item().PaddingTop(5).Row(row => 
+                {
+                    row.RelativeItem().Column(left => 
+                    {
+                        var distinctSubjects = Model.Students
+                            .SelectMany(s => s.Subjects)
+                            .GroupBy(s => s.SubjectCode)
+                            .Select(g => g.First())
+                            .OrderBy(s => s.SubjectCode)
+                            .ToList();
+                            
+                        var subjectText = string.Join("  |  ", distinctSubjects.Select(s => $"{s.SubjectCode}: {s.SubjectName ?? "-"}"));
+                        left.Item().Text(text => 
+                        {
+                            text.Span("Subjects: ").Bold().FontSize(7);
+                            text.Span(subjectText).FontSize(7);
+                        });
+                    });
+                });
+                
+                column.Item().PaddingTop(3).Row(row => 
+                {
+                    row.RelativeItem().Column(col => 
+                    {
+                        var abbrText = "C: Credits  |  G: Grade  |  GP: Grade Point  |  CG: Credits * Grade Point  |  CE: Credits Earned  |  SGPA: Semester Grade Point Average  |  CGPI: Cumulative Grade Point Index  |  --: Not Applicable  |  F: Fail  |  AB: Absent";
+                        col.Item().Text(text => 
+                        {
+                            text.Span("Abbreviations: ").Bold().FontSize(7);
+                            text.Span(abbrText).FontSize(7);
+                        });
+                    });
+                });
+
+                column.Item().PaddingTop(5).AlignCenter().Text(x =>
+                {
+                    x.Span("Page ").FontSize(10);
+                    x.CurrentPageNumber().FontSize(10);
+                    x.Span(" of ").FontSize(10);
+                    x.TotalPages().FontSize(10);
+                });
             });
         }
     }

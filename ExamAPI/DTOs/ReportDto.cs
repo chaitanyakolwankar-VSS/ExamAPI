@@ -17,12 +17,14 @@ namespace ExamAPI.DTOs
         public Guid? MergedExamId { get; set; }
         
         // Layout Config
-        public int StudentsPerPage { get; set; } = 4;
+        public int StudentsPerPage { get; set; } = 5;
         public int SubjectsPerRow { get; set; } = 7;
         
         // Calculations
         public List<int> CxgSems { get; set; } = new();
-        public List<int> GpaSems { get; set; } = new();
+        public List<int> GpaSems { get; set; } = new List<int>();
+        
+        public string? FileName { get; set; }
     }
 
     public class GazetteReportDto
