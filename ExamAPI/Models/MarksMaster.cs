@@ -12,7 +12,7 @@ namespace ExamAPI.Models
         public string? StudentID { get; set; } // String copy of ID
 
         [MaxLength(20)]
-        public string? AYID { get; set; }
+        public string? QuotaType { get; set; }
 
         [MaxLength(50)]
         public string? SeatNo { get; set; }
