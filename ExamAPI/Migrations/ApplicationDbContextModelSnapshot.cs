@@ -17,7 +17,7 @@ namespace ExamAPI.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.0")
+                .HasAnnotation("ProductVersion", "9.0.2")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
@@ -35,7 +35,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<Guid?>("CreatedBy")
-                        .HasMaxLength(100)
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime?>("DeletedAt")
@@ -135,7 +134,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<Guid?>("CreatedBy")
-                        .HasMaxLength(100)
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime?>("DeletedAt")
@@ -185,7 +183,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<Guid?>("CreatedBy")
-                        .HasMaxLength(100)
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime?>("DeletedAt")
@@ -232,7 +229,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<Guid?>("CreatedBy")
-                        .HasMaxLength(100)
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime?>("DeletedAt")
@@ -259,12 +255,10 @@ namespace ExamAPI.Migrations
                         .HasColumnType("nvarchar(100)");
 
                     b.Property<Guid?>("RevaluationForExamId")
-                        .HasMaxLength(20)
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("Semester")
-                        .HasMaxLength(20)
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
@@ -291,7 +285,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<Guid?>("CreatedBy")
-                        .HasMaxLength(100)
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime?>("DeletedAt")
@@ -328,7 +321,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<Guid?>("CreatedBy")
-                        .HasMaxLength(100)
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime?>("DeletedAt")
@@ -366,7 +358,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<Guid?>("CreatedBy")
-                        .HasMaxLength(100)
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime?>("DeletedAt")
@@ -424,7 +415,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<Guid?>("CreatedBy")
-                        .HasMaxLength(100)
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime?>("DeletedAt")
@@ -448,6 +438,20 @@ namespace ExamAPI.Migrations
                     b.Property<string>("Pattern")
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("QuotaType")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<int?>("Rank")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ResultRemark")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<decimal?>("SGPI")
+                        .HasColumnType("decimal(18, 2)");
 
                     b.Property<string>("SeatNo")
                         .HasMaxLength(50)
@@ -525,7 +529,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<Guid?>("CreatedBy")
-                        .HasMaxLength(100)
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime?>("DeletedAt")
@@ -565,7 +568,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<Guid?>("CreatedBy")
-                        .HasMaxLength(100)
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime?>("DeletedAt")
@@ -664,7 +666,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<Guid?>("CreatedBy")
-                        .HasMaxLength(100)
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime?>("DeletedAt")
@@ -704,7 +705,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<Guid?>("CreatedBy")
-                        .HasMaxLength(100)
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime?>("DeletedAt")
@@ -735,7 +735,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<Guid?>("CreatedBy")
-                        .HasMaxLength(100)
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime?>("DeletedAt")
@@ -795,7 +794,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<Guid?>("CreatedBy")
-                        .HasMaxLength(100)
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime?>("DeletedAt")
@@ -857,7 +855,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<Guid?>("CreatedBy")
-                        .HasMaxLength(100)
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime?>("DeletedAt")
@@ -903,7 +900,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<Guid?>("CreatedBy")
-                        .HasMaxLength(100)
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime?>("DeletedAt")
@@ -951,7 +947,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("AYID")
-                        .HasMaxLength(20)
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("CourseId")
@@ -961,7 +956,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<Guid?>("CreatedBy")
-                        .HasMaxLength(100)
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime?>("DeletedAt")
@@ -1009,7 +1003,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<Guid?>("CreatedBy")
-                        .HasMaxLength(100)
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("CreditsId")
@@ -1098,7 +1091,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<Guid?>("CreatedBy")
-                        .HasMaxLength(100)
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime?>("DateOfBirth")
@@ -1185,7 +1177,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<Guid?>("CreatedBy")
-                        .HasMaxLength(100)
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("CreditGradePoint")
@@ -1249,7 +1240,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<Guid?>("CreatedBy")
-                        .HasMaxLength(100)
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime?>("DeletedAt")
@@ -1289,7 +1279,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<Guid?>("CreatedBy")
-                        .HasMaxLength(100)
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("CreditsId")
@@ -1350,7 +1339,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<Guid?>("CreatedBy")
-                        .HasMaxLength(100)
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime?>("DeletedAt")
@@ -1406,7 +1394,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<Guid?>("CreatedBy")
-                        .HasMaxLength(100)
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("Date")
@@ -1458,7 +1445,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<Guid?>("CreatedBy")
-                        .HasMaxLength(100)
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime?>("DeletedAt")
@@ -1527,7 +1513,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<Guid?>("CreatedBy")
-                        .HasMaxLength(100)
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime?>("DeletedAt")

@@ -110,6 +110,10 @@ BEGIN
     INSERT INTO StudentMasters (StdMstId, StudentId, FirstName, LastName, CourseId, CollegeId, CreatedAt, IsDeleted)
     VALUES (@StdMstId, 'STD2025' + RIGHT('000' + CAST(@i AS VARCHAR(3)), 3), 'Student' + CAST(@i AS VARCHAR(2)), 'Test', @CourseId, @CollegeId, GETUTCDATE(), 0);
 
+    -- Eligibility row is required: StudentMaster search/GetByCourse inner-join StudentEligibilities on AYID
+    INSERT INTO StudentEligibilities (Id, StdMstId, StudentId, CourseId, SemesterId, Pattern, AYID, CreatedAt, IsDeleted)
+    VALUES (NEWID(), @StdMstId, 'STD2025' + RIGHT('000' + CAST(@i AS VARCHAR(3)), 3), @CourseId, 'Sem-1', @PatternName, @AyId, GETUTCDATE(), 0);
+
     INSERT INTO MarksMasters (MarksId, StudentID, StdMstId, ExamId, AcademicYearAYID, SeatNo, SemesterId, Pattern, QuotaType, HMCheck, Rank, OverallRemark, CreatedAt, IsDeleted)
     VALUES (@MarksMstId, 'STD2025' + RIGHT('000' + CAST(@i AS VARCHAR(3)), 3), @StdMstId, @ExamId, @AyId, 'S10' + CAST(@i AS VARCHAR(2)), 'Sem-1', @PatternName, @Quota, 1, @i, 'Pending', GETUTCDATE(), 0);
 

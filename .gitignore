@@ -372,3 +372,6 @@ appsettings.Development.json
 # Ignore User Uploads
 # wwwroot/uploads/
 # wwwroot/images/
+
+# Ignore zip archives
+*.zip

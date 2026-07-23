@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -23,7 +23,6 @@ namespace ExamAPI.Migrations
                 name: "AYID",
                 table: "StudentEligibility",
                 type: "uniqueidentifier",
-                maxLength: 20,
                 nullable: true,
                 oldClrType: typeof(string),
                 oldType: "nvarchar(20)",
@@ -71,7 +70,6 @@ namespace ExamAPI.Migrations
                 name: "RevaluationForExamId",
                 table: "ExamMaster",
                 type: "uniqueidentifier",
-                maxLength: 20,
                 nullable: true);
 
             migrationBuilder.AddForeignKey(

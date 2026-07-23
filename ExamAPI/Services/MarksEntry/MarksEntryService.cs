@@ -201,10 +201,12 @@ namespace ExamAPI.Services.MarksEntry
             var marksMaster = studentMark.MarksMaster;
             if (marks < passing && marksMaster?.ExamId.HasValue == true)
             {
+                // ResolutionMaster.Head stores slot labels ("H1"/"H2"), not head
+                // names; SubjectCreditID identifies the actual head row.
                 var resolutions = _context.Resolution.Where(resolution =>
                     resolution.ExamID == marksMaster.ExamId
                     && resolution.CreditID == studentMark.CreditsId
-                    && resolution.Head == studentMark.Head
+                    && resolution.SubjectCreditID == credit.Id
                     && !resolution.IsDeleted);
 
                 if (marksMaster.AcademicYearAYID.HasValue)

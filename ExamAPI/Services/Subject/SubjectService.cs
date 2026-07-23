@@ -1,4 +1,4 @@
-﻿using ExamAPI.Data;
+using ExamAPI.Data;
 using ExamAPI.DTOs;
 using ExamAPI.Models;
 using ExamAPI.Services.Common;
@@ -191,32 +191,32 @@ namespace ExamAPI.Services.Subject
              CreditNo = g.Key.TotalCredits,
 
              ExamTypeRaw = g
-                 .Where(x => x.sc.Head == "h1")
+                 .Where(x => x.sc.HeadType == "TH")
                  .Select(x => x.sc.HeadType)
                  .FirstOrDefault(),
 
              ExamOutOf = g
-                 .Where(x => x.sc.Head == "h1")
+                 .Where(x => x.sc.HeadType == "TH")
                  .Select(x => x.sc.HeadOutOf)
                  .FirstOrDefault(),
 
              ExamPassing = g
-                 .Where(x => x.sc.Head == "h1")
+                 .Where(x => x.sc.HeadType == "TH")
                  .Select(x => x.sc.HeadPass)
                  .FirstOrDefault(),
 
              InternalTypeRaw = g
-                 .Where(x => x.sc.Head == "h2")
+                 .Where(x => x.sc.HeadType != "TH")
                  .Select(x => x.sc.HeadType)
                  .FirstOrDefault(),
 
              InternalOutOf = g
-                 .Where(x => x.sc.Head == "h2")
+                 .Where(x => x.sc.HeadType != "TH")
                  .Select(x => x.sc.HeadOutOf)
                  .FirstOrDefault(),
 
              InternalPassing = g
-                 .Where(x => x.sc.Head == "h2")
+                 .Where(x => x.sc.HeadType != "TH")
                  .Select(x => x.sc.HeadPass)
                  .FirstOrDefault(),
 

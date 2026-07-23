@@ -122,7 +122,7 @@ namespace ExamAPI.Services.StudentMasters
                 query = query.Where(x => x.sm.FirstName.StartsWith(model.FirstName));
 
             if (!string.IsNullOrEmpty(model.MiddleName))
-                query = query.Where(x => x.sm.MiddleName.StartsWith(model.MiddleName));
+                query = query.Where(x => x.sm.MiddleName != null && x.sm.MiddleName.StartsWith(model.MiddleName));
 
             if (!string.IsNullOrEmpty(model.LastName))
                 query = query.Where(x => x.sm.LastName.StartsWith(model.LastName));
@@ -144,7 +144,7 @@ namespace ExamAPI.Services.StudentMasters
                     SemesterId = x.se.SemesterId,
                     Pattern = x.se.Pattern,
                     StudentPRN = x.sm.StudentPRN,
-                    AYID = (Guid)x.se.AYID
+                    AYID = x.se.AYID ?? Guid.Empty
                 })
                 .ToListAsync();
 

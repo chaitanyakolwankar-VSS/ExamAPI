@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -8,24 +8,24 @@ namespace ExamAPI.Migrations
     /// <inheritdoc />
     public partial class migration_21_March_2026 : Migration
     {
-        /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropColumn(
-                name: "AYID",
-                table: "ExamMaster");
 
             migrationBuilder.AlterColumn<Guid>(
                 name: "AYID",
                 table: "StudentEligibility",
                 type: "uniqueidentifier",
-                maxLength: 20,
                 nullable: true,
                 oldClrType: typeof(string),
                 oldType: "nvarchar(20)",
                 oldMaxLength: 20,
                 oldNullable: true);
 
+            // Columns already exist in the database (added manually or via hotfixes):
+            // - Pattern in MarksMaster
+            // - IsActive in ExamMaster
+            // - RevaluationForExamId in ExamMaster
+            /*
             migrationBuilder.AddColumn<string>(
                 name: "Pattern",
                 table: "MarksMaster",
@@ -43,13 +43,14 @@ namespace ExamAPI.Migrations
                 name: "RevaluationForExamId",
                 table: "ExamMaster",
                 type: "uniqueidentifier",
-                maxLength: 20,
                 nullable: true);
+            */
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            /*
             migrationBuilder.DropColumn(
                 name: "Pattern",
                 table: "MarksMaster");
@@ -61,6 +62,7 @@ namespace ExamAPI.Migrations
             migrationBuilder.DropColumn(
                 name: "RevaluationForExamId",
                 table: "ExamMaster");
+            */
 
             migrationBuilder.AlterColumn<string>(
                 name: "AYID",
@@ -73,12 +75,6 @@ namespace ExamAPI.Migrations
                 oldMaxLength: 20,
                 oldNullable: true);
 
-            migrationBuilder.AddColumn<string>(
-                name: "AYID",
-                table: "ExamMaster",
-                type: "nvarchar(20)",
-                maxLength: 20,
-                nullable: true);
         }
     }
 }

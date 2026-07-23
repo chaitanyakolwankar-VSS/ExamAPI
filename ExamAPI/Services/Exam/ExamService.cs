@@ -1,4 +1,4 @@
-﻿using ExamAPI.Data;
+using ExamAPI.Data;
 using ExamAPI.DTOs;
 using ExamAPI.Models;
 using ExamAPI.Services.Common;
@@ -149,19 +149,19 @@ namespace ExamAPI.Services.Exam
                 {
                     CreditsId = g.Key.Value,
 
-                    H1SubjectCredit = g.Where(x => x.Head == "h1").Select(x => x.Id).FirstOrDefault(),
-                    H1OutOf = g.Where(x => x.Head == "h1").Select(x => x.HeadOutOf).FirstOrDefault(),
-                    H1Pass = g.Where(x => x.Head == "h1").Select(x => x.HeadPass).FirstOrDefault(),
-                    H1Type = g.Where(x => x.Head == "h1").Select(x => x.HeadType).FirstOrDefault(),
+                    H1SubjectCredit = g.Where(x => x.HeadType == "TH").Select(x => x.Id).FirstOrDefault(),
+                    H1OutOf = g.Where(x => x.HeadType == "TH").Select(x => x.HeadOutOf).FirstOrDefault(),
+                    H1Pass = g.Where(x => x.HeadType == "TH").Select(x => x.HeadPass).FirstOrDefault(),
+                    H1Type = g.Where(x => x.HeadType == "TH").Select(x => x.HeadType).FirstOrDefault(),
                     H1Res = _context.Resolution
             .Where(r => r.CreditID == g.Key && r.AYID == Guid.Parse(dto.Ayid) && r.ExamID==dto.ExamId && r.Head == "H1")
             .Select(r => r.Resolution)
             .FirstOrDefault() ?? "",
 
-                    H2SubjectCredit = g.Where(x => x.Head == "h2").Select(x => x.Id).FirstOrDefault(),
-                    H2OutOf = g.Where(x => x.Head == "h2").Select(x => x.HeadOutOf).FirstOrDefault(),
-                    H2Pass = g.Where(x => x.Head == "h2").Select(x => x.HeadPass).FirstOrDefault(),
-                    H2Type = g.Where(x => x.Head == "h2").Select(x => x.HeadType).FirstOrDefault(),
+                    H2SubjectCredit = g.Where(x => x.HeadType != "TH").Select(x => x.Id).FirstOrDefault(),
+                    H2OutOf = g.Where(x => x.HeadType != "TH").Select(x => x.HeadOutOf).FirstOrDefault(),
+                    H2Pass = g.Where(x => x.HeadType != "TH").Select(x => x.HeadPass).FirstOrDefault(),
+                    H2Type = g.Where(x => x.HeadType != "TH").Select(x => x.HeadType).FirstOrDefault(),
                     H2Res = _context.Resolution
             .Where(r => r.CreditID == g.Key  && r.AYID == Guid.Parse(dto.Ayid) && r.ExamID == dto.ExamId && r.Head == "H2")
             .Select(r => r.Resolution)
