@@ -29,6 +29,9 @@ namespace ExamAPI.Models
         [Column(TypeName = "decimal(18,2)")]
         public decimal? MaxLimit { get; set; }
 
+        [MaxLength(255)]
+        public string? Expression { get; set; }
+
         public int? MaxTargetCount { get; set; }
 
         [MaxLength(100)]
