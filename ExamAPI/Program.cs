@@ -43,6 +43,7 @@ builder.Services.AddScoped<ExamAPI.Services.Exam.IExamService, ExamAPI.Services.
 builder.Services.AddScoped<ExamAPI.Services.RegularExam.IRegularExamService, ExamAPI.Services.RegularExam.RegularExamService>();
 builder.Services.AddScoped<ExamAPI.Services.UsersMaster.IUserMasterService, ExamAPI.Services.UsersMaster.UserMasterService>();
 builder.Services.AddScoped<IPasswordResetService, PasswordResetService>();
+builder.Services.AddScoped<ExamAPI.Services.DeclareResult.IDResultService, ExamAPI.Services.DeclareResult.DResultService>();
 //--services and interface end ------//
 
 
