@@ -2,6 +2,7 @@
 using ExamAPI.Services.UsersMaster;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
 namespace ExamAPI.Controllers
 {
@@ -22,9 +23,17 @@ namespace ExamAPI.Controllers
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
+            // The new user is created inside the CALLER's college. CollegeId comes from the
+            // token and is no longer accepted from the request body.
+            var collegeIdClaim = User.FindFirstValue("CollegeId");
+            if (string.IsNullOrEmpty(collegeIdClaim) || !Guid.TryParse(collegeIdClaim, out var collegeId))
+            {
+                return Unauthorized(new { message = "Invalid or missing CollegeId in token." });
+            }
+
             try
             {
-                var result = await _service.CreateUserAsync(dto);
+                var result = await _service.CreateUserAsync(dto, collegeId);
                 return Ok(result);
             }
             catch (InvalidOperationException ex)

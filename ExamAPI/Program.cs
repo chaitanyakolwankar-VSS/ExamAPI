@@ -6,6 +6,7 @@ using ExamAPI.Services.PasswordResetOTP;
 using ExamAPI.Services.RoleMaster;
 using ExamAPI.Services.Result.Engine;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 
@@ -22,6 +23,10 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHttpContextAccessor();
+
+// Tenant identity, read from the JWT. ApplicationDbContext depends on this to build its
+// global college query filter, so it must be registered before the DbContext.
+builder.Services.AddScoped<ExamAPI.Services.Tenancy.ICurrentUser, ExamAPI.Services.Tenancy.CurrentUser>();
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
 
 var cloudConfig = builder.Configuration.GetSection("Cloudinary");
@@ -89,6 +94,20 @@ builder.Services.AddAuthentication(options =>
     };
 });
 // JWT Authentication end
+
+
+// Authorization: authentication is OPT-OUT, not opt-in.
+// Every endpoint now requires a valid token unless it is explicitly marked
+// [AllowAnonymous] (currently only AuthController and SendResetOtpController).
+// Previously only 5 of 19 controllers carried [Authorize], which left the rest --
+// including StudentMaster and UserMaster -- readable and writable with no token at all.
+builder.Services.AddAuthorization(options =>
+{
+    options.FallbackPolicy = new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build();
+});
+// Authorization end
 
 
 //CORS config

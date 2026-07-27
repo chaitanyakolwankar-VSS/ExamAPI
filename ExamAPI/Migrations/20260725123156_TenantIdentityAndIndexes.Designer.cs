@@ -4,6 +4,7 @@ using ExamAPI.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace ExamAPI.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260725123156_TenantIdentityAndIndexes")]
+    partial class TenantIdentityAndIndexes
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -64,7 +67,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("CollegeId");
 
-                    b.ToTable("AcademicYear", (string)null);
+                    b.ToTable("AcademicYear");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.AuditLog", b =>
@@ -76,9 +79,6 @@ namespace ExamAPI.Migrations
                     b.Property<string>("Action")
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
-
-                    b.Property<Guid?>("CollegeId")
-                        .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("PerformedBy")
                         .HasColumnType("uniqueidentifier");
@@ -100,9 +100,7 @@ namespace ExamAPI.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CollegeId");
-
-                    b.ToTable("AuditLog", (string)null);
+                    b.ToTable("AuditLog");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.College", b =>
@@ -167,7 +165,7 @@ namespace ExamAPI.Migrations
 
                     b.HasKey("CollegeId");
 
-                    b.ToTable("College", (string)null);
+                    b.ToTable("College");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.CourseMaster", b =>
@@ -215,7 +213,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("StudentMasterStdMstId");
 
-                    b.ToTable("CourseMaster", (string)null);
+                    b.ToTable("CourseMaster");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.ExamMaster", b =>
@@ -225,9 +223,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("AcademicYearAYID")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid?>("CollegeId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("CourseId")
@@ -275,11 +270,9 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("AcademicYearAYID");
 
-                    b.HasIndex("CollegeId");
-
                     b.HasIndex("CourseId");
 
-                    b.ToTable("ExamMaster", (string)null);
+                    b.ToTable("ExamMaster");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.GraceLookup", b =>
@@ -318,16 +311,13 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("CollegeId");
 
-                    b.ToTable("GraceLookup", (string)null);
+                    b.ToTable("GraceLookup");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.GradeMaster", b =>
                 {
                     b.Property<Guid>("GradeMasterId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid?>("CollegeId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime>("CreatedAt")
@@ -358,9 +348,7 @@ namespace ExamAPI.Migrations
 
                     b.HasKey("GradeMasterId");
 
-                    b.HasIndex("CollegeId");
-
-                    b.ToTable("GradeMaster", (string)null);
+                    b.ToTable("GradeMaster");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.GradeThreshold", b =>
@@ -411,7 +399,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("GradeMasterId");
 
-                    b.ToTable("GradeThreshold", (string)null);
+                    b.ToTable("GradeThreshold");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.MarksMaster", b =>
@@ -425,9 +413,6 @@ namespace ExamAPI.Migrations
 
                     b.Property<decimal?>("CGPI")
                         .HasColumnType("decimal(18, 2)");
-
-                    b.Property<Guid?>("CollegeId")
-                        .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
@@ -493,13 +478,11 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("AcademicYearAYID");
 
-                    b.HasIndex("CollegeId");
-
                     b.HasIndex("ExamId");
 
                     b.HasIndex("StdMstId");
 
-                    b.ToTable("MarksMaster", (string)null);
+                    b.ToTable("MarksMaster");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.PasswordResetOTP", b =>
@@ -533,7 +516,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("PasswordResetOTP", (string)null);
+                    b.ToTable("PasswordResetOTP");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.PatternMaster", b =>
@@ -575,7 +558,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("CollegeId");
 
-                    b.ToTable("PatternMaster", (string)null);
+                    b.ToTable("PatternMaster");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.Permission", b =>
@@ -613,7 +596,7 @@ namespace ExamAPI.Migrations
 
                     b.HasKey("PermissionId");
 
-                    b.ToTable("Permission", (string)null);
+                    b.ToTable("Permission");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.ResolutionMaster", b =>
@@ -623,9 +606,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("AYID")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid?>("CollegeId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("CourseID")
@@ -668,8 +648,6 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("AYID");
 
-                    b.HasIndex("CollegeId");
-
                     b.HasIndex("CourseID");
 
                     b.HasIndex("CreditID");
@@ -678,16 +656,13 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("SubjectCreditID");
 
-                    b.ToTable("ResolutionMaster", (string)null);
+                    b.ToTable("ResolutionMaster");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.RoleMaster", b =>
                 {
                     b.Property<Guid>("RoleId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid?>("CollegeId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime>("CreatedAt")
@@ -718,9 +693,7 @@ namespace ExamAPI.Migrations
 
                     b.HasKey("RoleId");
 
-                    b.HasIndex("CollegeId");
-
-                    b.ToTable("RoleMaster", (string)null);
+                    b.ToTable("RoleMaster");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.RolePermission", b =>
@@ -752,7 +725,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("PermissionId");
 
-                    b.ToTable("RolePermission", (string)null);
+                    b.ToTable("RolePermission");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.Rule", b =>
@@ -803,7 +776,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("RuleSetId");
 
-                    b.ToTable("Rule", (string)null);
+                    b.ToTable("Rule");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.RuleAction", b =>
@@ -872,7 +845,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("RuleId");
 
-                    b.ToTable("RuleAction", (string)null);
+                    b.ToTable("RuleAction");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.RuleCondition", b =>
@@ -917,16 +890,13 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("RuleId");
 
-                    b.ToTable("RuleCondition", (string)null);
+                    b.ToTable("RuleCondition");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.RuleSet", b =>
                 {
                     b.Property<Guid>("RuleSetId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid?>("CollegeId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime>("CreatedAt")
@@ -966,13 +936,11 @@ namespace ExamAPI.Migrations
 
                     b.HasKey("RuleSetId");
 
-                    b.HasIndex("CollegeId");
-
                     b.HasIndex("GradeMasterId");
 
                     b.HasIndex("PatternId");
 
-                    b.ToTable("RuleSet", (string)null);
+                    b.ToTable("RuleSet");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.StudentEligibility", b =>
@@ -982,9 +950,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("AYID")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid?>("CollegeId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("CourseId")
@@ -1024,13 +989,11 @@ namespace ExamAPI.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CollegeId");
-
                     b.HasIndex("CourseId");
 
                     b.HasIndex("StdMstId");
 
-                    b.ToTable("StudentEligibility", (string)null);
+                    b.ToTable("StudentEligibility");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.StudentMarks", b =>
@@ -1107,7 +1070,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("SubjectId");
 
-                    b.ToTable("StudentMarks", (string)null);
+                    b.ToTable("StudentMarks");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.StudentMaster", b =>
@@ -1200,7 +1163,7 @@ namespace ExamAPI.Migrations
                         .IsUnique()
                         .HasFilter("[CollegeId] IS NOT NULL");
 
-                    b.ToTable("StudentMaster", (string)null);
+                    b.ToTable("StudentMaster");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.StudentsOverallResult", b =>
@@ -1211,9 +1174,6 @@ namespace ExamAPI.Migrations
 
                     b.Property<decimal?>("CGPI")
                         .HasColumnType("decimal(18, 2)");
-
-                    b.Property<Guid?>("CollegeId")
-                        .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
@@ -1260,11 +1220,9 @@ namespace ExamAPI.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CollegeId");
-
                     b.HasIndex("StdMstId");
 
-                    b.ToTable("StudentsOverallResult", (string)null);
+                    b.ToTable("StudentsOverallResult");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.SubjectCreditMaster", b =>
@@ -1278,9 +1236,6 @@ namespace ExamAPI.Migrations
                         .HasColumnType("nvarchar(20)");
 
                     b.Property<Guid?>("AcademicYearAYID")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid?>("CollegeId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime>("CreatedAt")
@@ -1311,11 +1266,9 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("AcademicYearAYID");
 
-                    b.HasIndex("CollegeId");
-
                     b.HasIndex("SubjectId");
 
-                    b.ToTable("SubjectCreditMaster", (string)null);
+                    b.ToTable("SubjectCreditMaster");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.SubjectCredits", b =>
@@ -1372,16 +1325,13 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("CreditsId");
 
-                    b.ToTable("SubjectCredits", (string)null);
+                    b.ToTable("SubjectCredits");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.SubjectMaster", b =>
                 {
                     b.Property<Guid>("SubjectId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid?>("CollegeId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("CourseId")
@@ -1428,20 +1378,15 @@ namespace ExamAPI.Migrations
 
                     b.HasKey("SubjectId");
 
-                    b.HasIndex("CollegeId");
-
                     b.HasIndex("CourseId");
 
-                    b.ToTable("SubjectMaster", (string)null);
+                    b.ToTable("SubjectMaster");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.TimeTableMaster", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid?>("CollegeId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("CourseId")
@@ -1480,15 +1425,13 @@ namespace ExamAPI.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CollegeId");
-
                     b.HasIndex("CourseId");
 
                     b.HasIndex("ExamId");
 
                     b.HasIndex("SubjectId");
 
-                    b.ToTable("TimeTableMaster", (string)null);
+                    b.ToTable("TimeTableMaster");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.UserMaster", b =>
@@ -1559,7 +1502,7 @@ namespace ExamAPI.Migrations
                         .IsUnique()
                         .HasFilter("[CollegeId] IS NOT NULL");
 
-                    b.ToTable("UserMaster", (string)null);
+                    b.ToTable("UserMaster");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.UserPermission", b =>
@@ -1591,7 +1534,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("PermissionId");
 
-                    b.ToTable("UserPermission", (string)null);
+                    b.ToTable("UserPermission");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.AcademicYear", b =>
@@ -1603,15 +1546,6 @@ namespace ExamAPI.Migrations
                         .IsRequired();
 
                     b.Navigation("College");
-                });
-
-            modelBuilder.Entity("ExamAPI.Models.AuditLog", b =>
-                {
-                    b.HasOne("ExamAPI.Models.College", "OwningCollege")
-                        .WithMany()
-                        .HasForeignKey("CollegeId");
-
-                    b.Navigation("OwningCollege");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.CourseMaster", b =>
@@ -1633,17 +1567,11 @@ namespace ExamAPI.Migrations
                         .WithMany("Exams")
                         .HasForeignKey("AcademicYearAYID");
 
-                    b.HasOne("ExamAPI.Models.College", "OwningCollege")
-                        .WithMany()
-                        .HasForeignKey("CollegeId");
-
                     b.HasOne("ExamAPI.Models.CourseMaster", "Course")
                         .WithMany("Exams")
                         .HasForeignKey("CourseId");
 
                     b.Navigation("Course");
-
-                    b.Navigation("OwningCollege");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.GraceLookup", b =>
@@ -1653,15 +1581,6 @@ namespace ExamAPI.Migrations
                         .HasForeignKey("CollegeId");
 
                     b.Navigation("College");
-                });
-
-            modelBuilder.Entity("ExamAPI.Models.GradeMaster", b =>
-                {
-                    b.HasOne("ExamAPI.Models.College", "OwningCollege")
-                        .WithMany()
-                        .HasForeignKey("CollegeId");
-
-                    b.Navigation("OwningCollege");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.GradeThreshold", b =>
@@ -1681,10 +1600,6 @@ namespace ExamAPI.Migrations
                         .WithMany("Marks")
                         .HasForeignKey("AcademicYearAYID");
 
-                    b.HasOne("ExamAPI.Models.College", "OwningCollege")
-                        .WithMany()
-                        .HasForeignKey("CollegeId");
-
                     b.HasOne("ExamAPI.Models.ExamMaster", "Exam")
                         .WithMany("Marks")
                         .HasForeignKey("ExamId");
@@ -1696,8 +1611,6 @@ namespace ExamAPI.Migrations
                     b.Navigation("AcademicYear");
 
                     b.Navigation("Exam");
-
-                    b.Navigation("OwningCollege");
 
                     b.Navigation("Student");
                 });
@@ -1728,10 +1641,6 @@ namespace ExamAPI.Migrations
                         .WithMany()
                         .HasForeignKey("AYID");
 
-                    b.HasOne("ExamAPI.Models.College", "OwningCollege")
-                        .WithMany()
-                        .HasForeignKey("CollegeId");
-
                     b.HasOne("ExamAPI.Models.CourseMaster", "Course")
                         .WithMany()
                         .HasForeignKey("CourseID");
@@ -1758,18 +1667,7 @@ namespace ExamAPI.Migrations
 
                     b.Navigation("Exam");
 
-                    b.Navigation("OwningCollege");
-
                     b.Navigation("SubjectCredit");
-                });
-
-            modelBuilder.Entity("ExamAPI.Models.RoleMaster", b =>
-                {
-                    b.HasOne("ExamAPI.Models.College", "OwningCollege")
-                        .WithMany()
-                        .HasForeignKey("CollegeId");
-
-                    b.Navigation("OwningCollege");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.RolePermission", b =>
@@ -1820,10 +1718,6 @@ namespace ExamAPI.Migrations
 
             modelBuilder.Entity("ExamAPI.Models.RuleSet", b =>
                 {
-                    b.HasOne("ExamAPI.Models.College", "OwningCollege")
-                        .WithMany()
-                        .HasForeignKey("CollegeId");
-
                     b.HasOne("ExamAPI.Models.GradeMaster", "GradeMaster")
                         .WithMany("RuleSets")
                         .HasForeignKey("GradeMasterId");
@@ -1836,17 +1730,11 @@ namespace ExamAPI.Migrations
 
                     b.Navigation("GradeMaster");
 
-                    b.Navigation("OwningCollege");
-
                     b.Navigation("Pattern");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.StudentEligibility", b =>
                 {
-                    b.HasOne("ExamAPI.Models.College", "OwningCollege")
-                        .WithMany()
-                        .HasForeignKey("CollegeId");
-
                     b.HasOne("ExamAPI.Models.CourseMaster", "Course")
                         .WithMany()
                         .HasForeignKey("CourseId");
@@ -1856,8 +1744,6 @@ namespace ExamAPI.Migrations
                         .HasForeignKey("StdMstId");
 
                     b.Navigation("Course");
-
-                    b.Navigation("OwningCollege");
 
                     b.Navigation("Student");
                 });
@@ -1894,15 +1780,9 @@ namespace ExamAPI.Migrations
 
             modelBuilder.Entity("ExamAPI.Models.StudentsOverallResult", b =>
                 {
-                    b.HasOne("ExamAPI.Models.College", "OwningCollege")
-                        .WithMany()
-                        .HasForeignKey("CollegeId");
-
                     b.HasOne("ExamAPI.Models.StudentMaster", "Student")
                         .WithMany("OverallMarks")
                         .HasForeignKey("StdMstId");
-
-                    b.Navigation("OwningCollege");
 
                     b.Navigation("Student");
                 });
@@ -1913,15 +1793,9 @@ namespace ExamAPI.Migrations
                         .WithMany("SubjectCredits")
                         .HasForeignKey("AcademicYearAYID");
 
-                    b.HasOne("ExamAPI.Models.College", "OwningCollege")
-                        .WithMany()
-                        .HasForeignKey("CollegeId");
-
                     b.HasOne("ExamAPI.Models.SubjectMaster", "Subject")
                         .WithMany("SubjectCreditMasters")
                         .HasForeignKey("SubjectId");
-
-                    b.Navigation("OwningCollege");
 
                     b.Navigation("Subject");
                 });
@@ -1937,25 +1811,15 @@ namespace ExamAPI.Migrations
 
             modelBuilder.Entity("ExamAPI.Models.SubjectMaster", b =>
                 {
-                    b.HasOne("ExamAPI.Models.College", "OwningCollege")
-                        .WithMany()
-                        .HasForeignKey("CollegeId");
-
                     b.HasOne("ExamAPI.Models.CourseMaster", "Course")
                         .WithMany("Subjects")
                         .HasForeignKey("CourseId");
 
                     b.Navigation("Course");
-
-                    b.Navigation("OwningCollege");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.TimeTableMaster", b =>
                 {
-                    b.HasOne("ExamAPI.Models.College", "OwningCollege")
-                        .WithMany()
-                        .HasForeignKey("CollegeId");
-
                     b.HasOne("ExamAPI.Models.CourseMaster", "Course")
                         .WithMany()
                         .HasForeignKey("CourseId");
@@ -1971,8 +1835,6 @@ namespace ExamAPI.Migrations
                     b.Navigation("Course");
 
                     b.Navigation("Exam");
-
-                    b.Navigation("OwningCollege");
 
                     b.Navigation("Subject");
                 });

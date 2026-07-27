@@ -16,27 +16,38 @@ namespace ExamAPI.Services.UsersMaster
             _context = context;
         }
 
-        public async Task<UserMasterDTO> CreateUserAsync(CreateUserMasterDTO dto)
+        /// <param name="collegeId">
+        /// Taken from the caller's token by the controller -- never from the request body.
+        /// Accepting it from the client would let any authenticated user create a user
+        /// inside another college.
+        /// </param>
+        public async Task<UserMasterDTO> CreateUserAsync(CreateUserMasterDTO dto, Guid collegeId)
         {
-            if (await _context.UserMasters.AnyAsync(u => u.Username.ToLower() == dto.Username.ToLower()))
+            // Username is unique per college, so this check must be scoped to the college.
+            if (await _context.UserMasters.AnyAsync(u =>
+                    u.CollegeId == collegeId && u.Username.ToLower() == dto.Username.ToLower()))
                 throw new InvalidOperationException("Username already exists");
 
+            // Email is the login identifier and stays globally unique, so this check is
+            // deliberately NOT scoped -- and must ignore the tenant filter to catch a
+            // clash with a user in another college.
             if (await _context.UserMasters
-              .AnyAsync(u => u.Email.ToLower() == dto.Email.ToLower()))
+              .IgnoreQueryFilters()
+              .AnyAsync(u => !u.IsDeleted && u.Email.ToLower() == dto.Email.ToLower()))
                 throw new InvalidOperationException("Email already exists");
 
             var user = new UserMaster
             {
                 UserId = Guid.NewGuid(),
                 Username = dto.Username.Trim(),
-                Email = dto.Email.Trim(),
+                Email = dto.Email.Trim().ToLowerInvariant(),
                 FirstName = dto.FirstName.Trim(),
                 LastName = dto.LastName.Trim(),
                 RoleId = dto.RoleId,
-                CollegeId = dto.CollegeId,
+                CollegeId = collegeId,
                 HashedPassword = BCrypt.Net.BCrypt.HashPassword(dto.Password),
                 CreatedAt = DateTime.UtcNow
-                  
+
             };
 
             _context.UserMasters.Add(user);

@@ -3,8 +3,13 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace ExamAPI.Models
 {
-    public class ResolutionMaster
+    public class ResolutionMaster : ICollegeScoped
     {
+
+        /// <summary>Tenant owner. See <see cref="ICollegeScoped"/>.</summary>
+        public Guid? CollegeId { get; set; }
+        [ForeignKey(nameof(CollegeId))]
+        public College? OwningCollege { get; set; }
         [Key]
         public Guid ID { get; set; }
         public Guid? ExamID { get; set; }

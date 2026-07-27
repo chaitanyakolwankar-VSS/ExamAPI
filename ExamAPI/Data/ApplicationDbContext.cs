@@ -1,5 +1,7 @@
 using ExamAPI.Models;
+using ExamAPI.Services.Tenancy;
 using Microsoft.EntityFrameworkCore;
+using System.Linq.Expressions;
 using System.Security.Claims;
 
 namespace ExamAPI.Data
@@ -7,11 +9,29 @@ namespace ExamAPI.Data
     public class ApplicationDbContext : DbContext
     {
         private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly ICurrentUser? _currentUser;
 
         public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options, IHttpContextAccessor httpContextAccessor) : base(options)
         {
             _httpContextAccessor = httpContextAccessor;
         }
+
+        public ApplicationDbContext(
+            DbContextOptions<ApplicationDbContext> options,
+            IHttpContextAccessor httpContextAccessor,
+            ICurrentUser currentUser) : base(options)
+        {
+            _httpContextAccessor = httpContextAccessor;
+            _currentUser = currentUser;
+        }
+
+        /// <summary>
+        /// The tenant every query is filtered to. Read as a PROPERTY inside the global query
+        /// filters so EF turns it into a query parameter evaluated per request -- if it were
+        /// captured as a constant, the first caller's college would be baked into the
+        /// compiled model and served to everyone else.
+        /// </summary>
+        public Guid? CurrentCollegeId => _currentUser?.CollegeId;
 
         // =========================================
         // 0. PasswordReset and OTP for User Master
@@ -120,19 +140,24 @@ namespace ExamAPI.Data
             // Additional Configurations (Optional but Recommended)
             // ---------------------------------------------------------
 
-            // Ensure Usernames are unique
+            // ---------------------------------------------------------
+            // Multi-tenant uniqueness.
+            // Username and StudentId are unique WITHIN a college, not globally: every
+            // college needs its own "admin", and two colleges may legitimately issue the
+            // same roll number. Email stays globally unique because it is the login
+            // identifier -- one lookup on Email must resolve to exactly one user, and that
+            // user's CollegeId is what establishes the tenant for the whole session.
+            // ---------------------------------------------------------
             modelBuilder.Entity<UserMaster>()
-                .HasIndex(u => u.Username)
+                .HasIndex(u => new { u.CollegeId, u.Username })
                 .IsUnique();
 
-            // Ensure Email is unique 
             modelBuilder.Entity<UserMaster>()
                 .HasIndex(u => u.Email)
                 .IsUnique();
 
-            // Ensure StudentId is unique
             modelBuilder.Entity<StudentMaster>()
-                .HasIndex(s => s.StudentId)
+                .HasIndex(s => new { s.CollegeId, s.StudentId })
                 .IsUnique();
 
             // Configure Decimal Precision for Grades 
@@ -156,6 +181,13 @@ namespace ExamAPI.Data
                 .Property(p => p.MaxPercentage)
                 .HasColumnType("decimal(5,2)");
 
+            // AcademicYear.CollegeId became nullable in the CLR so the type could implement
+            // ICollegeScoped, but the column must stay NOT NULL -- an academic year with no
+            // college is meaningless. IsRequired() keeps the schema unchanged.
+            modelBuilder.Entity<AcademicYear>()
+                .Property(a => a.CollegeId)
+                .IsRequired();
+
             // =========================================================
             // GLOBAL CONFIGURATION
             // =========================================================
@@ -167,20 +199,81 @@ namespace ExamAPI.Data
                     entityType.SetTableName(entityType.ClrType.Name);
                 }
 
-                // B. Apply Filter if the class inherits from BaseEntity
-                if (typeof(BaseEntity).IsAssignableFrom(entityType.ClrType))
+                // B. Global query filter: soft-delete AND tenant isolation.
+                //
+                // These MUST be built as a single combined lambda. EF Core allows only one
+                // HasQueryFilter per entity -- calling it twice silently REPLACES the first,
+                // which would quietly drop the soft-delete filter the whole app relies on.
+                var isSoftDeletable = typeof(BaseEntity).IsAssignableFrom(entityType.ClrType);
+                var isTenantScoped = typeof(ICollegeScoped).IsAssignableFrom(entityType.ClrType);
+
+                if (!isSoftDeletable && !isTenantScoped)
                 {
-                    //isdelsted set 0 
-                    modelBuilder.Entity(entityType.ClrType).Property(nameof(BaseEntity.IsDeleted)).HasDefaultValue(false);
-
-                    // This creates the logic: "Where(e => e.IsDeleted == false)"
-                    var parameter = System.Linq.Expressions.Expression.Parameter(entityType.ClrType, "e");
-                    var prop = System.Linq.Expressions.Expression.Property(parameter, nameof(BaseEntity.IsDeleted));
-                    var condition = System.Linq.Expressions.Expression.Equal(prop, System.Linq.Expressions.Expression.Constant(false));
-                    var lambda = System.Linq.Expressions.Expression.Lambda(condition, parameter);
-
-                    modelBuilder.Entity(entityType.ClrType).HasQueryFilter(lambda);
+                    continue;
                 }
+
+                var parameter = Expression.Parameter(entityType.ClrType, "e");
+                Expression? predicate = null;
+
+                if (isSoftDeletable)
+                {
+                    modelBuilder.Entity(entityType.ClrType)
+                        .Property(nameof(BaseEntity.IsDeleted)).HasDefaultValue(false);
+
+                    // e.IsDeleted == false
+                    predicate = Expression.Equal(
+                        Expression.Property(parameter, nameof(BaseEntity.IsDeleted)),
+                        Expression.Constant(false));
+                }
+
+                // College is the tenant root: it has no CollegeId FK, its own PK IS the
+                // tenant key. Handled here rather than via ICollegeScoped so it still gets
+                // one combined filter alongside the soft-delete predicate.
+                if (entityType.ClrType == typeof(College))
+                {
+                    var collegeIdProp = Expression.Property(parameter, nameof(College.CollegeId));
+                    var currentId = Expression.Property(
+                        Expression.Constant(this), nameof(CurrentCollegeId));
+
+                    // A null CurrentCollegeId means a platform administrator, who is
+                    // entitled to see every college. Ordinary users see only their own.
+                    var collegePredicate = Expression.OrElse(
+                        Expression.Equal(currentId, Expression.Constant(null, typeof(Guid?))),
+                        Expression.Equal(
+                            Expression.Convert(collegeIdProp, typeof(Guid?)), currentId));
+
+                    predicate = predicate == null
+                        ? collegePredicate
+                        : Expression.AndAlso(predicate, collegePredicate);
+                }
+
+                if (isTenantScoped)
+                {
+                    // e.CollegeId == this.CurrentCollegeId
+                    // Reading CurrentCollegeId off the context instance (rather than a
+                    // captured value) is what makes EF treat it as a per-query parameter.
+                    var collegeProp = Expression.Property(parameter, nameof(ICollegeScoped.CollegeId));
+                    var currentCollege = Expression.Property(
+                        Expression.Constant(this), nameof(CurrentCollegeId));
+
+                    Expression tenantPredicate = Expression.Equal(collegeProp, currentCollege);
+
+                    // Templatable entities (grading scales, ordinance rule sets, platform
+                    // roles) may also hold platform-wide rows shared by every college.
+                    if (typeof(ICollegeTemplatable).IsAssignableFrom(entityType.ClrType))
+                    {
+                        tenantPredicate = Expression.OrElse(
+                            tenantPredicate,
+                            Expression.Equal(collegeProp, Expression.Constant(null, typeof(Guid?))));
+                    }
+
+                    predicate = predicate == null
+                        ? tenantPredicate
+                        : Expression.AndAlso(predicate, tenantPredicate);
+                }
+
+                modelBuilder.Entity(entityType.ClrType)
+                    .HasQueryFilter(Expression.Lambda(predicate!, parameter));
             }
 
 
@@ -197,6 +290,21 @@ namespace ExamAPI.Data
 
             var role = user?.FindFirst(ClaimTypes.Role)?.Value;
             var userType = (role == "Student") ? "Student" : "Staff";
+
+            // Stamp the tenant on every new row, so no service can forget to set it and
+            // silently create data that belongs to nobody (and would then be invisible,
+            // because the global filter would never match it again).
+            // An explicitly-set CollegeId is respected: provisioning a new college has to
+            // write rows for a tenant other than the caller's.
+            var currentCollegeId = CurrentCollegeId;
+            if (currentCollegeId.HasValue)
+            {
+                foreach (var scopedEntry in ChangeTracker.Entries<ICollegeScoped>()
+                             .Where(e => e.State == EntityState.Added && e.Entity.CollegeId == null))
+                {
+                    scopedEntry.Entity.CollegeId = currentCollegeId;
+                }
+            }
 
             var entries = ChangeTracker.Entries()
                 .Where(e => e.Entity is BaseEntity &&

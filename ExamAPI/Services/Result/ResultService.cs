@@ -175,6 +175,11 @@ namespace ExamAPI.Services.Result
                 ResetAppliedGrace(sm);
             }
 
+            // Ordinance symbols are re-derived from the rules on every run, so clear the
+            // previous verdict first. AddBonusSGPIHandler/SetResultRemarkHandler APPEND to
+            // ResultRemark, so without this a reprocess accumulates ("#" -> "# #" -> "# # #").
+            marksMaster.ResultRemark = null;
+
             await ApplyResolutionGraceAsync(marksMaster);
 
             // Phase 1: Rule Evaluation & Sorting Actions
