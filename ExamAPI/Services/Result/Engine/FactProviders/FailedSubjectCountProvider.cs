@@ -15,15 +15,8 @@ namespace ExamAPI.Services.Result.Engine.FactProviders
 
             var count = marksMaster.StudentMarks
                 .GroupBy(sm => sm.SubjectId)
-                .Count(group => group.Any(sm => (sm.Marks ?? 0) < GetPassingMarks(sm)));
+                .Count(group => !SubjectPassEvaluator.Evaluate(group).IsPassed);
             return Task.FromResult((double)count);
-        }
-
-        private int GetPassingMarks(StudentMarks sm)
-        {
-             var credit = sm.CreditMaster?.Credits?.FirstOrDefault(c => c.Head == sm.Head);
-             if (credit != null && int.TryParse(credit.HeadPass, out int pass)) return pass;
-             return 40; 
         }
     }
 }

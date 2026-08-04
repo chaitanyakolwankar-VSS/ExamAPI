@@ -3,6 +3,13 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace ExamAPI.Models
 {
+    /// <summary>Allowed values for <see cref="SubjectCreditMaster.PassingStrategy"/>.</summary>
+    public static class PassingStrategies
+    {
+        public const string HeadWise = "HeadWise";
+        public const string Combined = "Combined";
+    }
+
     public class SubjectCreditMaster : BaseEntity, ICollegeScoped
     {
 
@@ -18,6 +25,15 @@ namespace ExamAPI.Models
 
         [MaxLength(20)]
         public string? AYID { get; set; }
+
+        /// <summary>How this subject decides pass/fail: "HeadWise" (every head clears its own
+        /// HeadPass) or "Combined" (only the sum must clear <see cref="PassPercentage"/>).</summary>
+        [MaxLength(20)]
+        public string PassingStrategy { get; set; } = PassingStrategies.HeadWise;
+
+        /// <summary>Combined pass threshold as a percentage of the subject's total out-of.
+        /// Read only when <see cref="PassingStrategy"/> is "Combined".</summary>
+        public int? PassPercentage { get; set; }
 
         // Foreign Key
         public Guid? SubjectId { get; set; }

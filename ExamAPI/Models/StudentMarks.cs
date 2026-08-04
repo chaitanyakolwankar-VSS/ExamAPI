@@ -11,17 +11,21 @@ namespace ExamAPI.Models
         public bool IsCarryForward { get; set; }
 
         [MaxLength(50)]
-        public string? Head { get; set; } // e.g. "Theory"
+        public string? Head { get; set; } // positional key, e.g. "H1"
 
         public int? RawMarks { get; set; }
         public int? Marks { get; set; }
         public int? Resolution { get; set; }
 
+        /// <summary>The student was absent for this head. Distinct from a null
+        /// <see cref="Marks"/>, which means "not entered yet".</summary>
+        public bool IsAbsent { get; set; }
+
         [MaxLength(50)]
         public string? Grace { get; set; }
 
         [MaxLength(100)]
-        public string? Remark { get; set; }
+        public string? Remark { get; set; } // legacy, no longer written; see StudentSubjectResult
 
         public int? RawGradePoint { get; set; }
         public int? GradePoint { get; set; }

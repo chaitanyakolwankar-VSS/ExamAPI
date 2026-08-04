@@ -19,7 +19,8 @@ namespace ExamAPI.Services.Result
     {
         private readonly ApplicationDbContext _context;
         private readonly EngineRegistry _registry;
-        private const string ABSENT_REMARK = "Ab";
+        private const string RESOLUTION_SYMBOL = "^";
+        private const string FAIL_GRADE = "F";
 
         public ResultService(ApplicationDbContext context, EngineRegistry registry)
         {
@@ -99,7 +100,7 @@ namespace ExamAPI.Services.Result
 
                 // 2. Validation: Check if all marks are entered. Absent marks are complete entries and remain failures.
                 var incompleteRecords = marksRecords
-                    .Where(mm => mm.StudentMarks == null || mm.StudentMarks.Any(sm => sm.Marks == null && !IsAbsentMark(sm)))
+                    .Where(mm => mm.StudentMarks == null || mm.StudentMarks.Any(sm => sm.Marks == null && !sm.IsAbsent))
                     .ToList();
                 if (incompleteRecords.Any())
                 {
@@ -148,6 +149,8 @@ namespace ExamAPI.Services.Result
                         .Include(m => m.StudentMarks)
                             .ThenInclude(sm => sm.CreditMaster)
                                 .ThenInclude(cm => cm.Credits)
+                        .Include(m => m.SubjectResults)
+                        .AsSplitQuery()
                         .FirstOrDefaultAsync(m => m.MarksId == mm.MarksId);
 
                     if (fullMm != null)
@@ -180,7 +183,9 @@ namespace ExamAPI.Services.Result
             // ResultRemark, so without this a reprocess accumulates ("#" -> "# #" -> "# # #").
             marksMaster.ResultRemark = null;
 
-            await ApplyResolutionGraceAsync(marksMaster);
+            // The subject rows must exist before Phase 1b so a combined-subject grace award has
+            // somewhere to land; Phase 2 then fills in the totals and the verdict.
+            EnsureSubjectResults(marksMaster);
 
             // Phase 1: Rule Evaluation & Sorting Actions
             var pendingActions = new List<(Rule Rule, RuleAction Action)>();
@@ -246,63 +251,82 @@ namespace ExamAPI.Services.Result
             await UpdateAcademicRecord(marksMaster);
         }
 
+        /// <summary>
+        /// Creates the missing StudentSubjectResult rows for this student and clears the grace
+        /// from the previous run, so the pipeline always has one row per subject to write to.
+        /// </summary>
+        private void EnsureSubjectResults(MarksMaster marksMaster)
+        {
+            marksMaster.SubjectResults ??= new List<StudentSubjectResult>();
+
+            foreach (var group in marksMaster.StudentMarks!.GroupBy(sm => sm.SubjectId))
+            {
+                if (group.Key is not Guid subjectId) continue;
+
+                var subjectResult = marksMaster.SubjectResults.FirstOrDefault(r => r.SubjectId == subjectId);
+                if (subjectResult == null)
+                {
+                    subjectResult = new StudentSubjectResult
+                    {
+                        Id = Guid.NewGuid(),
+                        MarksId = marksMaster.MarksId,
+                        SubjectId = subjectId
+                    };
+                    marksMaster.SubjectResults.Add(subjectResult);
+                    _context.StudentSubjectResults.Add(subjectResult);
+                }
+
+                // Carry the loaded credit config across so SGPI can read TotalCredits without
+                // a second include -- rows reloaded from the DB come back without it.
+                var firstHead = group.First();
+                subjectResult.CreditsId = firstHead.CreditsId;
+                subjectResult.CreditMaster = firstHead.CreditMaster;
+                subjectResult.GraceApplied = 0;
+                subjectResult.GraceSymbol = null;
+            }
+        }
+
         private void CalculateBaseGradePoints(MarksMaster marksMaster, RuleSet ruleSet)
         {
-            var passingStrategyAction = ruleSet.Rules?
-                .SelectMany(r => r.Actions ?? Enumerable.Empty<RuleAction>())
-                .FirstOrDefault(a => string.Equals(a.ActionType, "SetPassingStrategy", StringComparison.OrdinalIgnoreCase));
-
-            bool isCombined = string.Equals(passingStrategyAction?.Target, "Combined", StringComparison.OrdinalIgnoreCase);
-
-            var subjectGroups = marksMaster.StudentMarks!
-                .GroupBy(sm => sm.SubjectId)
-                .ToList();
-
             bool isFail = false;
 
-            foreach (var group in subjectGroups)
+            foreach (var group in marksMaster.StudentMarks!.GroupBy(sm => sm.SubjectId))
             {
-                double subjectTotal = group.Sum(sm => (double)(sm.Marks ?? 0));
-                double subjectOutOf = group.Sum(sm => (double)GetOutOf(sm));
-                double percentage = subjectOutOf > 0 ? (subjectTotal * 100 / subjectOutOf) : 0;
-                
-                var (gp, gradeStr) = GetGradePointFromPercentage(percentage, ruleSet.GradeMaster);
-                bool subjectPassed = false;
+                var subjectResult = marksMaster.SubjectResults!.FirstOrDefault(r => r.SubjectId == group.Key);
+                if (subjectResult == null) continue;
 
-                if (isCombined)
-                {
-                    var firstHead = group.FirstOrDefault();
-                    var headFormulaStr = firstHead?.CreditMaster?.Credits?.FirstOrDefault(c => c.Head == firstHead?.Head)?.HeadFormula;
-                    
-                    if (!string.IsNullOrEmpty(headFormulaStr) && int.TryParse(headFormulaStr, out int formulaPercentage))
-                    {
-                        var requiredTotal = (subjectOutOf * formulaPercentage) / 100.0;
-                        subjectPassed = subjectTotal >= requiredTotal;
-                    }
-                    else
-                    {
-                        var totalPassingMarks = group.Sum(sm => (double)GetPassingMarks(sm));
-                        subjectPassed = subjectTotal >= totalPassingMarks;
-                    }
-                }
-                else
-                {
-                    subjectPassed = group.All(sm => (sm.Marks ?? 0) >= GetPassingMarks(sm));
-                }
+                var verdict = SubjectPassEvaluator.Evaluate(group);
+
+                // Head-wise grace is already folded into Marks; combined grace is awarded against
+                // the subject total, so it is added here.
+                var obtainedTotal = verdict.ObtainedTotal + subjectResult.GraceApplied;
+                var subjectPassed = verdict.IsCombined
+                    ? obtainedTotal >= verdict.RequiredToPass
+                    : verdict.IsPassed;
+
+                double percentage = verdict.OutOfTotal > 0 ? (obtainedTotal * 100.0 / verdict.OutOfTotal) : 0;
+                var (gp, gradeStr) = GetGradePointFromPercentage(percentage, ruleSet.GradeMaster);
+
+                subjectResult.ObtainedTotal = obtainedTotal;
+                subjectResult.RawObtainedTotal = verdict.RawObtainedTotal;
+                subjectResult.OutOfTotal = verdict.OutOfTotal;
+                // A failed subject carries the fail grade, not its percentage band -- otherwise the
+                // reports that detect failure via Grade == "F" disagree with IsPassed.
+                subjectResult.Grade = subjectPassed ? gradeStr : FAIL_GRADE;
+                subjectResult.GradePoint = subjectPassed ? (int)gp : 0;
+                subjectResult.RawGradePoint = subjectResult.GradePoint;
+                subjectResult.IsPassed = subjectPassed;
+                subjectResult.SubjectStatus = verdict.IsAllAbsent
+                    ? SubjectStatuses.Absent
+                    : subjectPassed ? SubjectStatuses.Passed : SubjectStatuses.Failed;
 
                 if (!subjectPassed)
                 {
                     isFail = true;
                 }
-
-                foreach (var sm in group)
-                {
-                    sm.GradePoint = subjectPassed ? (int)gp : 0;
-                    sm.Grade = gradeStr;
-                }
             }
 
-            marksMaster.OverallRemark = isFail ? "Fail" : "Pass";
+            marksMaster.OverallRemark = isFail ? OverallRemarks.Fail : OverallRemarks.Pass;
         }
 
         private void CalculateBaseSGPI(MarksMaster marksMaster)
@@ -310,20 +334,11 @@ namespace ExamAPI.Services.Result
             double totalGradePoints = 0;
             double totalCredits = 0;
 
-            var subjectGroups = marksMaster.StudentMarks!
-                .GroupBy(sm => sm.SubjectId)
-                .ToList();
-
-            foreach (var group in subjectGroups)
+            foreach (var subjectResult in marksMaster.SubjectResults!)
             {
-                var firstSm = group.First();
-                var creditMaster = firstSm.CreditMaster;
-                if (creditMaster == null) continue;
+                double subjectCredits = double.TryParse(subjectResult.CreditMaster?.TotalCredits, out var c) ? c : 0;
 
-                double subjectCredits = double.TryParse(creditMaster.TotalCredits, out var c) ? c : 0;
-                var gp = firstSm.GradePoint ?? 0;
-                
-                totalGradePoints += gp * subjectCredits;
+                totalGradePoints += subjectResult.GradePoint * subjectCredits;
                 totalCredits += subjectCredits;
             }
 
@@ -361,18 +376,11 @@ namespace ExamAPI.Services.Result
                 _context.StudentsOverallResults.Add(overallResult);
             }
 
-            var subjectGroups = marksMaster.StudentMarks!
-                .GroupBy(sm => sm.SubjectId)
-                .ToList();
-            // A GradePoint of 0 means the subject is failed (calculated in CalculateBaseGradePoints)
-            int failedCount = subjectGroups.Count(group => group.First().GradePoint == 0);
+            int failedCount = marksMaster.SubjectResults!.Count(r => !r.IsPassed);
             overallResult.KtTheory = failedCount.ToString();
             overallResult.SGPI = marksMaster.SGPI;
-            overallResult.Credits = marksMaster.StudentMarks
-                .GroupBy(sm => sm.SubjectId)
-                .Select(g => g.First().CreditMaster)
-                .Where(cm => cm != null)
-                .Sum(cm => double.TryParse(cm!.TotalCredits, out var val) ? val : 0)
+            overallResult.Credits = marksMaster.SubjectResults
+                .Sum(r => double.TryParse(r.CreditMaster?.TotalCredits, out var val) ? val : 0)
                 .ToString();
             
             double totalCreditsForSem = double.TryParse(overallResult.Credits, out var semCred) ? semCred : 0;
@@ -416,13 +424,25 @@ namespace ExamAPI.Services.Result
             }
         }
 
-        private double GetGradePoint(StudentMarks sm, GradeMaster? gm)
+        /// <summary>
+        /// The grace/ordinance notes shown beside a result: head-level symbols from StudentMarks
+        /// plus the subject-level award a combined subject records on StudentSubjectResult.
+        /// </summary>
+        private static string BuildResultRemarks(MarksMaster mm)
         {
-            int marks = sm.Marks ?? 0;
-            int outOf = GetOutOf(sm);
-            double percentage = outOf > 0 ? (double)marks * 100 / outOf : 0;
+            var notes = new List<string>();
 
-            return GetGradePointFromPercentage(percentage, gm).GradePoint;
+            if (mm.ResultRemark == "RLE") notes.Add("RLE");
+
+            notes.AddRange(mm.StudentMarks?
+                .Where(sm => !string.IsNullOrEmpty(sm.Grace))
+                .Select(sm => $"{sm.Subject?.SubjectCode}: {sm.Grace}") ?? Enumerable.Empty<string>());
+
+            notes.AddRange(mm.SubjectResults?
+                .Where(r => r.GraceApplied > 0)
+                .Select(r => $"{r.Subject?.SubjectCode}: {r.GraceApplied}{r.GraceSymbol}") ?? Enumerable.Empty<string>());
+
+            return string.Join(", ", notes);
         }
 
         private async Task<bool> EvaluateRule(StudentMaster student, MarksMaster marksMaster, Rule rule)
@@ -472,11 +492,14 @@ namespace ExamAPI.Services.Result
                     .Include(mm => mm.StudentMarks)
                         .ThenInclude(sm => sm.CreditMaster)
                             .ThenInclude(cm => cm.Credits)
+                    .Include(mm => mm.SubjectResults)
+                        .ThenInclude(r => r.Subject)
                     .Include(mm => mm.Exam)
-                    .Where(mm => mm.Student != null 
-                        && mm.Student.CollegeId == collegeId 
-                        && mm.ExamId == request.ExamId 
-                        && mm.Pattern == request.Pattern 
+                    .AsSplitQuery()
+                    .Where(mm => mm.Student != null
+                        && mm.Student.CollegeId == collegeId
+                        && mm.ExamId == request.ExamId
+                        && mm.Pattern == request.Pattern
                         && mm.SemesterId == request.SemId 
                         && mm.Exam != null 
                         && mm.Exam.CourseId == request.BranchId
@@ -494,18 +517,21 @@ namespace ExamAPI.Services.Result
                     StudentId = mm.StudentID ?? mm.Student?.StudentId ?? "N/A",
                     StudentName = mm.Student != null ? $"{mm.Student.FirstName} {mm.Student.LastName}" : "N/A",
                     SeatNo = mm.SeatNo ?? "N/A",
-                    TotalMarks = mm.StudentMarks?.Sum(sm => sm.Marks ?? 0) ?? 0,
-                    OutOf = mm.StudentMarks?.Sum(sm => GetOutOf(sm)) ?? 0,
+                    // Combined grace is awarded against the subject total, not onto a head, so it
+                    // has to be added back here for the grid to agree with the marksheet.
+                    TotalMarks = (mm.StudentMarks?.Sum(sm => sm.Marks ?? 0) ?? 0)
+                                 + (mm.SubjectResults?.Sum(r => r.GraceApplied) ?? 0),
+                    OutOf = mm.StudentMarks?.Sum(SubjectPassEvaluator.GetHeadOutOf) ?? 0,
                     ResultStatus = mm.OverallRemark ?? "Pending",
                     Sgpi = mm.SGPI ?? 0,
                     Cgpi = mm.CGPI ?? 0,
-                    Remarks = (mm.ResultRemark == "RLE" ? "RLE, " : "") + string.Join(", ", mm.StudentMarks?.Where(sm => !string.IsNullOrEmpty(sm.Grace)).Select(sm => $"{sm.Subject?.SubjectCode}: {sm.Grace}") ?? Enumerable.Empty<string>()),
+                    Remarks = BuildResultRemarks(mm),
                     SubjectMarks = mm.StudentMarks?.ToDictionary(
-                        sm => $"{(sm.Subject?.SubjectCode ?? sm.Id.ToString())} - {sm.Subject?.Name ?? "Unknown"}{(string.IsNullOrEmpty(sm.Head) ? string.Empty : $" ({sm.Head})")}",
+                        sm => $"{(sm.Subject?.SubjectCode ?? sm.Id.ToString())} - {sm.Subject?.Name ?? "Unknown"}{(string.IsNullOrEmpty(sm.Head) ? string.Empty : $" ({SubjectPassEvaluator.GetHeadLabel(sm)})")}",
                         sm => {
-                            var markStr = sm.Marks?.ToString() ?? "0";
+                            var markStr = sm.IsAbsent ? "AB" : sm.Marks?.ToString() ?? "0";
                             var symbol = sm.Grace != null ? new string(sm.Grace.Where(c => !char.IsDigit(c)).ToArray()) : "";
-                            return $"{markStr}{symbol}/{GetOutOf(sm)}";
+                            return $"{markStr}{symbol}/{SubjectPassEvaluator.GetHeadOutOf(sm)}";
                         }
                     ) ?? new Dictionary<string, string>()
                 }).ToList();
@@ -700,43 +726,20 @@ namespace ExamAPI.Services.Result
             }
         }
 
-        private int GetPassingMarks(StudentMarks sm)
-        {
-             var credit = sm.CreditMaster?.Credits?.FirstOrDefault(c => c.Head == sm.Head);
-             if (credit != null && int.TryParse(credit.HeadPass, out int pass)) return pass;
-             throw new InvalidOperationException($"Passing marks not configured for CreditMaster head: {sm.Head}.");
-        }
-
-        private int GetOutOf(StudentMarks sm)
-        {
-            var credit = sm.CreditMaster?.Credits?.FirstOrDefault(c => c.Head == sm.Head);
-            if (credit != null && int.TryParse(credit.HeadOutOf, out int o)) return o;
-            throw new InvalidOperationException($"Maximum out of marks not configured for CreditMaster head: {sm.Head}.");
-        }
-
-        private static int GetOutOfStatic(StudentMarks sm)
-        {
-            var credit = sm.CreditMaster?.Credits?.FirstOrDefault(c => c.Head == sm.Head);
-            if (credit != null && int.TryParse(credit.HeadOutOf, out int o)) return o;
-            throw new InvalidOperationException($"Maximum out of marks not configured for CreditMaster head: {sm.Head}.");
-        }
-
         private static void ResetAppliedGrace(StudentMarks sm)
         {
-            var wasAbsent = IsAbsentMark(sm);
-            
             // If RawMarks is null but Marks has a value (old data), migrate it once
-            if (!sm.RawMarks.HasValue && sm.Marks.HasValue && !wasAbsent)
+            if (!sm.RawMarks.HasValue && sm.Marks.HasValue && !sm.IsAbsent)
             {
                 var previousGrace = ExtractGraceMarks(sm.Grace);
                 var previousResolution = sm.Resolution ?? 0;
                 sm.RawMarks = Math.Max(0, sm.Marks.Value - previousGrace - previousResolution);
             }
 
-            sm.Marks = sm.RawMarks;
-            sm.Grace = null;
-            sm.Resolution = null;
-            sm.Remark = wasAbsent ? ABSENT_REMARK : null;
+            // Ordinance grace is re-derived from the rules on every run, but resolution is a
+            // marks-entry decision: it survives reprocessing and changes only when staff re-save.
+            sm.Marks = sm.RawMarks is int raw ? raw + (sm.Resolution ?? 0) : null;
+            sm.Grace = sm.Resolution.HasValue ? RESOLUTION_SYMBOL : null;
         }
 
         private static int ExtractGraceMarks(string? grace)
@@ -768,11 +771,6 @@ namespace ExamAPI.Services.Result
             return total;
         }
 
-        private static bool IsAbsentMark(StudentMarks sm)
-        {
-            return sm.Marks == null && string.Equals(sm.Remark, ABSENT_REMARK, StringComparison.OrdinalIgnoreCase);
-        }
-
         private static bool IsRuleSetForExamType(string? ruleSetName, string? examType)
         {
             var ruleSetKey = NormalizeKey(ruleSetName);
@@ -791,53 +789,6 @@ namespace ExamAPI.Services.Result
             return string.IsNullOrWhiteSpace(value)
                 ? string.Empty
                 : new string(value.Where(char.IsLetterOrDigit).Select(char.ToUpperInvariant).ToArray());
-        }
-
-        private async Task ApplyResolutionGraceAsync(MarksMaster marksMaster, string? symbol = "^")
-        {
-            if (marksMaster.StudentMarks == null || !marksMaster.ExamId.HasValue) return;
-
-            var creditIds = marksMaster.StudentMarks
-                .Where(sm => sm.CreditsId.HasValue)
-                .Select(sm => sm.CreditsId!.Value)
-                .Distinct()
-                .ToList();
-
-            var resolutionQuery = _context.Resolution
-                .Where(r => r.ExamID == marksMaster.ExamId && !r.IsDeleted && r.CreditID.HasValue && creditIds.Contains(r.CreditID.Value));
-
-            if (marksMaster.AcademicYearAYID.HasValue)
-            {
-                resolutionQuery = resolutionQuery.Where(r => r.AYID == marksMaster.AcademicYearAYID);
-            }
-
-            var resolutions = await resolutionQuery.ToListAsync();
-
-            var failedSubjects = marksMaster.StudentMarks
-                .Where(sm => sm.RawMarks.HasValue && string.IsNullOrEmpty(sm.Grace) && sm.RawMarks < GetPassingMarks(sm))
-                .OrderBy(sm => GetPassingMarks(sm) - sm.RawMarks)
-                .ToList();
-
-            foreach (var sm in failedSubjects)
-            {
-                var resolution = resolutions.FirstOrDefault(r =>
-                    r.CreditID == sm.CreditsId &&
-                    string.Equals(r.Head, sm.Head, StringComparison.OrdinalIgnoreCase));
-
-                if (resolution == null || !int.TryParse(resolution.Resolution, out var resolutionLimit) || resolutionLimit <= 0)
-                {
-                    continue;
-                }
-
-                int required = GetPassingMarks(sm) - (sm.RawMarks ?? 0);
-                if (required <= resolutionLimit)
-                {
-                    sm.Resolution = required;
-                    sm.Marks = (sm.RawMarks ?? 0) + required;
-                    sm.Grace = (sm.Grace ?? "") + (symbol ?? "^");
-                    sm.Remark = "Successful";
-                }
-            }
         }
 
         public async Task<byte[]> ExportResultsPdfAsync(ProcessResultRequest request, Guid collegeId)

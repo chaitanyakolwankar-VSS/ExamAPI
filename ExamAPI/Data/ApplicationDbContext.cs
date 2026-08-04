@@ -75,6 +75,7 @@ namespace ExamAPI.Data
         public DbSet<TimeTableMaster> TimeTables { get; set; }
         public DbSet<MarksMaster> MarksMasters { get; set; }
         public DbSet<StudentMarks> StudentMarks { get; set; }
+        public DbSet<StudentSubjectResult> StudentSubjectResults { get; set; }
         public DbSet<StudentsOverallResult> StudentsOverallResults { get; set; }
 
         // =========================================
@@ -158,6 +159,12 @@ namespace ExamAPI.Data
 
             modelBuilder.Entity<StudentMaster>()
                 .HasIndex(s => new { s.CollegeId, s.StudentId })
+                .IsUnique();
+
+            // One computed verdict per student-subject. StudentMarks is not re-parented --
+            // the two children of MarksMaster align on the natural key (MarksId, SubjectId).
+            modelBuilder.Entity<StudentSubjectResult>()
+                .HasIndex(r => new { r.MarksId, r.SubjectId })
                 .IsUnique();
 
             // Configure Decimal Precision for Grades 

@@ -1,3 +1,4 @@
+using ExamAPI.Models;
 using ExamAPI.DTOs;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
@@ -129,7 +130,7 @@ namespace ExamAPI.Services.Report.Documents
                                 var isFirstRow = rowIndex == 0;
                                 var hasFailure = student.Subjects.Any(subject => string.Equals(subject.Grade, "F", StringComparison.OrdinalIgnoreCase));
                                 var displayRemark = hasFailure && Request.NoRleForFail && string.Equals(student.Remark, "RLE", StringComparison.OrdinalIgnoreCase)
-                                    ? "Fail"
+                                    ? OverallRemarks.Fail
                                     : student.Remark;
                                 var sgpi = hasFailure && !Request.SgpiForFail ? "--" : FormatNumber(student.SGPI);
                                 var cgpi = hasFailure && !Request.CgpiForFail ? "--" : FormatNumber(student.CGPI ?? 0);
@@ -153,7 +154,7 @@ namespace ExamAPI.Services.Report.Documents
                                         {
                                             text.Line($"{head.Head}: {head.Marks}{head.Grace}/{FormatNumber(head.Max)}");
                                         }
-                                        text.Line($"C: {sub.Credits} G: {sub.Grade} GP: {sub.GradePoint} CG: {sub.EarnedGradePoints}");
+                                        text.Line($"C: {sub.Credits} G: {sub.Grade}{sub.Grace} GP: {sub.GradePoint} CG: {sub.EarnedGradePoints}");
                                     });
                                 }
 

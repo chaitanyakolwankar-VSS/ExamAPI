@@ -30,7 +30,7 @@ namespace ExamAPI.Services.Result.Engine.ActionHandlers
 
             // Target ONLY subjects that have naturally passed.
             var passingSubjectsQuery = marksMaster.StudentMarks
-                .Where(sm => sm.Marks.HasValue && sm.Marks >= GetPassingMarks(sm));
+                .Where(sm => sm.Marks.HasValue && SubjectPassEvaluator.IsHeadPassed(sm));
 
             // Apply Action Target Filter
             if (!IsAllSubjectsTarget(action.Target))
@@ -45,7 +45,7 @@ namespace ExamAPI.Services.Result.Engine.ActionHandlers
             var passingSubjects = passingSubjectsQuery.ToList();
 
             // Calculate total aggregate out of marks
-            int aggregateOutOf = marksMaster.StudentMarks.Sum(sm => GetOutOf(sm));
+            int aggregateOutOf = marksMaster.StudentMarks.Sum(sm => SubjectPassEvaluator.GetHeadOutOf(sm));
 
             // Determine total grace available (e.g. 1% of aggregate OR up to 10 marks, whichever is less)
             decimal param1 = action.Param1Value ?? 0; // percentage limit (e.g. 1 for 1%)
@@ -78,7 +78,7 @@ namespace ExamAPI.Services.Result.Engine.ActionHandlers
                 if (maxTargetCount > 0 && appliedTargetCount >= maxTargetCount) break;
 
                 int marks = sm.Marks ?? 0;
-                int outOf = GetOutOf(sm);
+                int outOf = SubjectPassEvaluator.GetHeadOutOf(sm);
                 if (outOf <= 0) continue;
 
                 decimal currentPercentage = (decimal)marks * 100 / outOf;
@@ -99,19 +99,6 @@ namespace ExamAPI.Services.Result.Engine.ActionHandlers
                     }
                 }
             }
-        }
-
-        private int GetPassingMarks(StudentMarks sm)
-        {
-             var credit = sm.CreditMaster?.Credits?.FirstOrDefault(c => c.Head == sm.Head);
-             if (credit != null && int.TryParse(credit.HeadPass, out int pass)) return pass;
-             return 40; 
-        }
-
-        private int GetOutOf(StudentMarks sm)
-        {
-            var credit = sm.CreditMaster?.Credits?.FirstOrDefault(c => c.Head == sm.Head);
-            return int.TryParse(credit?.HeadOutOf, out int o) ? o : 100;
         }
 
         private static void ApplyGraceToMark(StudentMarks sm, int required, string? symbol, string remark)

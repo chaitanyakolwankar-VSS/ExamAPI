@@ -40,6 +40,9 @@ namespace ExamAPI.DTOs
 
     public class MarksheetReportDto
     {
+        /// <summary>Printed at the head of the marksheet; resolved from the College entity.</summary>
+        public string CollegeName { get; set; } = string.Empty;
+
         public string StudentName { get; set; } = string.Empty;
         public string SeatNo { get; set; } = string.Empty;
         public string PRN { get; set; } = string.Empty;
@@ -100,7 +103,10 @@ namespace ExamAPI.DTOs
         public double PassingMax { get; set; }
         public string TotalObtained { get; set; } = string.Empty;
         
-        public string Grade { get; set; } = string.Empty;
+        public string Grade { get; set; }
+
+        /// <summary>Subject-level ordinance grace symbol; set only for combined subjects.</summary>
+        public string? Grace { get; set; } = string.Empty;
         public int GradePoint { get; set; }
         public double EarnedGradePoints => Credits * GradePoint;
     }

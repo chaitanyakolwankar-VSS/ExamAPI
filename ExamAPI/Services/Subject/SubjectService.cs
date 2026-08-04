@@ -107,7 +107,9 @@ namespace ExamAPI.Services.Subject
                         CreditsId = credit.CreditId ?? Guid.NewGuid(),
                         TotalCredits = credit.CreditNo,
                         SubjectId = dto.SubjectId,
-                        AYID = dto.Ayid
+                        AYID = dto.Ayid,
+                        PassingStrategy = NormalizePassingStrategy(credit.PassingStrategy),
+                        PassPercentage = ParsePassPercentage(credit.PassingPercentage)
                     };
                     if (credit.ExamType.Any())
                     {
@@ -182,7 +184,8 @@ namespace ExamAPI.Services.Subject
          {
              sc.CreditsId,
              cm.TotalCredits,
-             sc.HeadFormula
+             cm.PassingStrategy,
+             cm.PassPercentage
          }
          into g
          select new
@@ -191,36 +194,37 @@ namespace ExamAPI.Services.Subject
              CreditNo = g.Key.TotalCredits,
 
              ExamTypeRaw = g
-                 .Where(x => x.sc.HeadType == "TH")
+                 .Where(x => x.sc.Head == "H1")
                  .Select(x => x.sc.HeadType)
                  .FirstOrDefault(),
 
              ExamOutOf = g
-                 .Where(x => x.sc.HeadType == "TH")
+                 .Where(x => x.sc.Head == "H1")
                  .Select(x => x.sc.HeadOutOf)
                  .FirstOrDefault(),
 
              ExamPassing = g
-                 .Where(x => x.sc.HeadType == "TH")
+                 .Where(x => x.sc.Head == "H1")
                  .Select(x => x.sc.HeadPass)
                  .FirstOrDefault(),
 
              InternalTypeRaw = g
-                 .Where(x => x.sc.HeadType != "TH")
+                 .Where(x => x.sc.Head == "H2")
                  .Select(x => x.sc.HeadType)
                  .FirstOrDefault(),
 
              InternalOutOf = g
-                 .Where(x => x.sc.HeadType != "TH")
+                 .Where(x => x.sc.Head == "H2")
                  .Select(x => x.sc.HeadOutOf)
                  .FirstOrDefault(),
 
              InternalPassing = g
-                 .Where(x => x.sc.HeadType != "TH")
+                 .Where(x => x.sc.Head == "H2")
                  .Select(x => x.sc.HeadPass)
                  .FirstOrDefault(),
 
-             PassingPercentage = g.Key.HeadFormula
+             PassingStrategy = g.Key.PassingStrategy,
+             PassingPercentage = g.Key.PassPercentage
          }
      ).ToListAsync();
             var result = rawData.Select(x => new CreditDto
@@ -242,12 +246,22 @@ namespace ExamAPI.Services.Subject
                 InternalOutOf = x.InternalOutOf,
                 InternalPassing = x.InternalPassing,
 
-                PassingPercentage = x.PassingPercentage
+                PassingStrategy = x.PassingStrategy,
+                PassingPercentage = x.PassingPercentage?.ToString()
             }).ToList();
 
 
             return result.ToList();
         }
+        /// <summary>Only the two known strategies are ever stored; anything else falls back to head-wise.</summary>
+        private static string NormalizePassingStrategy(string? strategy) =>
+            string.Equals(strategy, PassingStrategies.Combined, StringComparison.OrdinalIgnoreCase)
+                ? PassingStrategies.Combined
+                : PassingStrategies.HeadWise;
+
+        private static int? ParsePassPercentage(string? passingPercentage) =>
+            int.TryParse(passingPercentage, out var parsed) ? parsed : null;
+
         public async Task<ApiResponseDto<object>> UpdateCreditAsync(SaveCreditsDto dto)
         {
             // 🔹 Transaction start
@@ -348,6 +362,8 @@ namespace ExamAPI.Services.Subject
                         if (subjectcredits != null)
                         {
                             subjectcredits.TotalCredits = credit.CreditNo;
+                            subjectcredits.PassingStrategy = NormalizePassingStrategy(credit.PassingStrategy);
+                            subjectcredits.PassPercentage = ParsePassPercentage(credit.PassingPercentage);
                             _context.SubjectCreditMasters.Update(subjectcredits);
                         }
                     }
@@ -512,7 +528,9 @@ namespace ExamAPI.Services.Subject
                         CreditsId = newCreditMasterId,
                         TotalCredits = credit.TotalCredits,
                         AYID = dto.Ayid,
-                        SubjectId = dto.SubjectId
+                        SubjectId = dto.SubjectId,
+                        PassingStrategy = credit.PassingStrategy,
+                        PassPercentage = credit.PassPercentage
                     };
 
                     _context.SubjectCreditMasters.Add(currCreditMaster);

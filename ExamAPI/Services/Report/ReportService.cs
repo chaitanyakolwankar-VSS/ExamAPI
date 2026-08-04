@@ -1,6 +1,7 @@
 using ExamAPI.Data;
 using ExamAPI.DTOs;
 using ExamAPI.Models;
+using ExamAPI.Services.Result.Engine;
 using ExamAPI.Services.Report.Documents;
 using ExamAPI.Services.Result;
 using Microsoft.EntityFrameworkCore;
@@ -20,7 +21,27 @@ namespace ExamAPI.Services.Report
             _context = context;
         }
 
-        private static SubjectMarksDto? BuildSubjectMarks(IEnumerable<StudentMarks> studentMarks)
+        /// <summary>The tenant's name as printed on every report header.</summary>
+        private async Task<string> GetCollegeNameAsync(Guid collegeId)
+        {
+            var college = await _context.Colleges.FirstOrDefaultAsync(c => c.CollegeId == collegeId);
+            return college?.Name ?? "College Name Not Found";
+        }
+
+        /// <summary>The computed verdict for the subject these head rows belong to.</summary>
+        private static StudentSubjectResult? FindSubjectResult(MarksMaster marksMaster, IEnumerable<StudentMarks> group)
+        {
+            var subjectId = group.Select(sm => sm.SubjectId).FirstOrDefault(id => id.HasValue);
+            return subjectId is Guid id
+                ? marksMaster.SubjectResults?.FirstOrDefault(r => r.SubjectId == id)
+                : null;
+        }
+
+        /// <summary>
+        /// Builds one printed subject: head marks come from StudentMarks, but the verdict
+        /// (grade, grade point, subject-level grace) comes from the computed StudentSubjectResult.
+        /// </summary>
+        private static SubjectMarksDto? BuildSubjectMarks(IEnumerable<StudentMarks> studentMarks, StudentSubjectResult? subjectResult)
         {
             var marksList = studentMarks
                 .Where(sm => !sm.IsDeleted)
@@ -40,32 +61,25 @@ namespace ExamAPI.Services.Report
                 SubjectCode = subject.SubjectCode,
                 SubjectName = subject.Name,
                 Credits = double.TryParse(firstSm.CreditMaster?.TotalCredits, out var credits) ? credits : 0,
-                GradePoint = marksList.Select(sm => sm.GradePoint).FirstOrDefault(point => point.HasValue) ?? 0,
-                Grade = marksList.Select(sm => sm.Grade).FirstOrDefault(grade => !string.IsNullOrWhiteSpace(grade)) ?? "F"
+                GradePoint = subjectResult?.GradePoint ?? 0,
+                Grade = string.IsNullOrWhiteSpace(subjectResult?.Grade) ? "F" : subjectResult!.Grade!,
+                Grace = subjectResult != null && subjectResult.GraceApplied > 0 ? subjectResult.GraceSymbol : null
             };
 
             foreach (var mark in marksList)
             {
-                var configuredHead = mark.CreditMaster?.Credits?.FirstOrDefault(head =>
-                    string.Equals(head.Head, mark.Head, StringComparison.OrdinalIgnoreCase));
-
                 subjectDto.Heads.Add(new HeadMarksDto
                 {
-                    Head = mark.Head ?? "Unspecified",
-                    Max = double.TryParse(configuredHead?.HeadOutOf, out var max) ? max : 0,
-                    Marks = mark.Marks?.ToString() ?? "AB",
+                    Head = SubjectPassEvaluator.GetHeadLabel(mark),
+                    Max = SubjectPassEvaluator.GetHeadOutOf(mark),
+                    Marks = mark.IsAbsent ? "AB" : mark.Marks?.ToString() ?? "",
                     Grace = new string((mark.Grace ?? string.Empty).Where(character => !char.IsDigit(character)).ToArray())
                 });
             }
 
             subjectDto.TotalMax = subjectDto.Heads.Sum(head => head.Max);
-            subjectDto.PassingMax = marksList.Sum(mark =>
-            {
-                var configuredHead = mark.CreditMaster?.Credits?.FirstOrDefault(head =>
-                    string.Equals(head.Head, mark.Head, StringComparison.OrdinalIgnoreCase));
-                return double.TryParse(configuredHead?.HeadPass, out var pass) ? pass : 0;
-            });
-            subjectDto.TotalObtained = marksList.Sum(mark => mark.Marks ?? 0).ToString();
+            subjectDto.PassingMax = marksList.Sum(SubjectPassEvaluator.GetHeadPass);
+            subjectDto.TotalObtained = (subjectResult?.ObtainedTotal ?? marksList.Sum(mark => mark.Marks ?? 0)).ToString();
 
             return subjectDto;
         }
@@ -101,8 +115,7 @@ namespace ExamAPI.Services.Report
 
             var gradeMaster = ruleSet?.GradeMaster;
 
-            var college = await _context.Colleges.FirstOrDefaultAsync(c => c.CollegeId == collegeId);
-            var collegeName = college?.Name ?? "College Name Not Found";
+            var collegeName = await GetCollegeNameAsync(collegeId);
 
             var programName = exam?.Course?.Name ?? "N/A";
             if (programName == "CS & E(DS)") programName = "Computer Science & Engineering (Data Science)";
@@ -126,7 +139,11 @@ namespace ExamAPI.Services.Report
                 .Include(m => m.StudentMarks!)
                     .ThenInclude(sm => sm.CreditMaster)
                         .ThenInclude(cm => cm!.Credits)
+                .Include(m => m.SubjectResults)
                 .Include(m => m.Exam)
+                // Sibling collection Includes would otherwise be one JOIN whose row count is their
+                // product; split queries keep the payload linear (the DB is a remote link).
+                .AsSplitQuery()
                 .Where(m => !m.IsDeleted
                     && m.SemesterId == request.SemId
                     && m.Pattern == request.Pattern
@@ -232,7 +249,7 @@ namespace ExamAPI.Services.Report
 
                 foreach (var group in subjectGroups)
                 {
-                    var subDto = BuildSubjectMarks(group);
+                    var subDto = BuildSubjectMarks(group, FindSubjectResult(marksMaster, group));
                     if (subDto == null) continue;
 
                     studentDto.Subjects.Add(subDto);
@@ -398,7 +415,7 @@ namespace ExamAPI.Services.Report
                         var isFirstRow = rowIndex == 0;
                         var hasFailure = student.Subjects.Any(subject => string.Equals(subject.Grade, "F", StringComparison.OrdinalIgnoreCase));
                         var displayRemark = hasFailure && request.NoRleForFail && string.Equals(student.Remark, "RLE", StringComparison.OrdinalIgnoreCase)
-                            ? "Fail"
+                            ? OverallRemarks.Fail
                             : student.Remark;
                         var sgpi = hasFailure && !request.SgpiForFail ? "--" : FormatNumber(student.SGPI);
                         var cgpi = hasFailure && !request.CgpiForFail ? "--" : FormatNumber(student.CGPI ?? 0);
@@ -424,7 +441,7 @@ namespace ExamAPI.Services.Report
                                 subLines.Add($"{head.Head}: {head.Marks}{head.Grace}/{FormatNumber(head.Max)}");
                             }
 
-                            subLines.Add($"C: {FormatNumber(sub.Credits)}  G: {sub.Grade}");
+                            subLines.Add($"C: {FormatNumber(sub.Credits)}  G: {sub.Grade}{sub.Grace}");
                             subLines.Add($"GP: {FormatNumber(sub.GradePoint)}  CG: {FormatNumber(sub.EarnedGradePoints)}");
 
                             worksheet.Cells[currentRow, 2 + i].Value = string.Join("\n", subLines);
@@ -525,6 +542,11 @@ namespace ExamAPI.Services.Report
                 .Include(m => m.StudentMarks!)
                     .ThenInclude(sm => sm.CreditMaster)
                         .ThenInclude(cm => cm!.Credits)
+                // Without this the subject verdict is missing and BuildSubjectMarks falls back
+                // to "F"/GP 0 for every subject, drops the grace symbol, and prints the raw
+                // (pre-grace) total. Same include as the gazette query.
+                .Include(m => m.SubjectResults)
+                .AsSplitQuery()
                 .FirstOrDefaultAsync(m => m.StdMstId == studId
                     && m.ExamId == examId
                     && m.SemesterId == semId
@@ -538,6 +560,7 @@ namespace ExamAPI.Services.Report
 
             var student = marksMaster.Student;
 
+            var collegeName = await GetCollegeNameAsync(collegeId);
             var programName = exam?.Course?.Name ?? "N/A";
             if (programName == "CS & E(DS)") programName = "Computer Science & Engineering (Data Science)";
             else if (programName == "CS & E") programName = "Computer Science & Engineering";
@@ -550,15 +573,16 @@ namespace ExamAPI.Services.Report
 
             var subjectGroups = marksMaster.StudentMarks?.Where(sm => !sm.IsDeleted).GroupBy(sm => sm.SubjectId) ?? Enumerable.Empty<IGrouping<Guid?, StudentMarks>>();
 
-            var hasFailure = subjectGroups.Any(group => group.FirstOrDefault()?.GradePoint == 0);
+            var hasFailure = marksMaster.SubjectResults?.Any(r => !r.IsPassed) ?? false;
             var displayRemark = marksMaster.ResultRemark ?? marksMaster.OverallRemark ?? "Pending";
             if (hasFailure && noRleForFail && string.Equals(displayRemark, "RLE", StringComparison.OrdinalIgnoreCase))
             {
-                displayRemark = "Fail";
+                displayRemark = OverallRemarks.Fail;
             }
 
             var reportDto = new MarksheetReportDto
             {
+                CollegeName = collegeName,
                 StudentName = student != null ? ((marksMaster.QuotaType == "LD" ? "~" : "") + $"{student.FirstName} {student.LastName}") : "N/A",
                 SeatNo = marksMaster.SeatNo ?? "N/A",
                 PRN = student?.StudentPRN ?? "N/A",
@@ -585,7 +609,7 @@ namespace ExamAPI.Services.Report
 
             foreach (var group in subjectGroups)
             {
-                var subDto = BuildSubjectMarks(group);
+                var subDto = BuildSubjectMarks(group, FindSubjectResult(marksMaster, group));
                 if (subDto == null) continue;
 
                 reportDto.Subjects.Add(subDto);
@@ -631,6 +655,12 @@ namespace ExamAPI.Services.Report
                 .Include(m => m.StudentMarks!)
                     .ThenInclude(sm => sm.CreditMaster)
                         .ThenInclude(cm => cm!.Credits)
+                // See the single-marksheet query: the subject verdict lives on SubjectResults,
+                // and without it every subject prints as "F" with no grace.
+                .Include(m => m.SubjectResults)
+                // Sibling collection Includes would otherwise be one JOIN whose row count is their
+                // product; split queries keep the payload linear (the DB is a remote link).
+                .AsSplitQuery()
                 .Where(m => m.ExamId == examId
                     && m.SemesterId == semId
                     && m.Pattern == pattern
@@ -640,11 +670,11 @@ namespace ExamAPI.Services.Report
 
             if (generationType.Equals("pass", StringComparison.OrdinalIgnoreCase))
             {
-                query = query.Where(m => m.OverallRemark == "Pass" || m.OverallRemark == "SUCCESSFUL");
+                query = query.Where(m => m.OverallRemark == OverallRemarks.Pass);
             }
             else if (generationType.Equals("fail", StringComparison.OrdinalIgnoreCase))
             {
-                query = query.Where(m => m.OverallRemark == "Fail" || m.OverallRemark == "UNSUCCESSFUL");
+                query = query.Where(m => m.OverallRemark == OverallRemarks.Fail);
             }
 
             var marksMasters = await query.ToListAsync();
@@ -652,6 +682,7 @@ namespace ExamAPI.Services.Report
             if (!marksMasters.Any())
                 throw new Exception("No results found for the given criteria. Have you processed the results yet?");
 
+            var collegeName = await GetCollegeNameAsync(collegeId);
             var reports = new List<MarksheetReportDto>();
 
             Dictionary<Guid, List<SemesterRecordDto>> bulkHistory = new();
@@ -679,15 +710,16 @@ namespace ExamAPI.Services.Report
 
                 var subjectGroups = marksMaster.StudentMarks?.Where(sm => !sm.IsDeleted).GroupBy(sm => sm.SubjectId) ?? Enumerable.Empty<IGrouping<Guid?, StudentMarks>>();
 
-                var hasFailure = subjectGroups.Any(group => group.FirstOrDefault()?.GradePoint == 0);
+                var hasFailure = marksMaster.SubjectResults?.Any(r => !r.IsPassed) ?? false;
                 var displayRemark = marksMaster.ResultRemark ?? marksMaster.OverallRemark ?? "Pending";
                 if (hasFailure && noRleForFail && string.Equals(displayRemark, "RLE", StringComparison.OrdinalIgnoreCase))
                 {
-                    displayRemark = "Fail";
+                    displayRemark = OverallRemarks.Fail;
                 }
 
                 var reportDto = new MarksheetReportDto
                 {
+                    CollegeName = collegeName,
                     StudentName = student != null ? ((marksMaster.QuotaType == "LD" ? "~" : "") + $"{student.FirstName} {student.LastName}") : "N/A",
                     SeatNo = marksMaster.SeatNo ?? "N/A",
                     PRN = student?.StudentPRN ?? "N/A",
@@ -714,7 +746,7 @@ namespace ExamAPI.Services.Report
 
                 foreach (var group in subjectGroups)
                 {
-                    var subDto = BuildSubjectMarks(group);
+                    var subDto = BuildSubjectMarks(group, FindSubjectResult(marksMaster, group));
                     if (subDto == null) continue;
 
                     reportDto.Subjects.Add(subDto);
