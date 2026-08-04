@@ -25,6 +25,10 @@ namespace ExamAPI.Models
         public ICollection<SubjectMaster>? Subjects { get; set; }
 
         public ICollection<ExamMaster>? Exams { get; set; }
+<<<<<<< Updated upstream
         public Guid AcademicYearAYID { get; internal set; }
+=======
+
+>>>>>>> Stashed changes
     }
 }
