@@ -1,11 +1,15 @@
 ﻿using ExamAPI.DTOs;
 using ExamAPI.Services.PasswordResetOTP;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using System.Linq.Expressions;
 
 namespace ExamAPI.Controllers
 {
+    // Exempt from the global fallback authorization policy: password reset is by
+    // definition reached by users who cannot authenticate.
+    [AllowAnonymous]
     [Route("api/[controller]")]
     [ApiController]
     public class SendResetOtpController : ControllerBase

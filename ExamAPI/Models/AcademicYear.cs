@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace ExamAPI.Models
 {
-    public class AcademicYear : BaseEntity
+    public class AcademicYear : BaseEntity, ICollegeScoped
     {
         [Key]
         public Guid AYID { get; set; }
@@ -19,7 +19,7 @@ namespace ExamAPI.Models
 
 
         // Foreign Key
-        public Guid CollegeId { get; set; }
+        public Guid? CollegeId { get; set; }
         [ForeignKey(nameof(CollegeId))]
         public College? College { get; set; }
 

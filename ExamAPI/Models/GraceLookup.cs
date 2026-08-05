@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace ExamAPI.Models
 {
-    public class GraceLookup : BaseEntity
+    public class GraceLookup : BaseEntity, ICollegeScoped
     {
         [Key]
         public Guid GraceLookupId { get; set; }

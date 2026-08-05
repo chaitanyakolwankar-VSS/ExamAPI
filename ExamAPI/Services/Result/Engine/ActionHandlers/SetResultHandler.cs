@@ -10,7 +10,7 @@ namespace ExamAPI.Services.Result.Engine.ActionHandlers
 
         public Task ExecuteAsync(MarksMaster marksMaster, RuleAction action, string? symbol)
         {
-            marksMaster.OverallRemark = action.Target;
+            marksMaster.OverallRemark = OverallRemarks.Normalize(action.Target);
             return Task.CompletedTask;
         }
     }
