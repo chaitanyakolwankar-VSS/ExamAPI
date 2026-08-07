@@ -21,24 +21,31 @@ namespace ExamAPI.Services.DeclareResult
 
         public async Task<List<DeclareResultDTO>> GetExam(GetDeclareExam dto)
         {
-            var exams = _context.Exams
-                .Where(a => a.IsActive == true &&
-                            a.CourseId == dto.CourseId &&
-                            a.AcademicYearAYID == dto.Ayid &&
-                            a.Semester == dto.Semester && !a.IsDeleted)
-                .Select(a => new DeclareResultDTO
-                {
-                    ExamId = a.ExamId,
-                    CourseId = a.CourseId ?? Guid.Empty,
-                    Ayid = a.AcademicYearAYID ?? Guid.Empty,
-                    Semester = dto.Semester,
-                    Pattern=dto.Pattern,
-                    Examname = a.RevaluationForExamId != null
-                        ? a.Name + " (Revaluation)"
-                        : a.ExamType == "A.T.K.T"
-                            ? a.Name + " (A.T.K.T)"
-                            : a.Name
-                });
+            var exams = from em in _context.Exams
+                        join dr in _context.DeclareResults on em.ExamId equals dr.ExamId
+                        where em.IsActive == true
+                              && !em.IsDeleted
+                              && !em.IsLocked
+                              && em.Semester == dr.Sem_id
+                              && !dr.IsDeleted
+                              && dr.AcademicYear == em.AcademicYearAYID
+                              && em.AcademicYearAYID == dto.Ayid
+                              && em.Semester == dto.Semester
+                              && em.CourseId == dto.CourseId
+                              && dr.Pattern == dto.Pattern
+                        select new DeclareResultDTO
+                        {
+                            ExamId = em.ExamId,
+                            CourseId = em.CourseId ?? Guid.Empty,
+                            Ayid = em.AcademicYearAYID ?? Guid.Empty,
+                            Semester = dto.Semester,
+                            Pattern = dto.Pattern,
+                            Examname = em.RevaluationForExamId != null
+                                ? em.Name + " (Revaluation)"
+                                : em.ExamType == "A.T.K.T"
+                                    ? em.Name + " (A.T.K.T)"
+                                    : em.Name
+                        };
 
             return await exams.ToListAsync();
         }
@@ -47,7 +54,7 @@ namespace ExamAPI.Services.DeclareResult
         {
             var exams = from e in _context.Exams
                         join dr in _context.DeclareResults on e.ExamId equals dr.ExamId
-                        where e.CourseId == dto.CourseId && e.Semester == dto.Semester && e.AcademicYearAYID == dto.Ayid && e.ExamId==dto.ExamId && !e.IsDeleted && !dr.IsDeleted && dr.Pattern==dto.Pattern
+                        where e.CourseId == dto.CourseId && e.Semester == dto.Semester && e.AcademicYearAYID == dto.Ayid && e.ExamId==dto.ExamId && !e.IsDeleted && !dr.IsDeleted && dr.Pattern==dto.Pattern && dr.ResDeclare>0
                         select new DeclareResultDTO
                         {
                             ExamId = e.ExamId,
@@ -91,7 +98,6 @@ namespace ExamAPI.Services.DeclareResult
                     DeclareDate = dto.DeclareDate
                 };
                 _context.DeclareResults.Add(newRecord);
-                //return MessageContent("No Exam For the given selection");
             }
 
             await _context.SaveChangesAsync();

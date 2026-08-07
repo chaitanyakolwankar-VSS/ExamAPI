@@ -12,6 +12,20 @@
         public string Pattern { get; set; }
     }
 
+    public class DeclareHallTicketDTO
+    {
+        public Guid ExamId { get; set; }
+        public string Examname { get; set; }
+        public string Semester { get; set; }
+        public Guid Ayid { get; set; }
+        public Guid CourseId { get; set; }
+        public DateTime? HallTicketDeclareDate { get; set; }
+        public DateTime? HallTicketUpdatedAt { get; set; }
+        public string Pattern { get; set; }
+        public bool ReleaseHallTicket { get; set; }
+
+    }
+
     public class GetDeclareExam
     {
         public Guid CourseId { get; set; }
@@ -30,6 +44,16 @@
         public string Pattern { get; set; }
     }
 
+    public class ToggleReleaseHallTicketDTO
+    {
+        public Guid ExamId { get; set; }
+        public Guid CourseId { get; set; }
+        public Guid Ayid { get; set; }
+        public string Semester { get; set; }
+        public string Pattern { get; set; }
+        public bool ReleaseHallTicket { get; set; }
+        public DateTime? HallTicketDeclareDate { get; set; }
+    }
 
     public class ToggleDeclareResultDTO
     {

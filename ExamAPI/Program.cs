@@ -56,19 +56,17 @@ builder.Services.AddScoped<ExamAPI.Services.Eligibility.IEligibilityService,Exam
 builder.Services.AddScoped<ExamAPI.Services.GenerateHallTicket.IGenerateHallTicketService, ExamAPI.Services.GenerateHallTicket.GenerateHallTicketService>();
 builder.Services.AddScoped<ExamAPI.Services.UsersMaster.IUserMasterService, ExamAPI.Services.UsersMaster.UserMasterService>();
 builder.Services.AddScoped<IPasswordResetService, PasswordResetService>();
-<<<<<<< HEAD
 builder.Services.AddScoped<ExamAPI.Services.DeclareResult.IDResultService, ExamAPI.Services.DeclareResult.DResultService>();
-=======
 builder.Services.AddScoped<ExamAPI.Services.AssignSeatNo.IAssignSeatNoService, ExamAPI.Services.AssignSeatNo.AssignSeatNoService>();
 builder.Services.AddScoped<ExamAPI.Services.Result.IResultService, ExamAPI.Services.Result.ResultService>();
 builder.Services.AddScoped<ExamAPI.Services.MarksEntry.IMarksEntryService, ExamAPI.Services.MarksEntry.MarksEntryService>();
 builder.Services.AddScoped<ExamAPI.Services.Report.IReportService, ExamAPI.Services.Report.ReportService>();
+builder.Services.AddScoped<ExamAPI.Services.ReleaseHallTicket.IReleaseHallticketService, ExamAPI.Services.ReleaseHallTicket.ReleaseHallticketService>();
 builder.Services.AddOrdinanceEngine();
 
-// Configure QuestPDF
+
 QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
 
->>>>>>> origin/master
 //--services and interface end ------//
 
 

@@ -14,6 +14,11 @@ namespace ExamAPI.Models
         public DateTime? DeclareDate { get; set; }
         public int GazetteGnrt { get; set; }
         public string Pattern { get; set; }
-
+        public bool ReleaseHallTicket { get; set; }
+        public DateTime? HallTicketDeclareDate { get; set; }
+        public DateTime? HallTicketUpdatedAt { get; set; }
+        public DateTime? GazetteDate { get; set; }
+        public int ResDeclare { get; set; }
+        public DateTime? ResDeclareDateTime { get; set; }
     }
 }

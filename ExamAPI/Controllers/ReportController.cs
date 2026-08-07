@@ -47,10 +47,10 @@ namespace ExamAPI.Controllers
         }
 
         [HttpGet("bulk-marksheet")]
-        public async Task<IActionResult> DownloadBulkMarksheet(Guid examId, string semId, string pattern, string generationType = "all", bool includeHistory = false, DateTime? resultDate = null, bool noRleForFail = false)
+        public async Task<IActionResult> DownloadBulkMarksheet(Guid examId, string semId, string pattern,Guid courseId,Guid ayid, string generationType = "all", bool includeHistory = false, DateTime? resultDate = null, bool noRleForFail = false)
         {
             if (!TryGetCollegeId(out var collegeId)) return Unauthorized();
-            var pdfBytes = await _reportService.GenerateBulkMarksheetPdfAsync(examId, semId, pattern, generationType, includeHistory, resultDate, collegeId, noRleForFail);
+            var pdfBytes = await _reportService.GenerateBulkMarksheetPdfAsync(examId, semId, pattern,courseId,ayid, generationType, includeHistory, resultDate, collegeId, noRleForFail);
             return File(pdfBytes, "application/pdf", $"BulkMarksheets_{examId}.pdf");
         }
     }

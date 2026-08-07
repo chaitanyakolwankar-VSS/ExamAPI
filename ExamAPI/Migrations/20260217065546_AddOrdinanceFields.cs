@@ -15,9 +15,9 @@ namespace ExamAPI.Migrations
                 name: "FK_RuleSet_PatternMaster_PatternId",
                 table: "RuleSet");
 
-            migrationBuilder.DropColumn(
-                name: "AYID",
-                table: "ExamMaster");
+            //migrationBuilder.DropColumn(
+            //    name: "AYID",
+            //    table: "ExamMaster");
 
             migrationBuilder.AlterColumn<Guid>(
                 name: "AYID",

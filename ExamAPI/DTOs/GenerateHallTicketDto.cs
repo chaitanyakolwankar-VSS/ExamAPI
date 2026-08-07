@@ -48,6 +48,7 @@
         public string Semester { get; set; }
         public string Pattern { get; set; }
         public string Mode { get; set; }
+        public Guid CourseId { get; set; }
         public string? StudentId { get; set; }
     }
     public class HallTicketCollege

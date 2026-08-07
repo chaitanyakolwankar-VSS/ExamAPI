@@ -4,6 +4,7 @@ using ExamAPI.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace ExamAPI.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260729103402_AddReleaseHallTicketToDeclareResult")]
+    partial class AddReleaseHallTicketToDeclareResult
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -240,17 +243,8 @@ namespace ExamAPI.Migrations
                     b.Property<Guid>("ExamId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<DateTime?>("GazetteDate")
-                        .HasColumnType("datetime2");
-
                     b.Property<int>("GazetteGnrt")
                         .HasColumnType("int");
-
-                    b.Property<DateTime?>("HallTicketDeclareDate")
-                        .HasColumnType("datetime2");
-
-                    b.Property<DateTime?>("HallTicketUpdatedAt")
-                        .HasColumnType("datetime2");
 
                     b.Property<bool>("IsDeclare")
                         .HasColumnType("bit");
@@ -266,12 +260,6 @@ namespace ExamAPI.Migrations
 
                     b.Property<bool>("ReleaseHallTicket")
                         .HasColumnType("bit");
-
-                    b.Property<int>("ResDeclare")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime?>("ResDeclareDateTime")
-                        .HasColumnType("datetime2");
 
                     b.Property<string>("Sem_id")
                         .IsRequired()
