@@ -466,20 +466,10 @@ namespace ExamAPI.Services.Result
 
 
 
+        // Operator vocabulary is shared with exam-assignment eligibility screening --
+        // see RuleConditionEvaluator, which owns the comparison.
         private bool CompareValues(double factValue, string op, string targetValueStr)
-        {
-            if (!double.TryParse(targetValueStr, out double targetValue)) return false;
-            return op switch
-            {
-                "Equals" or "==" => factValue == targetValue,
-                "GreaterThan" or ">" => factValue > targetValue,
-                "LessThan" or "<" => factValue < targetValue,
-                "GreaterOrEqual" or "GreaterThanOrEqual" or ">=" => factValue >= targetValue,
-                "LessOrEqual" or "LessThanOrEqual" or "<=" => factValue <= targetValue,
-                "NotEquals" or "!=" => factValue != targetValue,
-                _ => false
-            };
-        }
+            => Engine.RuleConditionEvaluator.Compare(factValue, op, targetValueStr);
 
         public async Task<ApiResponseDto<IEnumerable<ResultDataDto>>> GetResultsAsync(ProcessResultRequest request, Guid collegeId)
         {

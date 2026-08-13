@@ -38,6 +38,10 @@ namespace ExamAPI.Services.Exam
                 }
                 var exam = new ExamMaster
                 {
+                    // The key is assigned here rather than by the database so the revaluation
+                    // twin below can point at it -- reading exam.ExamId before SaveChangesAsync
+                    // used to store an empty Guid, leaving every reval exam unlinked.
+                    ExamId = Guid.NewGuid(),
                     CourseId = dto.Courseid,
                     Name = dto.Name,
                     ExamType = dto.ExamType,

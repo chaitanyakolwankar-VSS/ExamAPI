@@ -1,0 +1,1028 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using ExamAPI.Data;
+using ExamAPI.DTOs;
+using ExamAPI.Models;
+using ExamAPI.Services.AtktRevalExam;
+using ExamAPI.Services.Common;
+using ExamAPI.Services.Result.Engine;
+using ExamAPI.Services.Result.Engine.FactProviders;
+using ExamAPI.Services.Tenancy;
+using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.InMemory.Infrastructure.Internal;
+using Moq;
+using Xunit;
+
+namespace ExamAPI.Tests
+{
+    /// <summary>
+    /// The follow-up-attempt assignment screen (ATKT / Revaluation).
+    /// <para>
+    /// Every test owns a uniquely named in-memory database and a freshly seeded world, so no
+    /// test can observe another's writes and ordering never matters.
+    /// </para>
+    /// </summary>
+    public class AtktRevalExamServiceTests
+    {
+        // =====================================================================
+        // Fixture
+        // =====================================================================
+
+        /// <summary>
+        /// One college, one year, one course, one "NEP" pattern, three Sem-6 subjects with two
+        /// heads each ("H1"/ESE 80 pass 32, "H2"/IA 20 pass 8), two students on the roster, a
+        /// Regular source exam holding marks and an ATKT target exam.
+        /// <para>
+        /// Student A: subject 1 failed, subject 2 absent, subject 3 passed.
+        /// Student B: subject 1 passed, subject 2 failed, subject 3 passed.
+        /// </para>
+        /// </summary>
+        private sealed class World
+        {
+            public ApplicationDbContext Context { get; }
+            public AtktRevalExamService Service { get; }
+
+            public Guid CollegeId { get; } = Guid.NewGuid();
+            public Guid Ayid { get; } = Guid.NewGuid();
+            public Guid CourseId { get; } = Guid.NewGuid();
+            public Guid PatternId { get; } = Guid.NewGuid();
+
+            public const string Semester = "6";
+            public const string PatternName = "NEP";
+
+            /// <summary>Subject ids in column order (ordered by SubjectCode "S1".."S3").</summary>
+            public List<Guid> SubjectIds { get; } = new();
+
+            /// <summary>Credit master per subject, so tests can add extra heads/marks.</summary>
+            public Dictionary<Guid, Guid> CreditsBySubject { get; } = new();
+
+            public Guid SourceExamId { get; } = Guid.NewGuid();
+            public Guid TargetExamId { get; } = Guid.NewGuid();
+            public Guid RevalExamId { get; } = Guid.NewGuid();
+
+            public Guid StudentA { get; } = Guid.NewGuid();
+            public Guid StudentB { get; } = Guid.NewGuid();
+
+            public Guid SourceMarksA { get; } = Guid.NewGuid();
+            public Guid SourceMarksB { get; } = Guid.NewGuid();
+
+            public Guid Subject1 => SubjectIds[0];
+            public Guid Subject2 => SubjectIds[1];
+            public Guid Subject3 => SubjectIds[2];
+
+            private readonly Guid? _currentCollegeId;
+
+            public World(params IFactProvider[] factProviders)
+            {
+                var options = new DbContextOptionsBuilder<ApplicationDbContext>()
+                    .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+                    // The service wraps its writes in a transaction; the in-memory provider has
+                    // none and would otherwise throw instead of silently ignoring it.
+                    .ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning))
+                    .Options;
+
+                _currentCollegeId = CollegeId;
+
+                var httpContextAccessor = new Mock<IHttpContextAccessor>();
+                var currentUser = new Mock<ICurrentUser>();
+                currentUser.SetupGet(u => u.CollegeId).Returns(() => _currentCollegeId);
+
+                Context = new ApplicationDbContext(options, httpContextAccessor.Object, currentUser.Object);
+
+                Service = new AtktRevalExamService(
+                    Context,
+                    new GenericRepository(Context),
+                    new EngineRegistry(factProviders, Array.Empty<IActionHandler>()));
+
+                Seed();
+            }
+
+            private void Seed()
+            {
+                Context.Colleges.Add(new College
+                {
+                    CollegeId = CollegeId,
+                    Name = "Test College",
+                    CollegeCode = "TC",
+                    CollegeCenter = "Centre",
+                    ContactEmail = "college@example.com",
+                    ContactPhone = "9999999999"
+                });
+
+                Context.AcademicYears.Add(new AcademicYear
+                {
+                    AYID = Ayid,
+                    FullDuration = "2025-2026",
+                    ShortDuration = "25-26",
+                    IsCurrent = true,
+                    CollegeId = CollegeId
+                });
+
+                Context.CourseMasters.Add(new CourseMaster
+                {
+                    CourseId = CourseId,
+                    Name = "B.Tech",
+                    CourseCode = "BT",
+                    CollegeId = CollegeId
+                });
+
+                Context.PatternMasters.Add(new PatternMaster
+                {
+                    PatternId = PatternId,
+                    PatternName = PatternName,
+                    CollegeId = CollegeId
+                });
+
+                for (var i = 1; i <= 3; i++)
+                {
+                    var subjectId = AddSubject($"S{i}", $"Subject {i}");
+                    SubjectIds.Add(subjectId);
+                }
+
+                AddStudent(StudentA, "ST001", "Asha");
+                AddStudent(StudentB, "ST002", "Bhavin");
+
+                Context.Exams.Add(new ExamMaster
+                {
+                    ExamId = SourceExamId,
+                    Name = "Regular Nov 2025",
+                    ExamType = "Regular",
+                    CourseId = CourseId,
+                    AcademicYearAYID = Ayid,
+                    Semester = Semester,
+                    IsActive = true,
+                    CollegeId = CollegeId
+                });
+
+                Context.Exams.Add(new ExamMaster
+                {
+                    ExamId = TargetExamId,
+                    Name = "ATKT Apr 2026",
+                    ExamType = "ATKT",
+                    CourseId = CourseId,
+                    AcademicYearAYID = Ayid,
+                    Semester = Semester,
+                    IsActive = true,
+                    CollegeId = CollegeId
+                });
+
+                // The revaluation mirror of the source exam.
+                Context.Exams.Add(new ExamMaster
+                {
+                    ExamId = RevalExamId,
+                    Name = "Regular Nov 2025",
+                    ExamType = "Revaluation",
+                    RevaluationForExamId = SourceExamId,
+                    CourseId = CourseId,
+                    AcademicYearAYID = Ayid,
+                    Semester = Semester,
+                    IsActive = true,
+                    CollegeId = CollegeId
+                });
+
+                var marksA = AddAttempt(SourceMarksA, StudentA, "ST001", SourceExamId, "A-101");
+                AddHeads(marksA, Subject1, h1: 20, h2: 15);              // fails: H1 20 < 32
+                AddHeads(marksA, Subject2, h1: null, h2: null, absent: true);
+                AddHeads(marksA, Subject3, h1: 50, h2: 15);              // passes both heads
+
+                var marksB = AddAttempt(SourceMarksB, StudentB, "ST002", SourceExamId, "A-102");
+                AddHeads(marksB, Subject1, h1: 55, h2: 16);
+                AddHeads(marksB, Subject2, h1: 10, h2: 5);               // fails
+                AddHeads(marksB, Subject3, h1: 60, h2: 18);
+
+                Context.SaveChanges();
+            }
+
+            /// <summary>
+            /// Adds a subject with its credit master. Passing <paramref name="heads"/> overrides
+            /// the standard ESE/IA pair -- used to build a subject with no revaluable head.
+            /// </summary>
+            public Guid AddSubject(
+                string code,
+                string name,
+                params (string Head, string HeadType, string OutOf, string Pass)[] heads)
+            {
+                var subjectId = Guid.NewGuid();
+                var creditsId = Guid.NewGuid();
+
+                Context.SubjectMasters.Add(new SubjectMaster
+                {
+                    SubjectId = subjectId,
+                    SubjectCode = code,
+                    Name = name,
+                    SemId = Semester,
+                    SemName = "Semester 6",
+                    Pattern = PatternName,
+                    CourseId = CourseId,
+                    CollegeId = CollegeId
+                });
+
+                Context.SubjectCreditMasters.Add(new SubjectCreditMaster
+                {
+                    CreditsId = creditsId,
+                    SubjectId = subjectId,
+                    AYID = Ayid.ToString(),
+                    TotalCredits = "4",
+                    PassingStrategy = PassingStrategies.HeadWise,
+                    CollegeId = CollegeId
+                });
+
+                if (heads.Length == 0)
+                {
+                    heads = new[]
+                    {
+                        ("H1", "ESE", "80", "32"),
+                        ("H2", "IA", "20", "8")
+                    };
+                }
+
+                foreach (var (head, headType, outOf, pass) in heads)
+                {
+                    Context.SubjectCredits.Add(new SubjectCredits
+                    {
+                        Id = Guid.NewGuid(),
+                        CreditsId = creditsId,
+                        Head = head,
+                        HeadType = headType,
+                        HeadOutOf = outOf,
+                        HeadPass = pass
+                    });
+                }
+
+                CreditsBySubject[subjectId] = creditsId;
+                return subjectId;
+            }
+
+            private void AddStudent(Guid stdMstId, string studentId, string firstName)
+            {
+                Context.StudentMasters.Add(new StudentMaster
+                {
+                    StdMstId = stdMstId,
+                    StudentId = studentId,
+                    FirstName = firstName,
+                    LastName = "Kumar",
+                    CollegeId = CollegeId
+                });
+
+                Context.StudentEligibilities.Add(new StudentEligibility
+                {
+                    Id = Guid.NewGuid(),
+                    StdMstId = stdMstId,
+                    StudentId = studentId,
+                    CourseId = CourseId,
+                    AYID = Ayid,
+                    SemesterId = Semester,
+                    Pattern = PatternName,
+                    CollegeId = CollegeId
+                });
+            }
+
+            public MarksMaster AddAttempt(Guid marksId, Guid stdMstId, string studentId, Guid examId, string seatNo)
+            {
+                var marks = new MarksMaster
+                {
+                    MarksId = marksId,
+                    StdMstId = stdMstId,
+                    StudentID = studentId,
+                    ExamId = examId,
+                    AcademicYearAYID = Ayid,
+                    SemesterId = Semester,
+                    Pattern = PatternName,
+                    SeatNo = seatNo,
+                    CollegeId = CollegeId,
+                    StudentMarks = new List<StudentMarks>()
+                };
+                Context.MarksMasters.Add(marks);
+                return marks;
+            }
+
+            public void AddHeads(MarksMaster marks, Guid subjectId, int? h1, int? h2, bool absent = false)
+            {
+                foreach (var (head, value) in new[] { ("H1", h1), ("H2", h2) })
+                {
+                    Context.StudentMarks.Add(new StudentMarks
+                    {
+                        Id = Guid.NewGuid(),
+                        MarksId = marks.MarksId,
+                        SubjectId = subjectId,
+                        CreditsId = CreditsBySubject[subjectId],
+                        Head = head,
+                        Marks = value,
+                        RawMarks = value,
+                        IsAbsent = absent
+                    });
+                }
+            }
+
+            public AtktMatrixRequest Filter(
+                bool editMode = false,
+                string mode = AssignmentModes.Atkt,
+                Guid? sourceExamId = null,
+                Guid? targetExamId = null) => new()
+                {
+                    CourseId = CourseId,
+                    Ayid = Ayid,
+                    Semester = Semester,
+                    Pattern = PatternName,
+                    Mode = mode,
+                    SourceExamId = sourceExamId,
+                    TargetExamId = targetExamId ?? TargetExamId,
+                    EditMode = editMode
+                };
+
+            /// <summary>Adds an enabled policy row for a mode and returns it.</summary>
+            public ExamAssignmentPolicy AddPolicy(string mode, Action<ExamAssignmentPolicy> configure)
+            {
+                var policy = new ExamAssignmentPolicy
+                {
+                    PolicyId = Guid.NewGuid(),
+                    Name = $"{mode} policy",
+                    Mode = mode,
+                    SourceExamTypes = "Regular,ATKT,KT,Re-Exam",
+                    TargetExamTypes = "ATKT,KT,Re-Exam",
+                    IsEnabled = true,
+                    CollegeId = CollegeId,
+                    SubjectsPerRow = 7
+                };
+                configure(policy);
+                Context.ExamAssignmentPolicies.Add(policy);
+                Context.SaveChanges();
+                return policy;
+            }
+
+            /// <summary>All non-deleted target-exam head rows for a student.</summary>
+            public List<StudentMarks> TargetHeads(Guid stdMstId)
+            {
+                var marksIds = Context.MarksMasters
+                    .Where(m => m.StdMstId == stdMstId && m.ExamId == TargetExamId)
+                    .Select(m => m.MarksId)
+                    .ToList();
+
+                return Context.StudentMarks
+                    .Where(sm => sm.MarksId != null && marksIds.Contains(sm.MarksId.Value))
+                    .ToList();
+            }
+        }
+
+        private static AtktCellDto Cell(AtktStudentRowDto row, Guid subjectId) =>
+            row.Cells.Single(c => c.SubjectId == subjectId);
+
+        private static AtktSaveRequest Save(AtktMatrixRequest filter, Guid stdMstId, params Guid[] subjectIds) => new()
+        {
+            Filter = filter,
+            Students = new List<AtktStudentSelectionDto>
+            {
+                new() { StdMstId = stdMstId, SubjectIds = subjectIds.ToList() }
+            }
+        };
+
+        // =====================================================================
+        // 1. Matrix -- statuses
+        // =====================================================================
+
+        [Fact]
+        public async Task GetMatrix_RendersOneColumnPerSubjectAndCarriesTheSourceVerdictIntoEveryCell()
+        {
+            using var world = new World();
+
+            var response = await world.Service.GetMatrixAsync(world.Filter());
+
+            Assert.True(response.Success);
+            Assert.Equal(3, response.Columns.Count);
+            Assert.Equal(new[] { "S1", "S2", "S3" }, response.Columns.Select(c => c.SubjectCode));
+
+            // Each column carries the heads and thresholds the client renders from.
+            var first = response.Columns[0];
+            Assert.Equal(100, first.OutOfTotal);   // 80 + 20
+            Assert.Equal(40, first.RequiredToPass); // 32 + 8
+            Assert.Equal(new[] { "ESE", "IA" }, first.Heads.Select(h => h.HeadType));
+
+            var asha = response.Students.Single(s => s.StudentId == "ST001");
+
+            Assert.Equal(SubjectStatuses.Failed, Cell(asha, world.Subject1).Status);
+            Assert.Equal(SubjectStatuses.Absent, Cell(asha, world.Subject2).Status);
+            Assert.Equal(SubjectStatuses.Passed, Cell(asha, world.Subject3).Status);
+
+            Assert.True(Cell(asha, world.Subject2).IsAbsent);
+            Assert.Equal(35, Cell(asha, world.Subject1).ObtainedTotal); // 20 + 15
+            Assert.Equal(65, Cell(asha, world.Subject3).ObtainedTotal); // 50 + 15
+
+            // Failed + Absent are both outstanding.
+            Assert.Equal(2, asha.BacklogCount);
+            Assert.False(asha.IsAssigned);
+            Assert.Equal("A-101", asha.SeatNo);
+        }
+
+        // =====================================================================
+        // 2. Matrix -- selectability comes from the policy row, not from code
+        // =====================================================================
+
+        [Fact]
+        public async Task GetMatrix_DefaultAtktPolicy_OffersTheBacklogsAndRefusesAClearedSubject()
+        {
+            using var world = new World();
+
+            var asha = (await world.Service.GetMatrixAsync(world.Filter()))
+                .Students.Single(s => s.StudentId == "ST001");
+
+            Assert.True(Cell(asha, world.Subject1).Selectable);  // failed
+            Assert.True(Cell(asha, world.Subject2).Selectable);  // absent, not blocked for ATKT
+
+            var passed = Cell(asha, world.Subject3);
+            Assert.False(passed.Selectable);
+            Assert.Equal("Already cleared.", passed.Reason);
+
+            // AutoSelectFailedSubjects pre-ticks the outstanding subjects only.
+            Assert.True(Cell(asha, world.Subject1).Selected);
+            Assert.False(passed.Selected);
+        }
+
+        [Fact]
+        public async Task GetMatrix_APolicyRowThatOffersPassedSubjectsMakesAClearedSubjectSelectable()
+        {
+            using var world = new World();
+
+            var before = (await world.Service.GetMatrixAsync(world.Filter()))
+                .Students.Single(s => s.StudentId == "ST001");
+            Assert.False(Cell(before, world.Subject3).Selectable);
+
+            // Same data, same code path -- only the policy row changes.
+            world.AddPolicy(AssignmentModes.Atkt, p =>
+            {
+                p.RequireFailedSubject = true;
+                p.OfferPassedSubjects = true;
+                p.AutoSelectFailedSubjects = true;
+            });
+
+            var after = (await world.Service.GetMatrixAsync(world.Filter()))
+                .Students.Single(s => s.StudentId == "ST001");
+
+            var passed = Cell(after, world.Subject3);
+            Assert.True(passed.Selectable);
+            Assert.Null(passed.Reason);
+            Assert.False(passed.Selected); // offered, but not auto-ticked: it is not a backlog
+            Assert.True(after.Cells.All(c => c.Selectable));
+        }
+
+        // =====================================================================
+        // 3. Revaluation policy
+        // =====================================================================
+
+        [Fact]
+        public async Task GetMatrix_RevaluationPolicy_BlocksAnAbsentSubjectAndASubjectWithNoRevaluableHead()
+        {
+            using var world = new World();
+
+            // A subject whose only head is internal assessment -- nothing to revalue.
+            var internalOnly = world.AddSubject("S4", "Subject 4", ("H1", "IA", "50", "20"));
+            var marksA = world.Context.MarksMasters.Single(m => m.MarksId == world.SourceMarksA);
+            world.Context.StudentMarks.Add(new StudentMarks
+            {
+                Id = Guid.NewGuid(),
+                MarksId = marksA.MarksId,
+                SubjectId = internalOnly,
+                CreditsId = world.CreditsBySubject[internalOnly],
+                Head = "H1",
+                Marks = 10,
+                RawMarks = 10
+            });
+            await world.Context.SaveChangesAsync();
+
+            world.AddPolicy(AssignmentModes.Revaluation, p =>
+            {
+                p.RequireFailedSubject = true;
+                p.OfferPassedSubjects = true;
+                p.BlockAbsentStudents = true;
+                p.EligibleHeadTypes = "ESE";
+                p.TargetExamTypes = string.Empty;
+            });
+
+            var filter = world.Filter(
+                mode: AssignmentModes.Revaluation,
+                sourceExamId: world.SourceExamId,
+                targetExamId: world.RevalExamId);
+
+            var response = await world.Service.GetMatrixAsync(filter);
+            var asha = response.Students.Single(s => s.StudentId == "ST001");
+
+            var absent = Cell(asha, world.Subject2);
+            Assert.False(absent.Selectable);
+            Assert.Contains("absent", absent.Reason!, StringComparison.OrdinalIgnoreCase);
+
+            var noEse = Cell(asha, internalOnly);
+            Assert.False(noEse.Selectable);
+            Assert.Contains("ESE", noEse.Reason!);
+
+            // The revaluable subjects are still on offer, including the one already cleared.
+            Assert.True(Cell(asha, world.Subject1).Selectable);
+            Assert.True(Cell(asha, world.Subject3).Selectable);
+        }
+
+        /// <summary>
+        /// PRODUCTION BUG, DELIBERATELY NOT FIXED -- this test pins the CURRENT behaviour so the
+        /// fix is visible when it lands. <c>ApplySelectability</c> returns early with
+        /// <c>Selectable = true</c> whenever <c>RequireFailedSubject</c> is false, before it ever
+        /// consults <c>BlockAbsentStudents</c>. The built-in default Revaluation policy sets
+        /// exactly that pair (RequireFailedSubject = false, BlockAbsentStudents = true), so its
+        /// absent guard is dead: an absent student can be assigned to a revaluation.
+        /// Expected behaviour is <c>Selectable == false</c> with the "Marked absent" reason.
+        /// </summary>
+        [Fact]
+        public async Task GetMatrix_Revaluation_BlockAbsentStudentsIsIgnoredWhenRequireFailedSubjectIsFalse_KnownBug()
+        {
+            using var world = new World();
+
+            world.AddPolicy(AssignmentModes.Revaluation, p =>
+            {
+                p.RequireFailedSubject = false;   // as in the built-in default Revaluation policy
+                p.BlockAbsentStudents = true;     // ... which this then silently ignores
+                p.OfferPassedSubjects = true;
+                p.EligibleHeadTypes = "ESE";
+                p.TargetExamTypes = string.Empty;
+            });
+
+            var filter = world.Filter(
+                mode: AssignmentModes.Revaluation,
+                sourceExamId: world.SourceExamId,
+                targetExamId: world.RevalExamId);
+
+            var asha = (await world.Service.GetMatrixAsync(filter))
+                .Students.Single(s => s.StudentId == "ST001");
+
+            var absent = Cell(asha, world.Subject2);
+            Assert.Equal(SubjectStatuses.Absent, absent.Status);
+
+            // Documents the defect: this SHOULD be false with reason "Marked absent -- ...".
+            Assert.True(absent.Selectable);
+            Assert.Null(absent.Reason);
+        }
+
+        // =====================================================================
+        // 4. Save creates the assignment
+        // =====================================================================
+
+        [Fact]
+        public async Task Save_CreatesOneTargetAttemptWithFreshHeadsForTheSelectedSubject()
+        {
+            using var world = new World();
+
+            var result = await world.Service.SaveAsync(Save(world.Filter(), world.StudentA, world.Subject1));
+
+            Assert.True(result.Success, result.Message);
+            Assert.Equal(1, result.Data!.StudentsAssigned);
+            Assert.Equal(1, result.Data.SubjectsRegistered);
+
+            var targets = world.Context.MarksMasters
+                .Where(m => m.ExamId == world.TargetExamId)
+                .ToList();
+            Assert.Single(targets);
+            Assert.Equal(world.StudentA, targets[0].StdMstId);
+            Assert.Equal("A-101", targets[0].SeatNo); // carried forward from the source attempt
+
+            var heads = world.TargetHeads(world.StudentA);
+
+            // The selected subject: one row per configured head, appearing (not carried).
+            var appearing = heads.Where(h => h.SubjectId == world.Subject1).ToList();
+            Assert.Equal(2, appearing.Count);
+            Assert.Equal(new[] { "H1", "H2" }, appearing.OrderBy(h => h.Head).Select(h => h.Head));
+            Assert.All(appearing, h => Assert.False(h.IsCarryForward));
+            Assert.All(appearing, h => Assert.Null(h.Marks));
+            Assert.All(appearing, h => Assert.False(h.IsAbsent));
+            Assert.All(appearing, h => Assert.Equal(world.CreditsBySubject[world.Subject1], h.CreditsId));
+
+            // Everything else is carried over from the source attempt, marks and all.
+            var carried = heads.Where(h => h.SubjectId != world.Subject1).ToList();
+            Assert.Equal(4, carried.Count);
+            Assert.All(carried, h => Assert.True(h.IsCarryForward));
+
+            var carriedSubject3 = carried
+                .Where(h => h.SubjectId == world.Subject3)
+                .OrderBy(h => h.Head)
+                .ToList();
+            Assert.Equal(new int?[] { 50, 15 }, carriedSubject3.Select(h => h.Marks));
+            Assert.Equal(new int?[] { 50, 15 }, carriedSubject3.Select(h => h.RawMarks));
+
+            // The absent subject keeps its absence when it is carried forward.
+            Assert.All(
+                carried.Where(h => h.SubjectId == world.Subject2),
+                h => Assert.True(h.IsAbsent));
+        }
+
+        // =====================================================================
+        // 5. Save is idempotent (the legacy duplicate-INSERT bug)
+        // =====================================================================
+
+        [Fact]
+        public async Task Save_RunTwiceWithTheSamePayload_DoesNotDuplicateAnyHeadRow()
+        {
+            using var world = new World();
+
+            var first = await world.Service.SaveAsync(
+                Save(world.Filter(), world.StudentA, world.Subject1, world.Subject2));
+            Assert.True(first.Success, first.Message);
+
+            var second = await world.Service.SaveAsync(
+                Save(world.Filter(), world.StudentA, world.Subject1, world.Subject2));
+            Assert.True(second.Success, second.Message);
+
+            // The second run recognises the existing attempt rather than creating another.
+            Assert.Equal(0, second.Data!.StudentsAssigned);
+            Assert.Equal(1, second.Data.StudentsUpdated);
+
+            Assert.Single(world.Context.MarksMasters.Where(m => m.ExamId == world.TargetExamId));
+
+            var heads = world.TargetHeads(world.StudentA);
+            Assert.Equal(6, heads.Count); // 3 subjects x 2 heads, exactly once each
+
+            foreach (var group in heads.GroupBy(h => new { h.SubjectId, h.Head }))
+            {
+                Assert.Equal(1, group.Count());
+            }
+
+            Assert.Equal(
+                4,
+                heads.Count(h => !h.IsCarryForward)); // subjects 1 and 2 are being re-attempted
+        }
+
+        // =====================================================================
+        // 6. Save re-validates the payload against the policy
+        // =====================================================================
+
+        [Fact]
+        public async Task Save_IgnoresASubjectThePolicyDoesNotOffer()
+        {
+            using var world = new World();
+
+            // Subject 3 is already cleared and the default ATKT policy refuses it.
+            var result = await world.Service.SaveAsync(
+                Save(world.Filter(), world.StudentA, world.Subject3));
+
+            Assert.True(result.Success, result.Message);
+            Assert.Equal(0, result.Data!.StudentsAssigned);
+            Assert.Equal(0, result.Data.SubjectsRegistered);
+
+            Assert.Empty(world.Context.MarksMasters.Where(m => m.ExamId == world.TargetExamId));
+            Assert.Empty(world.TargetHeads(world.StudentA));
+        }
+
+        [Fact]
+        public async Task Save_KeepsTheAllowedSubjectsAndDropsTheDisallowedOneFromAMixedPayload()
+        {
+            using var world = new World();
+
+            var result = await world.Service.SaveAsync(
+                Save(world.Filter(), world.StudentA, world.Subject1, world.Subject3));
+
+            Assert.True(result.Success, result.Message);
+            Assert.Equal(1, result.Data!.SubjectsRegistered);
+
+            var heads = world.TargetHeads(world.StudentA);
+            Assert.All(
+                heads.Where(h => h.SubjectId == world.Subject3),
+                h => Assert.True(h.IsCarryForward)); // carried, never registered as an attempt
+            Assert.Equal(2, heads.Count(h => !h.IsCarryForward));
+        }
+
+        // =====================================================================
+        // 7. An empty selection unassigns
+        // =====================================================================
+
+        [Fact]
+        public async Task Save_WithAnEmptySelection_SoftDeletesTheAssignmentAndItsHeads()
+        {
+            using var world = new World();
+
+            await world.Service.SaveAsync(Save(world.Filter(), world.StudentA, world.Subject1));
+            var targetMarksId = world.Context.MarksMasters
+                .Single(m => m.ExamId == world.TargetExamId).MarksId;
+
+            var result = await world.Service.SaveAsync(Save(world.Filter(), world.StudentA));
+
+            Assert.True(result.Success, result.Message);
+            Assert.Equal(1, result.Data!.StudentsRemoved);
+
+            // Gone from every ordinary query...
+            Assert.Empty(world.Context.MarksMasters.Where(m => m.ExamId == world.TargetExamId));
+            Assert.Empty(world.TargetHeads(world.StudentA));
+
+            // ... but soft-deleted, not physically removed.
+            var removed = world.Context.MarksMasters
+                .IgnoreQueryFilters()
+                .Single(m => m.MarksId == targetMarksId);
+            Assert.True(removed.IsDeleted);
+            Assert.NotNull(removed.DeletedAt);
+
+            var removedHeads = world.Context.StudentMarks
+                .IgnoreQueryFilters()
+                .Where(sm => sm.MarksId == targetMarksId)
+                .ToList();
+            Assert.NotEmpty(removedHeads);
+            Assert.All(removedHeads, h => Assert.True(h.IsDeleted));
+        }
+
+        // =====================================================================
+        // 8. Delete guard
+        // =====================================================================
+
+        [Fact]
+        public async Task DeleteAssignment_RefusesOnceMarksHaveBeenEnteredAndLeavesTheRowsIntact()
+        {
+            using var world = new World();
+
+            await world.Service.SaveAsync(Save(world.Filter(), world.StudentA, world.Subject1));
+
+            var entered = world.TargetHeads(world.StudentA)
+                .Single(h => h.SubjectId == world.Subject1 && h.Head == "H1");
+            entered.Marks = 45;
+            entered.RawMarks = 45;
+            await world.Context.SaveChangesAsync();
+
+            var result = await world.Service.DeleteAssignmentAsync(new AtktDeleteRequest
+            {
+                Filter = world.Filter(editMode: true),
+                StdMstId = world.StudentA
+            });
+
+            Assert.False(result.Success);
+            Assert.Contains("marks have already been entered", result.Message, StringComparison.OrdinalIgnoreCase);
+
+            Assert.Single(world.Context.MarksMasters.Where(m => m.ExamId == world.TargetExamId));
+            Assert.Equal(6, world.TargetHeads(world.StudentA).Count);
+            Assert.All(world.TargetHeads(world.StudentA), h => Assert.False(h.IsDeleted));
+
+            // The screen advertises the same guard before the operator tries.
+            var row = (await world.Service.GetMatrixAsync(world.Filter(editMode: true)))
+                .Students.Single(s => s.StudentId == "ST001");
+            Assert.False(row.CanDelete);
+            Assert.NotNull(row.DeleteBlockedReason);
+        }
+
+        [Fact]
+        public async Task DeleteAssignment_SucceedsAndSoftDeletesWhileNoMarksHaveBeenEntered()
+        {
+            using var world = new World();
+
+            await world.Service.SaveAsync(Save(world.Filter(), world.StudentA, world.Subject1));
+            var targetMarksId = world.Context.MarksMasters
+                .Single(m => m.ExamId == world.TargetExamId).MarksId;
+
+            var result = await world.Service.DeleteAssignmentAsync(new AtktDeleteRequest
+            {
+                Filter = world.Filter(editMode: true),
+                StdMstId = world.StudentA
+            });
+
+            Assert.True(result.Success, result.Message);
+            Assert.Empty(world.Context.MarksMasters.Where(m => m.ExamId == world.TargetExamId));
+
+            Assert.True(world.Context.MarksMasters
+                .IgnoreQueryFilters()
+                .Single(m => m.MarksId == targetMarksId).IsDeleted);
+
+            Assert.All(
+                world.Context.StudentMarks.IgnoreQueryFilters().Where(sm => sm.MarksId == targetMarksId),
+                h => Assert.True(h.IsDeleted));
+        }
+
+        [Fact]
+        public async Task DeleteAssignment_ReportsAStudentWhoWasNeverAssigned()
+        {
+            using var world = new World();
+
+            var result = await world.Service.DeleteAssignmentAsync(new AtktDeleteRequest
+            {
+                Filter = world.Filter(editMode: true),
+                StdMstId = world.StudentA
+            });
+
+            Assert.False(result.Success);
+            Assert.Contains("not assigned", result.Message, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // =====================================================================
+        // 9. Edit mode vs new mode
+        // =====================================================================
+
+        [Fact]
+        public async Task GetMatrix_EditModeListsOnlyAssignedStudentsAndNewModeOnlyTheRest()
+        {
+            using var world = new World();
+
+            var newModeBefore = await world.Service.GetMatrixAsync(world.Filter());
+            Assert.Equal(
+                new[] { "ST001", "ST002" },
+                newModeBefore.Students.Select(s => s.StudentId).OrderBy(s => s));
+
+            Assert.Empty((await world.Service.GetMatrixAsync(world.Filter(editMode: true))).Students);
+
+            await world.Service.SaveAsync(Save(world.Filter(), world.StudentA, world.Subject1));
+
+            var editMode = await world.Service.GetMatrixAsync(world.Filter(editMode: true));
+            var assigned = Assert.Single(editMode.Students);
+            Assert.Equal("ST001", assigned.StudentId);
+            Assert.True(assigned.IsAssigned);
+            Assert.NotNull(assigned.TargetMarksId);
+
+            // The saved ticks come back as the current selection.
+            Assert.True(Cell(assigned, world.Subject1).Selected);
+            Assert.False(Cell(assigned, world.Subject2).Selected);
+
+            var newMode = await world.Service.GetMatrixAsync(world.Filter());
+            var remaining = Assert.Single(newMode.Students);
+            Assert.Equal("ST002", remaining.StudentId);
+        }
+
+        [Fact]
+        public async Task GetMatrix_NewMode_HidesAStudentWithNothingOutstanding()
+        {
+            using var world = new World();
+
+            // Clear every backlog Bhavin has: subject 2 becomes a pass.
+            foreach (var head in world.Context.StudentMarks
+                         .Where(sm => sm.MarksId == world.SourceMarksB && sm.SubjectId == world.Subject2))
+            {
+                head.Marks = head.Head == "H1" ? 60 : 18;
+                head.RawMarks = head.Marks;
+            }
+            await world.Context.SaveChangesAsync();
+
+            var response = await world.Service.GetMatrixAsync(world.Filter());
+
+            Assert.Equal(new[] { "ST001" }, response.Students.Select(s => s.StudentId));
+        }
+
+        // =====================================================================
+        // 10. Eligibility rule gate
+        // =====================================================================
+
+        [Fact]
+        public async Task GetMatrix_AnEligibilityRuleSetOnThePolicyExcludesStudentsWhoFailIt()
+        {
+            using var world = new World(new FailedSubjectCountProvider());
+
+            var ruleSetId = Guid.NewGuid();
+            var ruleId = Guid.NewGuid();
+
+            world.Context.RuleSets.Add(new RuleSet
+            {
+                RuleSetId = ruleSetId,
+                Name = "No backlogs allowed",
+                PatternId = world.PatternId,
+                IsActive = true,
+                CollegeId = world.CollegeId
+            });
+            world.Context.Rules.Add(new Rule
+            {
+                RuleId = ruleId,
+                Name = "Zero backlogs",
+                RuleSetId = ruleSetId,
+                IsEnabled = true,
+                Priority = 1
+            });
+            world.Context.RuleConditions.Add(new RuleCondition
+            {
+                ConditionId = Guid.NewGuid(),
+                RuleId = ruleId,
+                FactName = "FailedSubjectCount",
+                Operator = "<=",
+                Value = "0"
+            });
+            await world.Context.SaveChangesAsync();
+
+            // Without the gate both students are candidates.
+            Assert.Equal(2, (await world.Service.GetMatrixAsync(world.Filter())).Students.Count);
+
+            world.AddPolicy(AssignmentModes.Atkt, p =>
+            {
+                p.RequireFailedSubject = true;
+                p.RuleSetId = ruleSetId;
+            });
+
+            var response = await world.Service.GetMatrixAsync(world.Filter());
+
+            Assert.True(response.Success);
+            Assert.True(response.Policy!.HasEligibilityRules);
+            Assert.Equal("No backlogs allowed", response.Policy.RuleSetName);
+
+            // The columns are still built -- only the roster is gated.
+            Assert.Equal(3, response.Columns.Count);
+            Assert.Empty(response.Students);
+            Assert.Contains("No eligible students", response.Message);
+        }
+
+        [Fact]
+        public async Task GetMatrix_AnEligibilityRuleSetAdmitsTheStudentsWhoSatisfyIt()
+        {
+            using var world = new World(new FailedSubjectCountProvider());
+
+            var ruleSetId = Guid.NewGuid();
+            var ruleId = Guid.NewGuid();
+
+            world.Context.RuleSets.Add(new RuleSet
+            {
+                RuleSetId = ruleSetId,
+                Name = "At most two backlogs",
+                PatternId = world.PatternId,
+                IsActive = true,
+                CollegeId = world.CollegeId
+            });
+            world.Context.Rules.Add(new Rule
+            {
+                RuleId = ruleId,
+                Name = "Backlog cap",
+                RuleSetId = ruleSetId,
+                IsEnabled = true,
+                Priority = 1
+            });
+            world.Context.RuleConditions.Add(new RuleCondition
+            {
+                ConditionId = Guid.NewGuid(),
+                RuleId = ruleId,
+                FactName = "FailedSubjectCount",
+                Operator = "<=",
+                Value = "1"
+            });
+            await world.Context.SaveChangesAsync();
+
+            world.AddPolicy(AssignmentModes.Atkt, p =>
+            {
+                p.RequireFailedSubject = true;
+                p.RuleSetId = ruleSetId;
+            });
+
+            var response = await world.Service.GetMatrixAsync(world.Filter());
+
+            // Asha has two outstanding subjects and is gated out; Bhavin has one and stays.
+            Assert.Equal(new[] { "ST002" }, response.Students.Select(s => s.StudentId));
+        }
+
+        // =====================================================================
+        // 11. RuleConditionEvaluator.Compare
+        // =====================================================================
+
+        [Theory]
+        // Equals
+        [InlineData(5, "Equals", "5", true)]
+        [InlineData(5, "==", "5", true)]
+        [InlineData(5, "Equals", "6", false)]
+        [InlineData(5, "==", "6", false)]
+        // GreaterThan
+        [InlineData(6, "GreaterThan", "5", true)]
+        [InlineData(6, ">", "5", true)]
+        [InlineData(5, "GreaterThan", "5", false)]
+        [InlineData(5, ">", "5", false)]
+        // LessThan
+        [InlineData(4, "LessThan", "5", true)]
+        [InlineData(4, "<", "5", true)]
+        [InlineData(5, "LessThan", "5", false)]
+        [InlineData(5, "<", "5", false)]
+        // GreaterOrEqual -- three spellings the Ordinance UI has written
+        [InlineData(5, "GreaterOrEqual", "5", true)]
+        [InlineData(5, "GreaterThanOrEqual", "5", true)]
+        [InlineData(5, ">=", "5", true)]
+        [InlineData(4, "GreaterOrEqual", "5", false)]
+        [InlineData(4, "GreaterThanOrEqual", "5", false)]
+        [InlineData(4, ">=", "5", false)]
+        // LessOrEqual
+        [InlineData(5, "LessOrEqual", "5", true)]
+        [InlineData(5, "LessThanOrEqual", "5", true)]
+        [InlineData(5, "<=", "5", true)]
+        [InlineData(6, "LessOrEqual", "5", false)]
+        [InlineData(6, "LessThanOrEqual", "5", false)]
+        [InlineData(6, "<=", "5", false)]
+        // NotEquals
+        [InlineData(5, "NotEquals", "6", true)]
+        [InlineData(5, "!=", "6", true)]
+        [InlineData(5, "NotEquals", "5", false)]
+        [InlineData(5, "!=", "5", false)]
+        public void Compare_AcceptsBothTheSymbolAndTheWordFormOfEveryOperator(
+            double factValue, string op, string target, bool expected)
+        {
+            Assert.Equal(expected, RuleConditionEvaluator.Compare(factValue, op, target));
+        }
+
+        [Theory]
+        [InlineData("==", "abc")]    // unparseable target
+        [InlineData("==", "")]
+        [InlineData("==", null)]
+        [InlineData("=", "5")]       // unknown operator
+        [InlineData("EQ", "5")]
+        [InlineData("", "5")]
+        [InlineData(null, "5")]
+        public void Compare_ReturnsFalseRatherThanThrowingOnARowItCannotUnderstand(string? op, string? target)
+        {
+            Assert.False(RuleConditionEvaluator.Compare(5, op, target));
+        }
+
+        [Fact]
+        public void Compare_MatchesDecimalFactValuesAgainstDecimalConditionValues()
+        {
+            Assert.True(RuleConditionEvaluator.Compare(4.5, ">=", "4.5"));
+            Assert.False(RuleConditionEvaluator.Compare(4.49, ">=", "4.5"));
+        }
+    }
+}
