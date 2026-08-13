@@ -12,7 +12,7 @@ Migration of the legacy WebForm `OldProjects/60_40_LTCE/frm_atktreval_exm_assign
 
 | | Status |
 |---|---|
-| Backend | **Complete.** Builds with 0 errors, 0 warnings. 45 new tests, all passing. |
+| Backend | **Complete.** Builds with 0 errors (271 warnings, all pre-existing nullability/unused-variable noise — unchanged from before this work). 45 new tests, all passing. |
 | Frontend | Written but **never type-checked, never wired, never run**. |
 | Schema | **No change.** No new tables, no migration. |
 | Ordinance / marks / result / gazette chain | One extracted method, covered by the existing green tests. |
