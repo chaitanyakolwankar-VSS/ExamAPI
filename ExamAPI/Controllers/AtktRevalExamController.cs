@@ -21,11 +21,6 @@ namespace ExamAPI.Controllers
             _service = service;
         }
 
-        /// <summary>The configuration driving the screen: what may be selected and why.</summary>
-        [HttpGet("policies")]
-        public async Task<IActionResult> GetPolicies([FromQuery] string? mode)
-            => Ok(await _service.GetPoliciesAsync(mode));
-
         /// <summary>Exams that can act as the source attempt (revaluation).</summary>
         [HttpGet("source-exams")]
         public async Task<IActionResult> GetSourceExams(

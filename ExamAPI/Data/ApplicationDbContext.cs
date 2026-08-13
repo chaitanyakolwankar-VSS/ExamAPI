@@ -77,7 +77,6 @@ namespace ExamAPI.Data
         public DbSet<StudentMarks> StudentMarks { get; set; }
         public DbSet<StudentSubjectResult> StudentSubjectResults { get; set; }
         public DbSet<StudentsOverallResult> StudentsOverallResults { get; set; }
-        public DbSet<ExamAssignmentPolicy> ExamAssignmentPolicies { get; set; }
 
         // =========================================
         // 6. Rules & Grading Logic
@@ -194,13 +193,6 @@ namespace ExamAPI.Data
             // college is meaningless. IsRequired() keeps the schema unchanged.
             modelBuilder.Entity<AcademicYear>()
                 .Property(a => a.CollegeId)
-                .IsRequired();
-
-            // Same treatment for exam-assignment policies: the CLR property is nullable to
-            // satisfy ICollegeScoped, but a policy that belongs to no college would be visible
-            // to every tenant, which is not a state this table is allowed to reach.
-            modelBuilder.Entity<ExamAssignmentPolicy>()
-                .Property(p => p.CollegeId)
                 .IsRequired();
 
             // =========================================================

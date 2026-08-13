@@ -64,7 +64,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("CollegeId");
 
-                    b.ToTable("AcademicYear");
+                    b.ToTable("AcademicYear", (string)null);
                 });
 
             modelBuilder.Entity("ExamAPI.Models.AuditLog", b =>
@@ -102,7 +102,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("CollegeId");
 
-                    b.ToTable("AuditLog");
+                    b.ToTable("AuditLog", (string)null);
                 });
 
             modelBuilder.Entity("ExamAPI.Models.College", b =>
@@ -167,7 +167,7 @@ namespace ExamAPI.Migrations
 
                     b.HasKey("CollegeId");
 
-                    b.ToTable("College");
+                    b.ToTable("College", (string)null);
                 });
 
             modelBuilder.Entity("ExamAPI.Models.CourseMaster", b =>
@@ -215,102 +215,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("StudentMasterStdMstId");
 
-                    b.ToTable("CourseMaster");
-                });
-
-            modelBuilder.Entity("ExamAPI.Models.ExamAssignmentPolicy", b =>
-                {
-                    b.Property<Guid>("PolicyId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<bool>("AutoSelectFailedSubjects")
-                        .HasColumnType("bit");
-
-                    b.Property<bool>("BlockAbsentStudents")
-                        .HasColumnType("bit");
-
-                    b.Property<bool>("BlockDeleteAfterMarksEntry")
-                        .HasColumnType("bit");
-
-                    b.Property<bool>("CarryForwardMarks")
-                        .HasColumnType("bit");
-
-                    b.Property<bool>("CarryForwardSeatNo")
-                        .HasColumnType("bit");
-
-                    b.Property<Guid?>("CollegeId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<Guid?>("CreatedBy")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime?>("DeletedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("EligibleHeadTypes")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<bool>("IsDeleted")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bit")
-                        .HasDefaultValue(false);
-
-                    b.Property<bool>("IsEnabled")
-                        .HasColumnType("bit");
-
-                    b.Property<int?>("MaxSubjectsPerStudent")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Mode")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<bool>("OfferPassedSubjects")
-                        .HasColumnType("bit");
-
-                    b.Property<Guid?>("PatternId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<bool>("RequireFailedSubject")
-                        .HasColumnType("bit");
-
-                    b.Property<Guid?>("RuleSetId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("SourceExamTypes")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<int>("SubjectsPerRow")
-                        .HasColumnType("int");
-
-                    b.Property<string>("TargetExamTypes")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.HasKey("PolicyId");
-
-                    b.HasIndex("CollegeId");
-
-                    b.HasIndex("PatternId");
-
-                    b.HasIndex("RuleSetId");
-
-                    b.ToTable("ExamAssignmentPolicy");
+                    b.ToTable("CourseMaster", (string)null);
                 });
 
             modelBuilder.Entity("ExamAPI.Models.ExamMaster", b =>
@@ -374,7 +279,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("CourseId");
 
-                    b.ToTable("ExamMaster");
+                    b.ToTable("ExamMaster", (string)null);
                 });
 
             modelBuilder.Entity("ExamAPI.Models.GraceLookup", b =>
@@ -413,7 +318,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("CollegeId");
 
-                    b.ToTable("GraceLookup");
+                    b.ToTable("GraceLookup", (string)null);
                 });
 
             modelBuilder.Entity("ExamAPI.Models.GradeMaster", b =>
@@ -455,7 +360,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("CollegeId");
 
-                    b.ToTable("GradeMaster");
+                    b.ToTable("GradeMaster", (string)null);
                 });
 
             modelBuilder.Entity("ExamAPI.Models.GradeThreshold", b =>
@@ -506,7 +411,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("GradeMasterId");
 
-                    b.ToTable("GradeThreshold");
+                    b.ToTable("GradeThreshold", (string)null);
                 });
 
             modelBuilder.Entity("ExamAPI.Models.MarksMaster", b =>
@@ -594,7 +499,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("StdMstId");
 
-                    b.ToTable("MarksMaster");
+                    b.ToTable("MarksMaster", (string)null);
                 });
 
             modelBuilder.Entity("ExamAPI.Models.PasswordResetOTP", b =>
@@ -628,7 +533,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("PasswordResetOTP");
+                    b.ToTable("PasswordResetOTP", (string)null);
                 });
 
             modelBuilder.Entity("ExamAPI.Models.PatternMaster", b =>
@@ -670,7 +575,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("CollegeId");
 
-                    b.ToTable("PatternMaster");
+                    b.ToTable("PatternMaster", (string)null);
                 });
 
             modelBuilder.Entity("ExamAPI.Models.Permission", b =>
@@ -708,7 +613,7 @@ namespace ExamAPI.Migrations
 
                     b.HasKey("PermissionId");
 
-                    b.ToTable("Permission");
+                    b.ToTable("Permission", (string)null);
                 });
 
             modelBuilder.Entity("ExamAPI.Models.ResolutionMaster", b =>
@@ -773,7 +678,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("SubjectCreditID");
 
-                    b.ToTable("ResolutionMaster");
+                    b.ToTable("ResolutionMaster", (string)null);
                 });
 
             modelBuilder.Entity("ExamAPI.Models.RoleMaster", b =>
@@ -815,7 +720,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("CollegeId");
 
-                    b.ToTable("RoleMaster");
+                    b.ToTable("RoleMaster", (string)null);
                 });
 
             modelBuilder.Entity("ExamAPI.Models.RolePermission", b =>
@@ -847,7 +752,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("PermissionId");
 
-                    b.ToTable("RolePermission");
+                    b.ToTable("RolePermission", (string)null);
                 });
 
             modelBuilder.Entity("ExamAPI.Models.Rule", b =>
@@ -898,7 +803,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("RuleSetId");
 
-                    b.ToTable("Rule");
+                    b.ToTable("Rule", (string)null);
                 });
 
             modelBuilder.Entity("ExamAPI.Models.RuleAction", b =>
@@ -967,7 +872,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("RuleId");
 
-                    b.ToTable("RuleAction");
+                    b.ToTable("RuleAction", (string)null);
                 });
 
             modelBuilder.Entity("ExamAPI.Models.RuleCondition", b =>
@@ -1012,7 +917,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("RuleId");
 
-                    b.ToTable("RuleCondition");
+                    b.ToTable("RuleCondition", (string)null);
                 });
 
             modelBuilder.Entity("ExamAPI.Models.RuleSet", b =>
@@ -1067,7 +972,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("PatternId");
 
-                    b.ToTable("RuleSet");
+                    b.ToTable("RuleSet", (string)null);
                 });
 
             modelBuilder.Entity("ExamAPI.Models.StudentEligibility", b =>
@@ -1125,7 +1030,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("StdMstId");
 
-                    b.ToTable("StudentEligibility");
+                    b.ToTable("StudentEligibility", (string)null);
                 });
 
             modelBuilder.Entity("ExamAPI.Models.StudentMarks", b =>
@@ -1205,7 +1110,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("SubjectId");
 
-                    b.ToTable("StudentMarks");
+                    b.ToTable("StudentMarks", (string)null);
                 });
 
             modelBuilder.Entity("ExamAPI.Models.StudentMaster", b =>
@@ -1298,7 +1203,7 @@ namespace ExamAPI.Migrations
                         .IsUnique()
                         .HasFilter("[CollegeId] IS NOT NULL");
 
-                    b.ToTable("StudentMaster");
+                    b.ToTable("StudentMaster", (string)null);
                 });
 
             modelBuilder.Entity("ExamAPI.Models.StudentSubjectResult", b =>
@@ -1376,7 +1281,7 @@ namespace ExamAPI.Migrations
                     b.HasIndex("MarksId", "SubjectId")
                         .IsUnique();
 
-                    b.ToTable("StudentSubjectResult");
+                    b.ToTable("StudentSubjectResult", (string)null);
                 });
 
             modelBuilder.Entity("ExamAPI.Models.StudentsOverallResult", b =>
@@ -1440,7 +1345,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("StdMstId");
 
-                    b.ToTable("StudentsOverallResult");
+                    b.ToTable("StudentsOverallResult", (string)null);
                 });
 
             modelBuilder.Entity("ExamAPI.Models.SubjectCreditMaster", b =>
@@ -1499,7 +1404,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("SubjectId");
 
-                    b.ToTable("SubjectCreditMaster");
+                    b.ToTable("SubjectCreditMaster", (string)null);
                 });
 
             modelBuilder.Entity("ExamAPI.Models.SubjectCredits", b =>
@@ -1556,7 +1461,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("CreditsId");
 
-                    b.ToTable("SubjectCredits");
+                    b.ToTable("SubjectCredits", (string)null);
                 });
 
             modelBuilder.Entity("ExamAPI.Models.SubjectMaster", b =>
@@ -1616,7 +1521,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("CourseId");
 
-                    b.ToTable("SubjectMaster");
+                    b.ToTable("SubjectMaster", (string)null);
                 });
 
             modelBuilder.Entity("ExamAPI.Models.TimeTableMaster", b =>
@@ -1672,7 +1577,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("SubjectId");
 
-                    b.ToTable("TimeTableMaster");
+                    b.ToTable("TimeTableMaster", (string)null);
                 });
 
             modelBuilder.Entity("ExamAPI.Models.UserMaster", b =>
@@ -1743,7 +1648,7 @@ namespace ExamAPI.Migrations
                         .IsUnique()
                         .HasFilter("[CollegeId] IS NOT NULL");
 
-                    b.ToTable("UserMaster");
+                    b.ToTable("UserMaster", (string)null);
                 });
 
             modelBuilder.Entity("ExamAPI.Models.UserPermission", b =>
@@ -1775,7 +1680,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("PermissionId");
 
-                    b.ToTable("UserPermission");
+                    b.ToTable("UserPermission", (string)null);
                 });
 
             modelBuilder.Entity("ExamAPI.Models.AcademicYear", b =>
@@ -1809,27 +1714,6 @@ namespace ExamAPI.Migrations
                         .HasForeignKey("StudentMasterStdMstId");
 
                     b.Navigation("College");
-                });
-
-            modelBuilder.Entity("ExamAPI.Models.ExamAssignmentPolicy", b =>
-                {
-                    b.HasOne("ExamAPI.Models.College", "OwningCollege")
-                        .WithMany()
-                        .HasForeignKey("CollegeId");
-
-                    b.HasOne("ExamAPI.Models.PatternMaster", "Pattern")
-                        .WithMany()
-                        .HasForeignKey("PatternId");
-
-                    b.HasOne("ExamAPI.Models.RuleSet", "RuleSet")
-                        .WithMany()
-                        .HasForeignKey("RuleSetId");
-
-                    b.Navigation("OwningCollege");
-
-                    b.Navigation("Pattern");
-
-                    b.Navigation("RuleSet");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.ExamMaster", b =>

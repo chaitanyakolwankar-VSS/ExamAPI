@@ -8,9 +8,6 @@ namespace ExamAPI.Services.AtktRevalExam
     /// </summary>
     public interface IAtktRevalExamService
     {
-        /// <summary>The assignment policies available for a mode -- the screen's configuration.</summary>
-        Task<List<AtktPolicyDto>> GetPoliciesAsync(string? mode);
-
         /// <summary>Exams that may act as the source attempt (revaluation picks one explicitly).</summary>
         Task<List<AtktExamOptionDto>> GetSourceExamsAsync(Guid courseId, Guid ayid, string semester, string pattern, string mode);
 

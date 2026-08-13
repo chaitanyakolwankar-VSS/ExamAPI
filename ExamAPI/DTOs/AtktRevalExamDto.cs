@@ -1,27 +1,36 @@
 namespace ExamAPI.DTOs
 {
-    /// <summary>The effective assignment policy, echoed to the client so the UI stays data driven.</summary>
+    /// <summary>
+    /// The ordinance rule set governing this screen, echoed to the client so the operator can
+    /// see what is being applied and why a cell is locked. There is no separate assignment
+    /// config table -- this is resolved from RuleSet / Rule / RuleAction.
+    /// </summary>
     public class AtktPolicyDto
     {
-        public Guid PolicyId { get; set; }
-        public string Name { get; set; } = string.Empty;
-        public string Mode { get; set; } = string.Empty;
-        public bool RequireFailedSubject { get; set; }
-        public bool OfferPassedSubjects { get; set; }
-        public bool BlockAbsentStudents { get; set; }
-        public bool AutoSelectFailedSubjects { get; set; }
-        public bool CarryForwardSeatNo { get; set; }
-        public bool CarryForwardMarks { get; set; }
-        public bool BlockDeleteAfterMarksEntry { get; set; }
-        public int? MaxSubjectsPerStudent { get; set; }
-        public int SubjectsPerRow { get; set; }
-        public List<string> EligibleHeadTypes { get; set; } = new();
-        public List<string> SourceExamTypes { get; set; } = new();
-        public List<string> TargetExamTypes { get; set; } = new();
+        public Guid RuleSetId { get; set; }
+        public string RuleSetName { get; set; } = string.Empty;
+        public string? ExamType { get; set; }
 
-        /// <summary>True when an eligibility rule set from the ordinance engine is gating the list.</summary>
-        public bool HasEligibilityRules { get; set; }
-        public string? RuleSetName { get; set; }
+        /// <summary>One of <see cref="Models.AssignmentModes"/>.</summary>
+        public string Mode { get; set; } = string.Empty;
+
+        /// <summary>
+        /// False when no rule set carries an AllowExamAssignment action for this exam type and
+        /// the built-in fallback is in force.
+        /// </summary>
+        public bool IsConfigured { get; set; }
+
+        /// <summary>Subject statuses in scope. Empty means every subject.</summary>
+        public List<string> SubjectScopes { get; set; } = new();
+
+        /// <summary>Heads that get re-attempted. Empty means every head of a selected subject.</summary>
+        public List<string> HeadTypes { get; set; } = new();
+
+        /// <summary>From RuleAction.MaxTargetCount. Null means no cap.</summary>
+        public int? MaxSubjectsPerStudent { get; set; }
+
+        /// <summary>Names of the rules that grant assignment, for display.</summary>
+        public List<string> Rules { get; set; } = new();
     }
 
     public class AtktExamOptionDto
@@ -72,6 +81,10 @@ namespace ExamAPI.DTOs
         public int ObtainedTotal { get; set; }
         public int OutOfTotal { get; set; }
         public int RequiredToPass { get; set; }
+
+        /// <summary>Marks short of passing, from SubjectPassEvaluator. 0 when cleared.</summary>
+        public int Deficit { get; set; }
+
         public bool IsAbsent { get; set; }
 
         /// <summary>Whether the operator may tick this cell, per the policy.</summary>
@@ -123,9 +136,6 @@ namespace ExamAPI.DTOs
         public Guid? SourceExamId { get; set; }
 
         public Guid TargetExamId { get; set; }
-
-        /// <summary>Optional explicit policy; otherwise the enabled policy for the mode is resolved.</summary>
-        public Guid? PolicyId { get; set; }
 
         /// <summary>false = list candidates not yet assigned; true = list students already assigned.</summary>
         public bool EditMode { get; set; }

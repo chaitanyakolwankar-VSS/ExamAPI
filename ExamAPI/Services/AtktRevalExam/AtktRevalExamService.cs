@@ -11,12 +11,21 @@ using System.Drawing;
 namespace ExamAPI.Services.AtktRevalExam
 {
     /// <summary>
-    /// Assignment into a follow-up attempt. The legacy screen encoded "is this student
-    /// appearing for this head?" as a trailing '+' inside the marks string; here it is
-    /// <see cref="StudentMarks.IsCarryForward"/> -- false means appearing, true means the
-    /// mark is carried over from the source attempt. Every other legacy literal (which exam
-    /// types qualify, whether a cleared subject can be re-registered, which heads are
-    /// revaluable) comes from <see cref="ExamAssignmentPolicy"/> rows.
+    /// Assignment into a follow-up attempt: ATKT (backlog) or Revaluation. Replaces the legacy
+    /// WebForm frm_atktreval_exm_assign.aspx.
+    /// <para>
+    /// Two modelling decisions carry the migration:
+    /// </para>
+    /// <list type="number">
+    /// <item>The legacy trailing-'+' sentinel inside the h1/h2 marks strings ("not appearing for
+    /// this head") is <see cref="StudentMarks.IsCarryForward"/>. False means the student sits the
+    /// head again; true means the mark is carried over from the source attempt.</item>
+    /// <item>Nothing about who may be assigned is hard-coded or held in a bespoke config table.
+    /// It comes from the ordinance engine: a <see cref="RuleSet"/> matched on
+    /// (pattern, exam type), whose rules carry an <c>AllowExamAssignment</c> action. The rule's
+    /// conditions are the eligibility gate; the action's Target and MaxTargetCount are the
+    /// subject/head scope and the per-student cap.</item>
+    /// </list>
     /// </summary>
     public class AtktRevalExamService : IAtktRevalExamService
     {
@@ -34,148 +43,167 @@ namespace ExamAPI.Services.AtktRevalExam
             _registry = registry;
         }
 
+        /// <summary>A subject with no marks at all in the source attempt.</summary>
         private const string StatusNotAttempted = "NotAttempted";
 
-        // =====================================================================
-        // Policy
-        // =====================================================================
-
-        public async Task<List<AtktPolicyDto>> GetPoliciesAsync(string? mode)
-        {
-            var query = _context.ExamAssignmentPolicies
-                .Include(p => p.RuleSet)
-                .Where(p => p.IsEnabled);
-
-            if (!string.IsNullOrWhiteSpace(mode))
-            {
-                query = query.Where(p => p.Mode == mode);
-            }
-
-            var policies = await query.AsNoTracking().ToListAsync();
-
-            if (policies.Count == 0)
-            {
-                // This college has no policy row yet -- surface the built-in defaults so the
-                // screen is usable before SeedExamAssignmentPolicies.sql has been run.
-                return string.IsNullOrWhiteSpace(mode)
-                    ? new List<AtktPolicyDto>
-                    {
-                        ToDto(DefaultPolicy(AssignmentModes.Atkt)),
-                        ToDto(DefaultPolicy(AssignmentModes.Revaluation))
-                    }
-                    : new List<AtktPolicyDto> { ToDto(DefaultPolicy(mode)) };
-            }
-
-            return policies.Select(ToDto).ToList();
-        }
+        /// <summary>The action type a rule uses to grant assignment into a follow-up exam.</summary>
+        public const string AllowExamAssignmentAction = "AllowExamAssignment";
 
         /// <summary>
-        /// Picks this college's policy for a mode -- the global query filter has already
-        /// restricted the table to the caller's tenant. A pattern-specific row beats a
-        /// pattern-agnostic one; with nothing configured the built-in default keeps the
-        /// screen working.
+        /// Revaluation exams inherit their parent's ExamType, so they cannot be told apart by it.
+        /// A rule set opts in to revaluation by carrying one of these as its ExamType instead.
         /// </summary>
-        private async Task<ExamAssignmentPolicy> ResolvePolicyAsync(string mode, Guid? policyId, string? pattern)
+        private static readonly string[] RevaluationRuleSetKeys = { "REVAL", "REVALUATION" };
+
+        // =====================================================================
+        // Rule resolution
+        // =====================================================================
+
+        /// <summary>One rule that grants assignment, with the scope its action declares.</summary>
+        private sealed record GrantRule(Rule Rule, HeadTargetSpec Scope, int MaxSubjects);
+
+        /// <summary>What the ordinance engine says about assignment into one target exam.</summary>
+        private sealed class AssignmentRules
         {
-            var normalized = AssignmentModes.IsRevaluation(mode) ? AssignmentModes.Revaluation : AssignmentModes.Atkt;
+            public RuleSet? RuleSet { get; init; }
+            public List<GrantRule> Grants { get; init; } = new();
+            public HeadTargetSpec FallbackScope { get; init; } = HeadTargetSpec.All;
 
-            if (policyId.HasValue && policyId.Value != Guid.Empty)
-            {
-                var explicitPolicy = await _context.ExamAssignmentPolicies
-                    .Include(p => p.RuleSet)
-                    .FirstOrDefaultAsync(p => p.PolicyId == policyId.Value);
-                if (explicitPolicy != null) return explicitPolicy;
-            }
+            /// <summary>True when a rule set actually governs this exam type.</summary>
+            public bool IsConfigured => RuleSet != null && Grants.Count > 0;
+        }
 
-            var patternId = string.IsNullOrWhiteSpace(pattern)
-                ? (Guid?)null
-                : await _context.PatternMasters
-                    .Where(p => p.PatternName == pattern)
-                    .Select(p => (Guid?)p.PatternId)
-                    .FirstOrDefaultAsync();
+        /// <summary>The scope granted to one student, after their conditions were evaluated.</summary>
+        private sealed record StudentGrant(bool Granted, HeadTargetSpec Scope, int MaxSubjects)
+        {
+            public static readonly StudentGrant Denied = new(false, HeadTargetSpec.All, 0);
+        }
 
-            var candidates = await _context.ExamAssignmentPolicies
-                .Include(p => p.RuleSet)
-                .Where(p => p.IsEnabled && p.Mode == normalized)
+        private async Task<AssignmentRules> ResolveRulesAsync(string pattern, ExamMaster targetExam, bool isReval)
+        {
+            var ruleSets = await _context.RuleSets
+                .Include(rs => rs.Rules!.Where(r => r.IsEnabled && !r.IsDeleted).OrderBy(r => r.Priority))
+                    .ThenInclude(r => r.Conditions)
+                .Include(rs => rs.Rules!.Where(r => r.IsEnabled && !r.IsDeleted).OrderBy(r => r.Priority))
+                    .ThenInclude(r => r.Actions)
+                .Include(rs => rs.Pattern)
+                .Where(rs => rs.Pattern!.PatternName == pattern && rs.IsActive && !rs.IsDeleted)
                 .ToListAsync();
 
-            var resolved = candidates
-                .Where(p => p.PatternId == null || p.PatternId == patternId)
-                .OrderByDescending(p => p.PatternId != null)
-                .FirstOrDefault();
+            var ruleSet = SelectRuleSet(ruleSets, targetExam, isReval);
 
-            return resolved ?? DefaultPolicy(normalized);
+            var grants = new List<GrantRule>();
+            foreach (var rule in ruleSet?.Rules ?? Enumerable.Empty<Rule>())
+            {
+                var action = rule.Actions?.FirstOrDefault(a =>
+                    HeadTargetSpec.NormalizeKey(a.ActionType) == HeadTargetSpec.NormalizeKey(AllowExamAssignmentAction));
+
+                if (action == null) continue;
+
+                grants.Add(new GrantRule(
+                    rule,
+                    HeadTargetSpec.Parse(action.Target),
+                    Math.Max(0, action.MaxTargetCount.GetValueOrDefault())));
+            }
+
+            return new AssignmentRules
+            {
+                RuleSet = ruleSet,
+                Grants = grants,
+                FallbackScope = DefaultScope(isReval)
+            };
+        }
+
+        private static RuleSet? SelectRuleSet(List<RuleSet> ruleSets, ExamMaster targetExam, bool isReval)
+        {
+            if (isReval)
+            {
+                return ruleSets.FirstOrDefault(rs =>
+                    RevaluationRuleSetKeys.Contains(HeadTargetSpec.NormalizeKey(rs.ExamType)));
+            }
+
+            // Same resolution ResultService uses: match ExamType, falling back to the rule set
+            // name for sets authored before ExamType existed.
+            var wanted = HeadTargetSpec.NormalizeKey(targetExam.ExamType);
+            if (wanted.Length == 0) return null;
+
+            return ruleSets.FirstOrDefault(rs => HeadTargetSpec.NormalizeKey(rs.ExamType) == wanted)
+                ?? ruleSets.FirstOrDefault(rs => rs.ExamType == null && HeadTargetSpec.NormalizeKey(rs.Name) == wanted);
         }
 
         /// <summary>
-        /// The behaviour the legacy form hard-coded, used only when no policy row exists.
-        /// Editing a seeded row is the supported way to change any of this.
+        /// What applies when no rule set carries an AllowExamAssignment action. Deliberately
+        /// permissive on heads -- re-attempting every head of a chosen subject is never silently
+        /// wrong, whereas guessing a head name that this college does not use would lock the
+        /// whole grid. Naming heads in a rule's Target is how a college narrows it.
         /// </summary>
-        private static ExamAssignmentPolicy DefaultPolicy(string mode) =>
-            AssignmentModes.IsRevaluation(mode)
-                ? new ExamAssignmentPolicy
-                {
-                    Name = "Default Revaluation policy",
-                    Mode = AssignmentModes.Revaluation,
-                    SourceExamTypes = "Regular,ATKT,KT,Re-Exam",
-                    TargetExamTypes = string.Empty,
-                    RequireFailedSubject = false,
-                    OfferPassedSubjects = true,
-                    BlockAbsentStudents = true,
-                    AutoSelectFailedSubjects = false,
-                    EligibleHeadTypes = "ESE",
-                    CarryForwardSeatNo = true,
-                    CarryForwardMarks = true,
-                    BlockDeleteAfterMarksEntry = true,
-                    IsEnabled = true,
-                    SubjectsPerRow = 7
-                }
-                : new ExamAssignmentPolicy
-                {
-                    Name = "Default ATKT policy",
-                    Mode = AssignmentModes.Atkt,
-                    SourceExamTypes = "Regular,ATKT,KT,Re-Exam",
-                    TargetExamTypes = "ATKT,KT,Re-Exam",
-                    RequireFailedSubject = true,
-                    OfferPassedSubjects = false,
-                    BlockAbsentStudents = false,
-                    AutoSelectFailedSubjects = true,
-                    EligibleHeadTypes = string.Empty,
-                    CarryForwardSeatNo = true,
-                    CarryForwardMarks = true,
-                    BlockDeleteAfterMarksEntry = true,
-                    IsEnabled = true,
-                    SubjectsPerRow = 7
-                };
+        private static HeadTargetSpec DefaultScope(bool isReval) =>
+            isReval
+                // Nothing to revalue without a mark, so absent and unattempted are out.
+                ? HeadTargetSpec.ForStatuses("FAILED", "PASSED")
+                // A backlog is anything not cleared.
+                : HeadTargetSpec.ForStatuses("FAILED", "ABSENT", "NOTATTEMPTED");
 
-        private static AtktPolicyDto ToDto(ExamAssignmentPolicy p) => new()
+        private async Task<StudentGrant> EvaluateGrantAsync(
+            AssignmentRules rules, StudentMaster student, MarksMaster? source)
         {
-            PolicyId = p.PolicyId,
-            Name = p.Name,
-            Mode = p.Mode,
-            RequireFailedSubject = p.RequireFailedSubject,
-            OfferPassedSubjects = p.OfferPassedSubjects,
-            BlockAbsentStudents = p.BlockAbsentStudents,
-            AutoSelectFailedSubjects = p.AutoSelectFailedSubjects,
-            CarryForwardSeatNo = p.CarryForwardSeatNo,
-            CarryForwardMarks = p.CarryForwardMarks,
-            BlockDeleteAfterMarksEntry = p.BlockDeleteAfterMarksEntry,
-            MaxSubjectsPerStudent = p.MaxSubjectsPerStudent,
-            SubjectsPerRow = p.SubjectsPerRow <= 0 ? 7 : p.SubjectsPerRow,
-            EligibleHeadTypes = SplitCsv(p.EligibleHeadTypes),
-            SourceExamTypes = SplitCsv(p.SourceExamTypes),
-            TargetExamTypes = SplitCsv(p.TargetExamTypes),
-            HasEligibilityRules = p.RuleSetId.HasValue,
-            RuleSetName = p.RuleSet?.Name
-        };
+            if (!rules.IsConfigured)
+            {
+                return new StudentGrant(true, rules.FallbackScope, 0);
+            }
 
-        private static List<string> SplitCsv(string? value) =>
-            string.IsNullOrWhiteSpace(value)
-                ? new List<string>()
-                : value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+            // Conditions read the student's source attempt; with no attempt there is nothing to
+            // evaluate and no basis to grant.
+            if (source == null) return StudentGrant.Denied;
 
-        private static bool MatchesExamType(string? examType, List<string> allowed) =>
-            allowed.Count == 0 || allowed.Any(a => string.Equals(a, examType, StringComparison.OrdinalIgnoreCase));
+            HeadTargetSpec? combined = null;
+            var maxSubjects = 0;
+            var unlimited = false;
+            var granted = false;
+
+            foreach (var grant in rules.Grants)
+            {
+                var holds = await RuleConditionEvaluator.EvaluateRuleAsync(
+                    _registry, grant.Rule, student, source, throwOnMissingFact: false);
+
+                if (!holds) continue;
+
+                granted = true;
+                combined = combined == null ? grant.Scope : combined.Union(grant.Scope);
+
+                if (grant.MaxSubjects <= 0) unlimited = true;
+                else if (!unlimited) maxSubjects = Math.Max(maxSubjects, grant.MaxSubjects);
+
+                if (grant.Rule.StopOnSuccess) break;
+            }
+
+            return granted
+                ? new StudentGrant(true, combined ?? HeadTargetSpec.All, unlimited ? 0 : maxSubjects)
+                : StudentGrant.Denied;
+        }
+
+        private static AtktPolicyDto DescribeRules(AssignmentRules rules, bool isReval)
+        {
+            var scope = rules.IsConfigured
+                ? rules.Grants.Select(g => g.Scope).Aggregate((a, b) => a.Union(b))
+                : rules.FallbackScope;
+
+            var unlimited = !rules.IsConfigured || rules.Grants.Any(g => g.MaxSubjects <= 0);
+            var cap = unlimited || rules.Grants.Count == 0 ? (int?)null : rules.Grants.Max(g => g.MaxSubjects);
+
+            return new AtktPolicyDto
+            {
+                RuleSetId = rules.RuleSet?.RuleSetId ?? Guid.Empty,
+                RuleSetName = rules.RuleSet?.Name ?? "Built-in default",
+                ExamType = rules.RuleSet?.ExamType,
+                Mode = isReval ? AssignmentModes.Revaluation : AssignmentModes.Atkt,
+                IsConfigured = rules.IsConfigured,
+                SubjectScopes = scope.DescribeStatuses().ToList(),
+                HeadTypes = scope.DescribeHeads().ToList(),
+                MaxSubjectsPerStudent = cap,
+                Rules = rules.Grants.Select(g => g.Rule.Name).ToList()
+            };
+        }
 
         // =====================================================================
         // Exam pickers
@@ -184,9 +212,6 @@ namespace ExamAPI.Services.AtktRevalExam
         public async Task<List<AtktExamOptionDto>> GetSourceExamsAsync(
             Guid courseId, Guid ayid, string semester, string pattern, string mode)
         {
-            var policy = await ResolvePolicyAsync(mode, null, pattern);
-            var allowed = SplitCsv(policy.SourceExamTypes);
-
             // An exam only qualifies as a source once it actually holds marks for this
             // semester -- the legacy screen made the same restriction with a sub-select.
             var examIdsWithMarks = await _context.MarksMasters
@@ -203,26 +228,21 @@ namespace ExamAPI.Services.AtktRevalExam
                 .AsNoTracking()
                 .ToListAsync();
 
-            return exams
-                .Where(e => MatchesExamType(e.ExamType, allowed))
-                .Select(ToExamOption)
-                .OrderBy(e => e.ExamName)
-                .ToList();
+            return exams.Select(ToExamOption).OrderBy(e => e.ExamName).ToList();
         }
 
         public async Task<List<AtktExamOptionDto>> GetTargetExamsAsync(
             Guid courseId, Guid ayid, string semester, string mode, Guid? sourceExamId)
         {
             var isReval = AssignmentModes.IsRevaluation(mode);
-            var policy = await ResolvePolicyAsync(mode, null, null);
-            var allowed = SplitCsv(policy.TargetExamTypes);
 
             var query = _context.Exams
                 .Where(e => e.CourseId == courseId && e.AcademicYearAYID == ayid && e.IsActive == true);
 
             if (isReval)
             {
-                // The revaluation target is the mirror exam of the chosen source, not a free choice.
+                // The revaluation target is the mirror exam of the chosen source, not a free
+                // choice -- the modelled form of the legacy 'R' + exam_code convention.
                 query = sourceExamId.HasValue && sourceExamId.Value != Guid.Empty
                     ? query.Where(e => e.RevaluationForExamId == sourceExamId.Value)
                     : query.Where(e => e.RevaluationForExamId != null);
@@ -233,12 +253,29 @@ namespace ExamAPI.Services.AtktRevalExam
             }
 
             var exams = await query.AsNoTracking().ToListAsync();
+            if (isReval) return exams.Select(ToExamOption).OrderBy(e => e.ExamName).ToList();
 
-            return exams
-                .Where(e => isReval || MatchesExamType(e.ExamType, allowed))
-                .Select(ToExamOption)
-                .OrderBy(e => e.ExamName)
-                .ToList();
+            // An exam is an assignable ATKT target when a rule set governs its exam type. Where
+            // no rule sets exist yet, every active exam is offered rather than none.
+            var governedTypes = await _context.RuleSets
+                .Where(rs => rs.IsActive && !rs.IsDeleted && rs.ExamType != null)
+                .Select(rs => rs.ExamType!)
+                .Distinct()
+                .ToListAsync();
+
+            var governed = governedTypes
+                .Select(HeadTargetSpec.NormalizeKey)
+                .Where(k => k.Length > 0 && !RevaluationRuleSetKeys.Contains(k))
+                .ToHashSet();
+
+            if (governed.Count > 0)
+            {
+                exams = exams
+                    .Where(e => governed.Contains(HeadTargetSpec.NormalizeKey(e.ExamType)))
+                    .ToList();
+            }
+
+            return exams.Select(ToExamOption).OrderBy(e => e.ExamName).ToList();
         }
 
         private static AtktExamOptionDto ToExamOption(ExamMaster e) => new()
@@ -265,7 +302,7 @@ namespace ExamAPI.Services.AtktRevalExam
         private sealed class MatrixBuild
         {
             public AtktMatrixResponseDto Response { get; } = new();
-            public ExamAssignmentPolicy Policy { get; set; } = null!;
+            public AssignmentRules Rules { get; set; } = new();
             public ExamMaster? TargetExam { get; set; }
             public Dictionary<Guid, StudentContext> Contexts { get; } = new();
             public Dictionary<Guid, SubjectCreditMaster> CreditBySubject { get; } = new();
@@ -277,17 +314,15 @@ namespace ExamAPI.Services.AtktRevalExam
             public MarksMaster? Source { get; set; }
             public MarksMaster? Target { get; set; }
             public AtktStudentRowDto Row { get; set; } = null!;
+            public HeadTargetSpec Scope { get; set; } = HeadTargetSpec.All;
+            public int MaxSubjects { get; set; }
         }
 
         private async Task<MatrixBuild> BuildAsync(AtktMatrixRequest request, bool includeAllCandidates)
         {
             var build = new MatrixBuild();
             var response = build.Response;
-
             var isReval = AssignmentModes.IsRevaluation(request.Mode);
-            var policy = await ResolvePolicyAsync(request.Mode, request.PolicyId, request.Pattern);
-            build.Policy = policy;
-            response.Policy = ToDto(policy);
 
             var targetExam = await _context.Exams.FirstOrDefaultAsync(e => e.ExamId == request.TargetExamId);
             build.TargetExam = targetExam;
@@ -304,6 +339,9 @@ namespace ExamAPI.Services.AtktRevalExam
                 response.Message = "Revaluation needs the source exam whose marks are being revalued.";
                 return build;
             }
+
+            build.Rules = await ResolveRulesAsync(request.Pattern, targetExam, isReval);
+            response.Policy = DescribeRules(build.Rules, isReval);
 
             // ---- roster ---------------------------------------------------------
             var roster = await _context.StudentEligibilities
@@ -393,6 +431,9 @@ namespace ExamAPI.Services.AtktRevalExam
                     .ToList();
 
                 var outOfTotal = heads.Sum(h => h.OutOf);
+
+                // Mirrors SubjectPassEvaluator's own branch, including its fallback to the sum of
+                // head minimums when a combined subject has no PassPercentage configured.
                 var isCombined = SubjectPassEvaluator.IsCombined(credit);
                 var requiredToPass = isCombined && credit?.PassPercentage is > 0
                     ? (int)Math.Ceiling(outOfTotal * credit.PassPercentage!.Value / 100.0)
@@ -419,18 +460,6 @@ namespace ExamAPI.Services.AtktRevalExam
                 return build;
             }
 
-            // ---- eligibility rule gate --------------------------------------------
-            List<Rule>? eligibilityRules = null;
-            if (policy.RuleSetId.HasValue)
-            {
-                eligibilityRules = await _context.Rules
-                    .Include(r => r.Conditions)
-                    .Where(r => r.RuleSetId == policy.RuleSetId.Value && r.IsEnabled)
-                    .ToListAsync();
-            }
-
-            var eligibleHeadTypes = SplitCsv(policy.EligibleHeadTypes);
-
             // ---- rows ---------------------------------------------------------------
             foreach (var student in roster.OrderBy(s => s.StudentId))
             {
@@ -455,13 +484,11 @@ namespace ExamAPI.Services.AtktRevalExam
 
                 if (source == null && target == null) continue;
 
-                if (eligibilityRules is { Count: > 0 } && source != null)
-                {
-                    if (!await RuleConditionEvaluator.IsEligibleAsync(_registry, eligibilityRules, student, source))
-                    {
-                        continue;
-                    }
-                }
+                var grant = await EvaluateGrantAsync(build.Rules, student, source);
+
+                // An already-assigned student stays visible even if the rules would no longer
+                // grant them, so the operator can still see and undo the assignment.
+                if (!grant.Granted && !isAssigned) continue;
 
                 var sourceHeads = source?.StudentMarks?.ToList() ?? new List<StudentMarks>();
                 var targetHeads = target?.StudentMarks?.ToList() ?? new List<StudentMarks>();
@@ -501,25 +528,31 @@ namespace ExamAPI.Services.AtktRevalExam
                         cell.Status = computed.SubjectStatus;
                         cell.ObtainedTotal = computed.ObtainedTotal;
                         cell.OutOfTotal = computed.OutOfTotal;
+                        cell.Deficit = Math.Max(0, cell.RequiredToPass - computed.ObtainedTotal);
                         cell.IsAbsent = computed.SubjectStatus == SubjectStatuses.Absent;
                     }
                     else
                     {
+                        // The single authority on pass/fail. It branches on this subject's own
+                        // PassingStrategy, so a combined subject is judged on its total and a
+                        // head-wise one on every head, inside the same grid.
                         var verdict = SubjectPassEvaluator.Evaluate(group);
                         cell.ObtainedTotal = verdict.ObtainedTotal;
                         cell.OutOfTotal = verdict.OutOfTotal;
                         cell.RequiredToPass = verdict.RequiredToPass;
+                        cell.Deficit = verdict.Deficit;
                         cell.IsAbsent = verdict.IsAllAbsent;
                         cell.Status = verdict.IsAllAbsent
                             ? SubjectStatuses.Absent
                             : verdict.IsPassed ? SubjectStatuses.Passed : SubjectStatuses.Failed;
                     }
 
-                    ApplySelectability(cell, column, policy, eligibleHeadTypes, isReval);
+                    ApplySelectability(cell, column, grant.Scope);
 
                     cell.Selected = isAssigned
                         ? targetHeads.Any(h => h.SubjectId == column.SubjectId && !h.IsCarryForward)
-                        : cell.Selectable && policy.AutoSelectFailedSubjects && IsBacklog(cell.Status);
+                        // Revaluation is always an explicit choice; a backlog list is not.
+                        : cell.Selectable && !isReval && IsBacklog(cell.Status);
 
                     row.Cells.Add(cell);
                 }
@@ -531,25 +564,23 @@ namespace ExamAPI.Services.AtktRevalExam
                 {
                     var marksEntered = targetHeads.Any(h => !h.IsCarryForward && (h.Marks.HasValue || h.IsAbsent))
                                        || !string.IsNullOrWhiteSpace(target!.OverallRemark);
-                    row.CanDelete = !(policy.BlockDeleteAfterMarksEntry && marksEntered);
-                    row.DeleteBlockedReason = row.CanDelete
-                        ? null
-                        : "Marks have already been entered for this student in the selected exam.";
+                    row.CanDelete = !marksEntered;
+                    row.DeleteBlockedReason = marksEntered
+                        ? "Marks have already been entered for this student in the selected exam."
+                        : null;
                 }
 
-                // In ATKT mode a student with nothing outstanding has no reason to be listed.
-                if (!includeAllCandidates && !request.EditMode && policy.RequireFailedSubject
-                    && !row.Cells.Any(c => c.Selectable))
-                {
-                    continue;
-                }
+                // Nothing outstanding and nothing assigned means no reason to be listed.
+                if (!includeAllCandidates && !request.EditMode && !row.Cells.Any(c => c.Selectable)) continue;
 
                 build.Contexts[student.StdMstId] = new StudentContext
                 {
                     Student = student,
                     Source = source,
                     Target = target,
-                    Row = row
+                    Row = row,
+                    Scope = grant.Scope,
+                    MaxSubjects = grant.MaxSubjects
                 };
                 response.Students.Add(row);
             }
@@ -564,13 +595,10 @@ namespace ExamAPI.Services.AtktRevalExam
             return build;
         }
 
-        /// <summary>Decides whether the operator may tick a cell, entirely from the policy row.</summary>
-        private static void ApplySelectability(
-            AtktCellDto cell,
-            AtktSubjectColumnDto column,
-            ExamAssignmentPolicy policy,
-            List<string> eligibleHeadTypes,
-            bool isReval)
+        /// <summary>
+        /// Decides whether the operator may tick a cell, entirely from the rule action's scope.
+        /// </summary>
+        private static void ApplySelectability(AtktCellDto cell, AtktSubjectColumnDto column, HeadTargetSpec scope)
         {
             if (column.Heads.Count == 0)
             {
@@ -579,38 +607,27 @@ namespace ExamAPI.Services.AtktRevalExam
                 return;
             }
 
-            if (eligibleHeadTypes.Count > 0 &&
-                !column.Heads.Any(h => eligibleHeadTypes.Contains(h.HeadType, StringComparer.OrdinalIgnoreCase)))
+            if (scope.RestrictsHeads && !column.Heads.Any(h => scope.MatchesHead(h.Head, h.HeadType)))
             {
                 cell.Selectable = false;
-                cell.Reason = $"Only {string.Join(", ", eligibleHeadTypes)} heads can be applied for.";
+                cell.Reason = $"Only {string.Join(", ", scope.DescribeHeads())} can be applied for.";
                 return;
             }
 
-            if (!policy.RequireFailedSubject && cell.Status != StatusNotAttempted)
+            if (!scope.MatchesStatus(cell.Status))
             {
-                cell.Selectable = true;
+                cell.Selectable = false;
+                cell.Reason = cell.Status switch
+                {
+                    SubjectStatuses.Passed => "Already cleared.",
+                    SubjectStatuses.Absent => "Marked absent -- outside the scope of this exam.",
+                    StatusNotAttempted => "No marks recorded in the source exam.",
+                    _ => "Outside the scope of this exam."
+                };
                 return;
             }
 
-            switch (cell.Status)
-            {
-                case SubjectStatuses.Passed when !policy.OfferPassedSubjects:
-                    cell.Selectable = false;
-                    cell.Reason = "Already cleared.";
-                    break;
-                case SubjectStatuses.Absent when policy.BlockAbsentStudents:
-                    cell.Selectable = false;
-                    cell.Reason = "Marked absent -- nothing to revalue.";
-                    break;
-                case StatusNotAttempted when isReval:
-                    cell.Selectable = false;
-                    cell.Reason = "No marks recorded in the source exam.";
-                    break;
-                default:
-                    cell.Selectable = true;
-                    break;
-            }
+            cell.Selectable = true;
         }
 
         private static bool IsBacklog(string status) =>
@@ -635,7 +652,7 @@ namespace ExamAPI.Services.AtktRevalExam
                 if (build.TargetExam == null) return Fail(build.Response.Message);
                 if (build.TargetExam.IsLocked) return Fail("This exam is locked. Unlock it before changing assignments.");
 
-                var result = await ApplySelectionsAsync(build, request.Filter, request.Students);
+                var result = ApplySelections(build, request.Filter, request.Students);
 
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
@@ -663,7 +680,7 @@ namespace ExamAPI.Services.AtktRevalExam
                 if (build.TargetExam == null) return Fail(build.Response.Message);
                 if (build.TargetExam.IsLocked) return Fail("This exam is locked. Unlock it before changing assignments.");
 
-                // Everyone the policy considers eligible, on every subject it allows.
+                // Everyone the rules grant, on every subject those rules allow.
                 var selections = build.Contexts.Values
                     .Where(c => c.Row.Cells.Any(cell => cell.Selectable))
                     .Select(c => new AtktStudentSelectionDto
@@ -673,7 +690,7 @@ namespace ExamAPI.Services.AtktRevalExam
                     })
                     .ToList();
 
-                var result = await ApplySelectionsAsync(build, request.Filter, selections);
+                var result = ApplySelections(build, request.Filter, selections);
 
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
@@ -692,14 +709,12 @@ namespace ExamAPI.Services.AtktRevalExam
             }
         }
 
-        private async Task<AtktSaveResultDto> ApplySelectionsAsync(
+        private AtktSaveResultDto ApplySelections(
             MatrixBuild build,
             AtktMatrixRequest filter,
             List<AtktStudentSelectionDto> selections)
         {
-            var policy = build.Policy;
             var result = new AtktSaveResultDto();
-            var maxSubjects = policy.MaxSubjectsPerStudent.GetValueOrDefault();
 
             foreach (var selection in selections)
             {
@@ -709,23 +724,20 @@ namespace ExamAPI.Services.AtktRevalExam
                     continue;
                 }
 
-                // The client cannot widen what the policy allows -- re-check every tick here.
+                // The client cannot widen what the rules allow -- re-check every tick here.
                 var allowed = context.Row.Cells.Where(c => c.Selectable).Select(c => c.SubjectId).ToHashSet();
                 var chosen = selection.SubjectIds.Where(allowed.Contains).Distinct().ToList();
 
-                if (maxSubjects > 0 && chosen.Count > maxSubjects)
+                if (context.MaxSubjects > 0 && chosen.Count > context.MaxSubjects)
                 {
                     result.Skipped.Add(
-                        $"{context.Student.StudentId}: {chosen.Count} subjects selected, the policy allows {maxSubjects}.");
+                        $"{context.Student.StudentId}: {chosen.Count} subjects selected, the rule allows {context.MaxSubjects}.");
                     continue;
                 }
 
                 if (chosen.Count == 0)
                 {
-                    if (context.Target != null && RemoveAssignment(context, policy, result))
-                    {
-                        result.StudentsRemoved++;
-                    }
+                    if (context.Target != null && RemoveAssignment(context, result)) result.StudentsRemoved++;
                     continue;
                 }
 
@@ -736,14 +748,24 @@ namespace ExamAPI.Services.AtktRevalExam
                 result.SubjectsRegistered += chosen.Count;
             }
 
-            await Task.CompletedTask;
             return result;
         }
 
         /// <summary>
         /// Writes one MarksMaster for the target exam plus one StudentMarks row per head.
+        /// <para>
         /// Rows are matched on (SubjectId, Head) and updated in place, so re-saving the same
         /// screen cannot duplicate heads the way the legacy INSERT did.
+        /// </para>
+        /// <para>
+        /// Only heads inside the granted scope are blanked for a fresh attempt. Every other head
+        /// -- of a chosen subject whose scope names specific heads, or of a subject the student
+        /// is not re-attempting at all -- carries its marks over. That is what makes the legacy
+        /// "re-sit the theory paper, keep the term work" behaviour expressible, and it is load
+        /// bearing for combined passing: the subject verdict is the sum across heads, so a
+        /// blanked carry-forward head would silently drop the total and fail the student on data
+        /// loss rather than on performance.
+        /// </para>
         /// </summary>
         private void UpsertAssignment(
             MatrixBuild build,
@@ -751,7 +773,6 @@ namespace ExamAPI.Services.AtktRevalExam
             AtktMatrixRequest filter,
             List<Guid> chosenSubjects)
         {
-            var policy = build.Policy;
             var target = context.Target;
 
             if (target == null)
@@ -765,14 +786,14 @@ namespace ExamAPI.Services.AtktRevalExam
                     AcademicYearAYID = filter.Ayid,
                     SemesterId = filter.Semester,
                     Pattern = filter.Pattern,
-                    SeatNo = policy.CarryForwardSeatNo ? context.Source?.SeatNo : null,
+                    SeatNo = context.Source?.SeatNo,
                     QuotaType = context.Source?.QuotaType,
                     StudentMarks = new List<StudentMarks>()
                 };
                 _context.MarksMasters.Add(target);
                 context.Target = target;
             }
-            else if (policy.CarryForwardSeatNo && string.IsNullOrWhiteSpace(target.SeatNo))
+            else if (string.IsNullOrWhiteSpace(target.SeatNo))
             {
                 target.SeatNo = context.Source?.SeatNo;
             }
@@ -786,19 +807,28 @@ namespace ExamAPI.Services.AtktRevalExam
                 var isChosen = chosenSubjects.Contains(column.SubjectId);
                 var sourceForSubject = sourceHeads.Where(h => h.SubjectId == column.SubjectId).ToList();
 
-                // A subject the student is not re-appearing for is only carried over when the
-                // policy says so and there is something to carry.
-                if (!isChosen && (!policy.CarryForwardMarks || sourceForSubject.Count == 0)) continue;
+                // A subject the student is not re-appearing for is carried over only when there
+                // is something to carry.
+                if (!isChosen && sourceForSubject.Count == 0) continue;
 
                 build.CreditBySubject.TryGetValue(column.SubjectId, out var credit);
+
                 var headKeys = column.Heads.Count > 0
                     ? column.Heads.Select(h => h.Head).ToList()
                     : sourceForSubject.Select(h => h.Head ?? string.Empty).Distinct().ToList();
 
                 foreach (var headKey in headKeys)
                 {
+                    var headType = column.Heads.FirstOrDefault(h =>
+                        string.Equals(h.Head, headKey, StringComparison.OrdinalIgnoreCase))?.HeadType;
+
                     var sourceHead = sourceForSubject.FirstOrDefault(
                         h => string.Equals(h.Head, headKey, StringComparison.OrdinalIgnoreCase));
+
+                    var isReattempt = isChosen && context.Scope.MatchesHead(headKey, headType);
+
+                    // Nothing to write: not re-sat and no prior mark to preserve.
+                    if (!isReattempt && sourceHead == null) continue;
 
                     var row = existing.FirstOrDefault(
                         h => h.SubjectId == column.SubjectId &&
@@ -825,9 +855,9 @@ namespace ExamAPI.Services.AtktRevalExam
 
                     keep.Add(row.Id);
 
-                    if (isChosen)
+                    if (isReattempt)
                     {
-                        // A fresh attempt: the student sits this head again, so nothing is carried.
+                        // A fresh attempt: the student sits this head again, so nothing carries.
                         row.IsCarryForward = false;
                         row.RawMarks = null;
                         row.Marks = null;
@@ -854,7 +884,7 @@ namespace ExamAPI.Services.AtktRevalExam
                 }
             }
 
-            // Anything left over belongs to a subject that is no longer part of this assignment.
+            // Anything left over belongs to a subject no longer part of this assignment.
             foreach (var orphan in existing.Where(h => !keep.Contains(h.Id) && !h.IsDeleted))
             {
                 orphan.IsDeleted = true;
@@ -864,15 +894,18 @@ namespace ExamAPI.Services.AtktRevalExam
             target.StudentMarks = existing;
         }
 
-        private static bool RemoveAssignment(
-            StudentContext context, ExamAssignmentPolicy policy, AtktSaveResultDto result)
+        /// <summary>
+        /// Unassigns a student. Refused once any mark has been entered for the attempt -- the
+        /// legacy guard, which is an invariant rather than something a college may switch off.
+        /// </summary>
+        private static bool RemoveAssignment(StudentContext context, AtktSaveResultDto result)
         {
             var target = context.Target!;
             var heads = target.StudentMarks?.ToList() ?? new List<StudentMarks>();
             var marksEntered = heads.Any(h => !h.IsCarryForward && (h.Marks.HasValue || h.IsAbsent))
                                || !string.IsNullOrWhiteSpace(target.OverallRemark);
 
-            if (policy.BlockDeleteAfterMarksEntry && marksEntered)
+            if (marksEntered)
             {
                 result.Skipped.Add($"{context.Student.StudentId}: marks already entered, assignment kept.");
                 return false;
@@ -918,8 +951,6 @@ namespace ExamAPI.Services.AtktRevalExam
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
-                var policy = await ResolvePolicyAsync(request.Filter.Mode, request.Filter.PolicyId, request.Filter.Pattern);
-
                 var target = await _context.MarksMasters
                     .Include(mm => mm.StudentMarks)
                     .FirstOrDefaultAsync(mm => mm.StdMstId == request.StdMstId
@@ -941,7 +972,7 @@ namespace ExamAPI.Services.AtktRevalExam
                 var marksEntered = heads.Any(h => !h.IsCarryForward && (h.Marks.HasValue || h.IsAbsent))
                                    || !string.IsNullOrWhiteSpace(target.OverallRemark);
 
-                if (policy.BlockDeleteAfterMarksEntry && marksEntered)
+                if (marksEntered)
                 {
                     return new ApiResponseDto<object>
                     {
