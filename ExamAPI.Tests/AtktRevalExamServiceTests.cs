@@ -298,6 +298,74 @@ namespace ExamAPI.Tests
         }
 
         [Fact]
+        public async Task TargetExams_DoesNotHideKtTargetBecauseOfUnrelatedRegularRuleSet()
+        {
+            Seed();
+            _context.RuleSets.Add(new RuleSet
+            {
+                RuleSetId = Guid.NewGuid(), Name = "Regular grace", ExamType = "Regular",
+                IsActive = true, PatternId = _patternId, CollegeId = _collegeId
+            });
+            await _context.SaveChangesAsync();
+
+            var targets = await _service.GetTargetExamsAsync(
+                _courseId, _ayid, Semester, AssignmentModes.Atkt, null);
+
+            Assert.Contains(targets, exam => exam.ExamId == _targetExamId);
+        }
+
+        [Fact]
+        public async Task TargetExams_AtktModeOffersOnlyAtktTypeExams_NotRegular()
+        {
+            Seed();
+
+            // Exam Master authors the ATKT type as "A.T.K.T"; the KT seed covers historical data.
+            var dottedAtktId = Guid.NewGuid();
+            _context.Exams.Add(new ExamMaster
+            {
+                ExamId = dottedAtktId, Name = "A.T.K.T Nov 2025", ExamType = "A.T.K.T",
+                CourseId = _courseId, AcademicYearAYID = _ayid, IsActive = true, CollegeId = _collegeId
+            });
+            await _context.SaveChangesAsync();
+
+            var targets = await _service.GetTargetExamsAsync(
+                _courseId, _ayid, Semester, AssignmentModes.Atkt, null);
+
+            // Both ATKT-typed exams are offered; the Regular source exam is never an ATKT target.
+            Assert.Contains(targets, exam => exam.ExamId == _targetExamId);
+            Assert.Contains(targets, exam => exam.ExamId == dottedAtktId);
+            Assert.DoesNotContain(targets, exam => exam.ExamId == _sourceExamId);
+        }
+
+        [Fact]
+        public async Task Matrix_UsesLatestValidAttemptAndSkipsNewerBlankRegistration()
+        {
+            Seed();
+            var sourceMarks = _context.MarksMasters.Single(mm => mm.ExamId == _sourceExamId);
+            var blankExamId = Guid.NewGuid();
+
+            _context.Exams.Add(new ExamMaster
+            {
+                ExamId = blankExamId, Name = "Incomplete later KT", ExamType = "KT",
+                CourseId = _courseId, AcademicYearAYID = _ayid, IsActive = true,
+                CreatedAt = DateTime.UtcNow.AddDays(1), CollegeId = _collegeId
+            });
+            _context.MarksMasters.Add(new MarksMaster
+            {
+                MarksId = Guid.NewGuid(), StdMstId = _studentId, StudentID = "ST001",
+                ExamId = blankExamId, AcademicYearAYID = _ayid, SemesterId = Semester,
+                Pattern = Pattern, CreatedAt = DateTime.UtcNow.AddDays(1), CollegeId = _collegeId
+            });
+            await _context.SaveChangesAsync();
+
+            var row = Assert.Single((await _service.GetMatrixAsync(Request())).Students);
+
+            Assert.Equal(sourceMarks.MarksId, row.SourceMarksId);
+            Assert.Equal(_sourceExamId, row.SourceExamId);
+            Assert.Equal("Latest valid completed attempt; target exam excluded.", row.SourceSelectionReason);
+        }
+
+        [Fact]
         public async Task Matrix_RuleTargetGovernsSelectability()
         {
             // The same passed subject becomes selectable purely by widening the rule's Target,

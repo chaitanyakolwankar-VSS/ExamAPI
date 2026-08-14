@@ -107,6 +107,7 @@ namespace ExamAPI.DTOs
         public Guid? SourceMarksId { get; set; }
         public Guid? SourceExamId { get; set; }
         public string? SourceExamName { get; set; }
+        public string? SourceSelectionReason { get; set; }
 
         /// <summary>Non-null once the student has been assigned to the target exam.</summary>
         public Guid? TargetMarksId { get; set; }

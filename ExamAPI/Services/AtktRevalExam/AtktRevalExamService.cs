@@ -55,6 +55,14 @@ namespace ExamAPI.Services.AtktRevalExam
         /// </summary>
         private static readonly string[] RevaluationRuleSetKeys = { "REVAL", "REVALUATION" };
 
+        /// <summary>
+        /// Exam-type keys that make an exam a valid ATKT target. Exam Master authors the type as
+        /// "A.T.K.T"; historical / seeded data uses "KT". Both normalise into this set so a Regular
+        /// exam is never offered as an ATKT target. Revaluation targets are matched separately by
+        /// their <see cref="ExamMaster.RevaluationForExamId"/> link, not by exam type.
+        /// </summary>
+        private static readonly HashSet<string> AtktTargetExamTypeKeys = new() { "ATKT", "KT" };
+
         // =====================================================================
         // Rule resolution
         // =====================================================================
@@ -255,25 +263,13 @@ namespace ExamAPI.Services.AtktRevalExam
             var exams = await query.AsNoTracking().ToListAsync();
             if (isReval) return exams.Select(ToExamOption).OrderBy(e => e.ExamName).ToList();
 
-            // An exam is an assignable ATKT target when a rule set governs its exam type. Where
-            // no rule sets exist yet, every active exam is offered rather than none.
-            var governedTypes = await _context.RuleSets
-                .Where(rs => rs.IsActive && !rs.IsDeleted && rs.ExamType != null)
-                .Select(rs => rs.ExamType!)
-                .Distinct()
-                .ToListAsync();
-
-            var governed = governedTypes
-                .Select(HeadTargetSpec.NormalizeKey)
-                .Where(k => k.Length > 0 && !RevaluationRuleSetKeys.Contains(k))
-                .ToHashSet();
-
-            if (governed.Count > 0)
-            {
-                exams = exams
-                    .Where(e => governed.Contains(HeadTargetSpec.NormalizeKey(e.ExamType)))
-                    .ToList();
-            }
+            // An ATKT target must itself be an ATKT-type exam. A Regular exam is a source, never
+            // an ATKT target, so it is excluded here. This is a filter on the exam's own type,
+            // not on any RuleSet -- who/what a rule permits is still evaluated only after a
+            // concrete target has been chosen.
+            exams = exams
+                .Where(e => AtktTargetExamTypeKeys.Contains(HeadTargetSpec.NormalizeKey(e.ExamType)))
+                .ToList();
 
             return exams.Select(ToExamOption).OrderBy(e => e.ExamName).ToList();
         }
@@ -389,6 +385,7 @@ namespace ExamAPI.Services.AtktRevalExam
             var resultsByMarks = subjectResults
                 .GroupBy(r => r.MarksId)
                 .ToDictionary(g => g.Key, g => g.GroupBy(r => r.SubjectId).ToDictionary(x => x.Key, x => x.First()));
+            var attemptsWithSubjectResults = resultsByMarks.Keys.ToHashSet();
 
             // ---- columns ----------------------------------------------------------
             var subjects = await _context.SubjectMasters
@@ -469,10 +466,10 @@ namespace ExamAPI.Services.AtktRevalExam
                 var target = studentAttempts.FirstOrDefault(a => a.ExamId == request.TargetExamId);
                 var source = isReval
                     ? studentAttempts.FirstOrDefault(a => a.ExamId == request.SourceExamId)
-                    : studentAttempts
-                        .Where(a => a.ExamId != request.TargetExamId)
-                        .OrderByDescending(a => a.CreatedAt)
-                        .FirstOrDefault();
+                    : ResolveAtktSourceAttempt(
+                        studentAttempts,
+                        request.TargetExamId,
+                        attemptsWithSubjectResults);
 
                 var isAssigned = target != null;
 
@@ -503,6 +500,11 @@ namespace ExamAPI.Services.AtktRevalExam
                     SourceMarksId = source?.MarksId,
                     SourceExamId = source?.ExamId,
                     SourceExamName = source?.Exam?.Name,
+                    SourceSelectionReason = isReval
+                        ? "Selected revaluation source exam."
+                        : source == null
+                            ? null
+                            : "Latest valid completed attempt; target exam excluded.",
                     TargetMarksId = target?.MarksId,
                     IsAssigned = isAssigned
                 };
@@ -632,6 +634,39 @@ namespace ExamAPI.Services.AtktRevalExam
 
         private static bool IsBacklog(string status) =>
             status == SubjectStatuses.Failed || status == SubjectStatuses.Absent || status == StatusNotAttempted;
+
+        /// <summary>
+        /// Selects the source for a new ATKT assignment. Source resolution is intentionally kept
+        /// in one place so a blank assignment can never become a student's next source attempt.
+        /// ExamMaster has no session date or attempt sequence yet, so exam creation chronology is
+        /// the best available ordering and MarksMaster.CreatedAt is only a deterministic tie-breaker.
+        /// </summary>
+        private static MarksMaster? ResolveAtktSourceAttempt(
+            IEnumerable<MarksMaster> attempts,
+            Guid targetExamId,
+            ISet<Guid> attemptsWithSubjectResults)
+        {
+            return attempts
+                .Where(attempt => attempt.ExamId != targetExamId)
+                .Where(attempt => HasSourceEvidence(attempt, attemptsWithSubjectResults))
+                .OrderByDescending(attempt => attempt.Exam?.CreatedAt ?? DateTime.MinValue)
+                .ThenByDescending(attempt => attempt.CreatedAt)
+                .ThenByDescending(attempt => attempt.MarksId)
+                .FirstOrDefault();
+        }
+
+        /// <summary>
+        /// A target registration with only blank fresh heads is not a completed source attempt.
+        /// A saved subject result, mark, raw mark, or absence is sufficient evidence that the
+        /// attempt may drive the next ATKT decision.
+        /// </summary>
+        private static bool HasSourceEvidence(MarksMaster attempt, ISet<Guid> attemptsWithSubjectResults)
+        {
+            if (attemptsWithSubjectResults.Contains(attempt.MarksId)) return true;
+
+            return attempt.StudentMarks?.Any(head => !head.IsDeleted &&
+                (head.Marks.HasValue || head.RawMarks.HasValue || head.IsAbsent)) == true;
+        }
 
         private static string BuildName(StudentMaster s) =>
             string.Join(" ", new[] { s.FirstName, s.MiddleName, s.LastName }

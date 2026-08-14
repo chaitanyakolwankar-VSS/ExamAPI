@@ -124,8 +124,8 @@ namespace ExamAPI.Services.Result
                     .Where(rs => rs.Pattern!.PatternName == request.Pattern && rs.IsActive && !rs.IsDeleted)
                     .ToListAsync();
 
-                var ruleSet = ruleSets.FirstOrDefault(rs => 
-                    (rs.ExamType != null && NormalizeKey(rs.ExamType) == NormalizeKey(exam.ExamType)) || 
+                var ruleSet = ruleSets.FirstOrDefault(rs =>
+                    (rs.ExamType != null && CanonicalExamTypeKey(rs.ExamType) == CanonicalExamTypeKey(exam.ExamType)) ||
                     (rs.ExamType == null && IsRuleSetForExamType(rs.Name, exam.ExamType))
                 );
 
@@ -779,6 +779,19 @@ namespace ExamAPI.Services.Result
             return string.IsNullOrWhiteSpace(value)
                 ? string.Empty
                 : new string(value.Where(char.IsLetterOrDigit).Select(char.ToUpperInvariant).ToArray());
+        }
+
+        /// <summary>
+        /// Exam-type key for rule-set matching, tolerant of the ATKT spelling variants that exist
+        /// in live data: Exam Master authors "A.T.K.T", historical/seeded data uses "KT". Both
+        /// collapse to "ATKT" so one KT rule set governs either spelling. Minimal, deliberately
+        /// scoped to this matcher -- the proper fix (an ExamTypeMaster keyed by id) is deferred:
+        /// see ATKT-15 in the ATKT/Revaluation task register.
+        /// </summary>
+        private static string CanonicalExamTypeKey(string? value)
+        {
+            var key = NormalizeKey(value);
+            return key is "KT" or "ATKT" ? "ATKT" : key;
         }
 
         public async Task<byte[]> ExportResultsPdfAsync(ProcessResultRequest request, Guid collegeId)
