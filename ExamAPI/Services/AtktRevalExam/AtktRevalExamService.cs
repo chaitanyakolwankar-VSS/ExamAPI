@@ -556,6 +556,39 @@ namespace ExamAPI.Services.AtktRevalExam
                         // Revaluation is always an explicit choice; a backlog list is not.
                         : cell.Selectable && !isReval && IsBacklog(cell.Status);
 
+                    // Per-head marks + selection -- the head-wise surface. The tile view reads this
+                    // to show both head marks and offer a checkbox per head; the matrix view can
+                    // read the same list. Combined subjects carry heads too but select all-or-nothing.
+                    cell.PassingStrategy = column.PassingStrategy;
+                    var isCombined = string.Equals(column.PassingStrategy, PassingStrategies.Combined,
+                        StringComparison.OrdinalIgnoreCase);
+
+                    cell.Heads = group
+                        .OrderBy(h => h.Head)
+                        .Select(h =>
+                        {
+                            var headFailing = !h.IsAbsent && !SubjectPassEvaluator.IsHeadPassed(h);
+                            return new AtktCellHeadDto
+                            {
+                                Head = h.Head ?? string.Empty,
+                                HeadType = SubjectPassEvaluator.GetHeadLabel(h),
+                                Obtained = h.Marks,
+                                OutOf = SubjectPassEvaluator.GetHeadOutOf(h),
+                                Pass = SubjectPassEvaluator.GetHeadPass(h),
+                                IsAbsent = h.IsAbsent,
+                                IsFailing = headFailing,
+                                Selectable = cell.Selectable,
+                                Selected = isAssigned
+                                    ? targetHeads.Any(t => t.SubjectId == column.SubjectId
+                                        && t.Head == h.Head && !t.IsCarryForward)
+                                    // New head-wise default re-sits only the failing/absent heads;
+                                    // combined follows the whole-subject choice.
+                                    : cell.Selectable && !isReval
+                                      && (isCombined ? cell.Selected : (h.IsAbsent || headFailing))
+                            };
+                        })
+                        .ToList();
+
                     row.Cells.Add(cell);
                 }
 
@@ -761,7 +794,24 @@ namespace ExamAPI.Services.AtktRevalExam
 
                 // The client cannot widen what the rules allow -- re-check every tick here.
                 var allowed = context.Row.Cells.Where(c => c.Selectable).Select(c => c.SubjectId).ToHashSet();
-                var chosen = selection.SubjectIds.Where(allowed.Contains).Distinct().ToList();
+
+                // Merge the two selection surfaces: subject-level (SubjectIds, from the matrix view
+                // and combined subjects) and head-level (Subjects, from the tile view). A null value
+                // means every head of the subject; a set means only those heads are re-sat.
+                var chosenHeads = new Dictionary<Guid, HashSet<string>?>();
+                foreach (var subjectId in selection.SubjectIds)
+                {
+                    if (allowed.Contains(subjectId)) chosenHeads[subjectId] = null;
+                }
+                foreach (var subj in selection.Subjects)
+                {
+                    if (!allowed.Contains(subj.SubjectId)) continue;
+                    chosenHeads[subj.SubjectId] = subj.Heads == null || subj.Heads.Count == 0
+                        ? null
+                        : new HashSet<string>(subj.Heads, StringComparer.OrdinalIgnoreCase);
+                }
+
+                var chosen = chosenHeads.Keys.ToList();
 
                 if (context.MaxSubjects > 0 && chosen.Count > context.MaxSubjects)
                 {
@@ -777,7 +827,7 @@ namespace ExamAPI.Services.AtktRevalExam
                 }
 
                 var isNew = context.Target == null;
-                UpsertAssignment(build, context, filter, chosen);
+                UpsertAssignment(build, context, filter, chosenHeads);
 
                 if (isNew) result.StudentsAssigned++; else result.StudentsUpdated++;
                 result.SubjectsRegistered += chosen.Count;
@@ -806,7 +856,7 @@ namespace ExamAPI.Services.AtktRevalExam
             MatrixBuild build,
             StudentContext context,
             AtktMatrixRequest filter,
-            List<Guid> chosenSubjects)
+            Dictionary<Guid, HashSet<string>?> chosenHeads)
         {
             var target = context.Target;
 
@@ -839,7 +889,7 @@ namespace ExamAPI.Services.AtktRevalExam
 
             foreach (var column in build.Response.Columns)
             {
-                var isChosen = chosenSubjects.Contains(column.SubjectId);
+                var isChosen = chosenHeads.TryGetValue(column.SubjectId, out var pickedHeads);
                 var sourceForSubject = sourceHeads.Where(h => h.SubjectId == column.SubjectId).ToList();
 
                 // A subject the student is not re-appearing for is carried over only when there
@@ -860,7 +910,13 @@ namespace ExamAPI.Services.AtktRevalExam
                     var sourceHead = sourceForSubject.FirstOrDefault(
                         h => string.Equals(h.Head, headKey, StringComparison.OrdinalIgnoreCase));
 
-                    var isReattempt = isChosen && context.Scope.MatchesHead(headKey, headType);
+                    // A head is re-sat only when the subject is chosen, the operator picked this
+                    // head (null pickedHeads = every head, e.g. combined or matrix subject-level),
+                    // and the rule scope also permits it. Unpicked heads fall through and carry over.
+                    var headPicked = pickedHeads == null
+                        || pickedHeads.Contains(headKey)
+                        || (!string.IsNullOrEmpty(headType) && pickedHeads.Contains(headType));
+                    var isReattempt = isChosen && headPicked && context.Scope.MatchesHead(headKey, headType);
 
                     // Nothing to write: not re-sat and no prior mark to preserve.
                     if (!isReattempt && sourceHead == null) continue;

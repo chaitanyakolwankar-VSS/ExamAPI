@@ -69,11 +69,40 @@ namespace ExamAPI.DTOs
         public List<AtktHeadDto> Heads { get; set; } = new();
     }
 
+    /// <summary>
+    /// One head of a subject as it stands for a single student: the mark they hold and whether
+    /// that head may be / is selected for a fresh attempt. Populated for every subject the student
+    /// actually has. Combined subjects carry heads too, but the UI offers a single subject-level
+    /// choice for them; head-wise subjects offer these per head.
+    /// </summary>
+    public class AtktCellHeadDto
+    {
+        public string Head { get; set; } = string.Empty;      // positional key, "H1"
+        public string HeadType { get; set; } = string.Empty;  // printed label, "ESE"
+        public int? Obtained { get; set; }
+        public int OutOf { get; set; }
+        public int Pass { get; set; }
+        public bool IsAbsent { get; set; }
+
+        /// <summary>Below its own passing marks. Only meaningful for a head-wise subject.</summary>
+        public bool IsFailing { get; set; }
+
+        public bool Selectable { get; set; }
+        public bool Selected { get; set; }
+    }
+
     /// <summary>Per-subject state for one student.</summary>
     public class AtktCellDto
     {
         public Guid SubjectId { get; set; }
         public Guid CreditsId { get; set; }
+
+        /// <summary>How this subject is judged -- "HeadWise" or "Combined". Drives whether the UI
+        /// offers per-head selection (head-wise) or one subject-level choice (combined).</summary>
+        public string PassingStrategy { get; set; } = string.Empty;
+
+        /// <summary>Per-head marks and selection. The head-wise selection surface.</summary>
+        public List<AtktCellHeadDto> Heads { get; set; } = new();
 
         /// <summary>One of <see cref="Models.SubjectStatuses"/>, or "NotAttempted".</summary>
         public string Status { get; set; } = string.Empty;
@@ -151,12 +180,34 @@ namespace ExamAPI.DTOs
         public List<AtktStudentRowDto> Students { get; set; } = new();
     }
 
+    /// <summary>A subject the student is appearing for, with the exact heads being re-sat.</summary>
+    public class AtktSubjectSelectionDto
+    {
+        public Guid SubjectId { get; set; }
+
+        /// <summary>
+        /// Heads to re-sit, by positional key ("H1") or printed label ("ESE"). Empty means the
+        /// whole subject -- every head is a fresh attempt. Combined subjects always send empty.
+        /// </summary>
+        public List<string> Heads { get; set; } = new();
+    }
+
     public class AtktStudentSelectionDto
     {
         public Guid StdMstId { get; set; }
 
-        /// <summary>Subjects the student is appearing for. Empty removes an existing assignment.</summary>
+        /// <summary>
+        /// Subject-level selection (every head of each subject re-sat). Kept for the matrix view
+        /// and combined subjects. Empty (with <see cref="Subjects"/> also empty) removes an
+        /// existing assignment.
+        /// </summary>
         public List<Guid> SubjectIds { get; set; } = new();
+
+        /// <summary>
+        /// Head-level selection from the tile view. When present it takes precedence over
+        /// <see cref="SubjectIds"/> for the subjects it names; other subjects still honour SubjectIds.
+        /// </summary>
+        public List<AtktSubjectSelectionDto> Subjects { get; set; } = new();
     }
 
     public class AtktSaveRequest
