@@ -14,16 +14,18 @@ namespace ExamAPI.Services.Result.Engine.FactProviders
             if (marksMaster.StudentMarks == null) return Task.FromResult(0.0);
 
             var count = marksMaster.StudentMarks
-                .Count(sm => (sm.Marks ?? 0) < GetPassingMarks(sm));
-                
-            return Task.FromResult((double)count);
-        }
+                .GroupBy(sm => sm.SubjectId)
+                .Sum(group =>
+                {
+                    var verdict = SubjectPassEvaluator.Evaluate(group);
 
-        private int GetPassingMarks(StudentMarks sm)
-        {
-             var credit = sm.CreditMaster?.Credits?.FirstOrDefault(c => c.Head == sm.Head);
-             if (credit != null && int.TryParse(credit.HeadPass, out int pass)) return pass;
-             return 40; 
+                    // A combined subject has no per-head verdict to count -- it fails as a whole.
+                    return verdict.IsCombined
+                        ? (verdict.IsPassed ? 0 : 1)
+                        : group.Count(sm => !SubjectPassEvaluator.IsHeadPassed(sm));
+                });
+
+            return Task.FromResult((double)count);
         }
     }
 }

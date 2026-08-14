@@ -24,7 +24,10 @@ namespace ExamAPI.DTOs
         public string LastName { get; set; } = string.Empty;
 
         public Guid? RoleId { get; set; }
-        public Guid CollegeId { get; set; }
+
+        // CollegeId is deliberately NOT accepted from the client. It is taken from the
+        // caller's token, otherwise any authenticated user could create a user inside
+        // another college.
     }
     public class UserMasterDTO
     {

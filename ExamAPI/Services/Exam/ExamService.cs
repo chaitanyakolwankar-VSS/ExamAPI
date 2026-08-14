@@ -38,6 +38,10 @@ namespace ExamAPI.Services.Exam
                 }
                 var exam = new ExamMaster
                 {
+                    // The key is assigned here rather than by the database so the revaluation
+                    // twin below can point at it -- reading exam.ExamId before SaveChangesAsync
+                    // used to store an empty Guid, leaving every reval exam unlinked.
+                    ExamId = Guid.NewGuid(),
                     CourseId = dto.Courseid,
                     Name = dto.Name,
                     ExamType = dto.ExamType,
@@ -149,19 +153,19 @@ namespace ExamAPI.Services.Exam
                 {
                     CreditsId = g.Key.Value,
 
-                    H1SubjectCredit = g.Where(x => x.HeadType == "TH").Select(x => x.Id).FirstOrDefault(),
-                    H1OutOf = g.Where(x => x.HeadType == "TH").Select(x => x.HeadOutOf).FirstOrDefault(),
-                    H1Pass = g.Where(x => x.HeadType == "TH").Select(x => x.HeadPass).FirstOrDefault(),
-                    H1Type = g.Where(x => x.HeadType == "TH").Select(x => x.HeadType).FirstOrDefault(),
+                    H1SubjectCredit = g.Where(x => x.Head == "H1").Select(x => x.Id).FirstOrDefault(),
+                    H1OutOf = g.Where(x => x.Head == "H1").Select(x => x.HeadOutOf).FirstOrDefault(),
+                    H1Pass = g.Where(x => x.Head == "H1").Select(x => x.HeadPass).FirstOrDefault(),
+                    H1Type = g.Where(x => x.Head == "H1").Select(x => x.HeadType).FirstOrDefault(),
                     H1Res = _context.Resolution
             .Where(r => r.CreditID == g.Key && r.AYID == Guid.Parse(dto.Ayid) && r.ExamID==dto.ExamId && r.Head == "H1")
             .Select(r => r.Resolution)
             .FirstOrDefault() ?? "",
 
-                    H2SubjectCredit = g.Where(x => x.HeadType != "TH").Select(x => x.Id).FirstOrDefault(),
-                    H2OutOf = g.Where(x => x.HeadType != "TH").Select(x => x.HeadOutOf).FirstOrDefault(),
-                    H2Pass = g.Where(x => x.HeadType != "TH").Select(x => x.HeadPass).FirstOrDefault(),
-                    H2Type = g.Where(x => x.HeadType != "TH").Select(x => x.HeadType).FirstOrDefault(),
+                    H2SubjectCredit = g.Where(x => x.Head == "H2").Select(x => x.Id).FirstOrDefault(),
+                    H2OutOf = g.Where(x => x.Head == "H2").Select(x => x.HeadOutOf).FirstOrDefault(),
+                    H2Pass = g.Where(x => x.Head == "H2").Select(x => x.HeadPass).FirstOrDefault(),
+                    H2Type = g.Where(x => x.Head == "H2").Select(x => x.HeadType).FirstOrDefault(),
                     H2Res = _context.Resolution
             .Where(r => r.CreditID == g.Key  && r.AYID == Guid.Parse(dto.Ayid) && r.ExamID == dto.ExamId && r.Head == "H2")
             .Select(r => r.Resolution)

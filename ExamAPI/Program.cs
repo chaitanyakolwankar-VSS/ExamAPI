@@ -7,6 +7,7 @@ using ExamAPI.Services.PasswordResetOTP;
 using ExamAPI.Services.Result.Engine;
 using ExamAPI.Services.RoleMaster;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.FileProviders;
@@ -20,6 +21,10 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHttpContextAccessor();
+
+// Tenant identity, read from the JWT. ApplicationDbContext depends on this to build its
+// global college query filter, so it must be registered before the DbContext.
+builder.Services.AddScoped<ExamAPI.Services.Tenancy.ICurrentUser, ExamAPI.Services.Tenancy.CurrentUser>();
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
 
 var cloudConfig = builder.Configuration.GetSection("Cloudinary");
@@ -56,6 +61,7 @@ builder.Services.AddScoped<ExamAPI.Services.UsersMaster.IUserMasterService, Exam
 builder.Services.AddScoped<IPasswordResetService, PasswordResetService>();
 builder.Services.AddScoped<ExamAPI.Services.DeclareResult.IDResultService, ExamAPI.Services.DeclareResult.DResultService>();
 builder.Services.AddScoped<ExamAPI.Services.AssignSeatNo.IAssignSeatNoService, ExamAPI.Services.AssignSeatNo.AssignSeatNoService>();
+builder.Services.AddScoped<ExamAPI.Services.AtktRevalExam.IAtktRevalExamService, ExamAPI.Services.AtktRevalExam.AtktRevalExamService>();
 builder.Services.AddScoped<ExamAPI.Services.Result.IResultService, ExamAPI.Services.Result.ResultService>();
 builder.Services.AddScoped<ExamAPI.Services.MarksEntry.IMarksEntryService, ExamAPI.Services.MarksEntry.MarksEntryService>();
 builder.Services.AddScoped<ExamAPI.Services.Report.IReportService, ExamAPI.Services.Report.ReportService>();
@@ -90,6 +96,20 @@ builder.Services.AddAuthentication(options =>
     };
 });
 // JWT Authentication end
+
+
+// Authorization: authentication is OPT-OUT, not opt-in.
+// Every endpoint now requires a valid token unless it is explicitly marked
+// [AllowAnonymous] (currently only AuthController and SendResetOtpController).
+// Previously only 5 of 19 controllers carried [Authorize], which left the rest --
+// including StudentMaster and UserMaster -- readable and writable with no token at all.
+builder.Services.AddAuthorization(options =>
+{
+    options.FallbackPolicy = new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build();
+});
+// Authorization end
 
 
 //CORS config

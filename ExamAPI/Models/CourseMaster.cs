@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace ExamAPI.Models
 {
-    public class CourseMaster : BaseEntity
+    public class CourseMaster : BaseEntity, ICollegeScoped
     {
         [Key]
         public Guid CourseId { get; set; }

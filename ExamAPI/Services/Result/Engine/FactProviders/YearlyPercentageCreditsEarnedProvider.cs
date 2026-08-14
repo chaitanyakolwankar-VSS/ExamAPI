@@ -36,7 +36,7 @@ namespace ExamAPI.Services.Result.Engine.FactProviders
             
             double earnedCurrent = marksMaster.StudentMarks!
                 .GroupBy(sm => sm.SubjectId)
-                .Where(g => g.All(sm => (sm.Marks ?? 0) >= GetPassingMarks(sm)))
+                .Where(g => SubjectPassEvaluator.Evaluate(g).IsPassed)
                 .Sum(g => double.TryParse(g.First().CreditMaster?.TotalCredits, out var c) ? c : 0);
 
             double earnedPrev = yearlyResults
@@ -48,11 +48,5 @@ namespace ExamAPI.Services.Result.Engine.FactProviders
             return totalCredits > 0 ? ((earnedCurrent + earnedPrev) * 100 / totalCredits) : 0;
         }
 
-        private int GetPassingMarks(StudentMarks sm)
-        {
-             var credit = sm.CreditMaster?.Credits?.FirstOrDefault(c => c.Head == sm.Head);
-             if (credit != null && int.TryParse(credit.HeadPass, out int pass)) return pass;
-             return 40; 
-        }
     }
 }

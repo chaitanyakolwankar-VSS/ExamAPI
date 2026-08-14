@@ -2,27 +2,81 @@
 -- SeedOrdinances.sql
 -- Seeds the Ordinance Engine with the University of Mumbai ordinance rules
 -- (per Docs/Ordinance.md - the newer gazette: O.5042-A, O.5043-A, O.5044-A, O.5045-A, O.229)
--- for the CScheme pattern / "Regular" RuleSet, and the O.5042-A GraceLookup chart.
+-- onto the *** NEP *** pattern / "Regular" RuleSet, plus the O.5042-A GraceLookup chart.
 --
--- Idempotent: soft-deletes all existing rules/conditions/actions and GraceLookup rows,
--- then inserts the canonical set. Safe to re-run.
+-- WHY NEP (changed 2026-07-25):
+--   All seeded test data (69 MarksMaster rows, 69 StudentEligibility rows, the 11 Sem-6
+--   subjects) carries Pattern = 'NEP'. ResultService.ProcessResults resolves the RuleSet by
+--   RuleSet.Pattern.PatternName == request.Pattern, so rules parked on the CScheme pattern
+--   were never reachable. This script now targets NEP so the engine actually fires.
 --
--- NOTE on limits specific to T.E. Sem-VI C Scheme (aggregate 775):
---   * 1% of aggregate = 7.75 -> used as MaxLimit for O.5042-A total grace pool.
+-- Idempotent: soft-deletes ALL existing rules/conditions/actions and GraceLookup rows
+-- (this is a test-data reset script), then inserts the canonical set. Safe to re-run.
+--
+-- NOTE on limits specific to the NEP Sem-VI test exam (aggregate 775):
+--   Heads: 5 subjects x (Theory 80 + TermWork 20) = 500, CSL601 25+25, CSL602 25,
+--   CSL603 25, CSL604 25+25, CSL605 25+50, CSM601 25+25  ->  775 total.
+--   * 1% of aggregate = 7.75 -> used as MaxLimit for the O.5042-A total grace pool.
 --     If this RuleSet is reused for an exam with a different aggregate, update that MaxLimit.
 -- =======================================================================================
 
 BEGIN TRANSACTION;
 SET NOCOUNT ON;
 
-DECLARE @CollegeId  UNIQUEIDENTIFIER = '103EBF99-FEB0-43BC-A312-56FE85D3BCC6';
-DECLARE @RuleSetId  UNIQUEIDENTIFIER = '7DD2625D-1E21-4D85-A52C-6490CCA5613E'; -- CScheme / Regular
-DECLARE @Now        DATETIME2        = GETUTCDATE();
+DECLARE @CollegeId    UNIQUEIDENTIFIER = '103EBF99-FEB0-43BC-A312-56FE85D3BCC6';
+DECLARE @PatternName  NVARCHAR(100)    = 'NEP';
+DECLARE @ExamType     NVARCHAR(50)     = 'Regular';
+DECLARE @Now          DATETIME2        = GETUTCDATE();
 
 -- ---------------------------------------------------------------------------------------
--- 0. Make sure the CScheme RuleSet is matched by ExamType (was NULL, relied on name match)
+-- 0. Resolve the target Pattern + RuleSet by NAME (no hard-coded GUIDs, so the script
+--    survives a rebuilt database). Creates the RuleSet if the pattern has none yet.
 -- ---------------------------------------------------------------------------------------
-UPDATE RuleSet SET ExamType = 'Regular', UpdatedAt = @Now WHERE RuleSetId = @RuleSetId;
+DECLARE @PatternId     UNIQUEIDENTIFIER;
+DECLARE @RuleSetId     UNIQUEIDENTIFIER;
+DECLARE @GradeMasterId UNIQUEIDENTIFIER;
+
+SELECT @PatternId = PatternId FROM PatternMaster
+WHERE PatternName = @PatternName AND IsDeleted = 0;
+
+IF @PatternId IS NULL
+BEGIN
+    RAISERROR('Pattern ''%s'' not found in PatternMaster. Create it before seeding ordinances.', 16, 1, @PatternName);
+    ROLLBACK TRANSACTION;
+    RETURN;
+END
+
+-- The grading scale the engine reads thresholds from (RuleSet.GradeMasterId).
+SELECT TOP 1 @GradeMasterId = GradeMasterId FROM GradeMaster WHERE IsDeleted = 0 ORDER BY CreatedAt;
+
+IF @GradeMasterId IS NULL
+BEGIN
+    RAISERROR('No GradeMaster configured. GetGradePointFromPercentage throws without thresholds.', 16, 1);
+    ROLLBACK TRANSACTION;
+    RETURN;
+END
+
+SELECT TOP 1 @RuleSetId = RuleSetId FROM RuleSet
+WHERE PatternId = @PatternId AND IsDeleted = 0
+ORDER BY CASE WHEN ExamType = @ExamType THEN 0 ELSE 1 END, CreatedAt;
+
+IF @RuleSetId IS NULL
+BEGIN
+    SET @RuleSetId = NEWID();
+    INSERT INTO RuleSet (RuleSetId, Name, ExamType, IsActive, PatternId, GradeMasterId, CreatedAt, IsDeleted)
+    VALUES (@RuleSetId, 'Regular', @ExamType, 1, @PatternId, @GradeMasterId, @Now, 0);
+END
+ELSE
+BEGIN
+    -- Match by ExamType explicitly rather than relying on the RuleSet.Name fallback
+    -- (ResultService.IsRuleSetForExamType) and make sure it is active + graded.
+    UPDATE RuleSet
+    SET ExamType      = @ExamType,
+        IsActive      = 1,
+        GradeMasterId = ISNULL(GradeMasterId, @GradeMasterId),
+        UpdatedAt     = @Now
+    WHERE RuleSetId = @RuleSetId;
+END
 
 -- ---------------------------------------------------------------------------------------
 -- 1. GraceLookup: O.5042-A chart (Head of Passing -> Grace Marks Upto)
@@ -43,8 +97,9 @@ INSERT INTO GraceLookup (GraceLookupId, HeadMarksUpto, GraceMarks, CollegeId, Cr
  (NEWID(), 9999, 10, @CollegeId, @Now, 0);
 
 -- ---------------------------------------------------------------------------------------
--- 2. Remove ALL existing rules (test/ad-hoc artifacts: 'Test', 'o5042', 'o5043', 'o229' x2,
---    and the mis-parameterised 'O.5045 Condonation'). Soft delete + disable.
+-- 2. Remove ALL existing rules across every RuleSet (test/ad-hoc artifacts, plus the
+--    previous CScheme-targeted copy of this same rule set). Soft delete + disable, so the
+--    NEP RuleSet is the only one the engine can ever resolve rules from.
 -- ---------------------------------------------------------------------------------------
 UPDATE RuleAction    SET IsDeleted = 1, DeletedAt = @Now WHERE IsDeleted = 0;
 UPDATE RuleCondition SET IsDeleted = 1, DeletedAt = @Now WHERE IsDeleted = 0;
@@ -167,9 +222,20 @@ WHERE IsDeleted = 0 AND (QuotaType IS NULL OR QuotaType = '')
 -- ---------------------------------------------------------------------------------------
 -- Verification output
 -- ---------------------------------------------------------------------------------------
-SELECT r.Priority, r.Name, r.OrdinanceSymbol, r.StopOnSuccess FROM [Rule] r WHERE r.IsDeleted = 0 ORDER BY r.Priority;
+SELECT 'Target RuleSet' AS Info, p.PatternName, rs.Name, rs.ExamType, rs.IsActive, gm.Name AS GradeScale
+FROM RuleSet rs
+JOIN PatternMaster p ON p.PatternId = rs.PatternId
+LEFT JOIN GradeMaster gm ON gm.GradeMasterId = rs.GradeMasterId
+WHERE rs.RuleSetId = @RuleSetId;
+
+SELECT p.PatternName, r.Priority, r.Name, r.OrdinanceSymbol, r.IsEnabled, r.StopOnSuccess
+FROM [Rule] r
+JOIN RuleSet rs ON rs.RuleSetId = r.RuleSetId
+JOIN PatternMaster p ON p.PatternId = rs.PatternId
+WHERE r.IsDeleted = 0 ORDER BY p.PatternName, r.Priority;
+
 SELECT COUNT(*) AS GraceLookupRows FROM GraceLookup WHERE IsDeleted = 0;
 SELECT COUNT(*) AS QuotaStudents FROM MarksMaster WHERE IsDeleted = 0 AND QuotaType IS NOT NULL;
 
 COMMIT TRANSACTION;
-PRINT 'Ordinance rules seeded successfully.';
+PRINT 'Ordinance rules seeded successfully onto the NEP pattern.';

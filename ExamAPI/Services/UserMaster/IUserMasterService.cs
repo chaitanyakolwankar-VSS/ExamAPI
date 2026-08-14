@@ -4,7 +4,7 @@ namespace ExamAPI.Services.UsersMaster
 {
     public interface IUserMasterService
     {
-        Task<UserMasterDTO> CreateUserAsync(CreateUserMasterDTO dto);
+        Task<UserMasterDTO> CreateUserAsync(CreateUserMasterDTO dto, Guid collegeId);
 
         Task<List<UserListDTO>> GetAllUsersAsync();
 

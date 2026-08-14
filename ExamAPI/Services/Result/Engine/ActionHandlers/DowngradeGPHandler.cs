@@ -11,34 +11,24 @@ namespace ExamAPI.Services.Result.Engine.ActionHandlers
 
         public Task ExecuteAsync(MarksMaster marksMaster, RuleAction action, string? symbol)
         {
-            if (marksMaster.StudentMarks == null) return Task.CompletedTask;
+            if (marksMaster.StudentMarks == null || marksMaster.SubjectResults == null) return Task.CompletedTask;
 
             double downgradeVal = (double)(action.Param1Value ?? 1);
             double minThreshold = (double)(action.Param2Value ?? 4);
 
-            var subjectGroups = marksMaster.StudentMarks.GroupBy(sm => sm.SubjectId).ToList();
-
-            foreach (var group in subjectGroups)
+            foreach (var group in marksMaster.StudentMarks.GroupBy(sm => sm.SubjectId))
             {
-                bool appliesToGroup = true;
-
                 if (action.Target == "Subject" && !group.Any(sm => sm.IsCarryForward))
                 {
-                    appliesToGroup = false;
+                    continue;
                 }
 
-                if (appliesToGroup)
-                {
-                    foreach (var sm in group)
-                    {
-                        if (sm.GradePoint >= minThreshold)
-                        {
-                            sm.RawGradePoint = sm.GradePoint; // Preserve original
-                            sm.GradePoint = (int)Math.Max(minThreshold, sm.GradePoint.Value - downgradeVal);
-                            sm.Grade = sm.GradePoint < minThreshold ? "F" : sm.Grade;
-                        }
-                    }
-                }
+                var subjectResult = marksMaster.SubjectResults.FirstOrDefault(r => r.SubjectId == group.Key);
+                if (subjectResult == null || subjectResult.GradePoint < minThreshold) continue;
+
+                subjectResult.RawGradePoint = subjectResult.GradePoint; // Preserve original
+                subjectResult.GradePoint = (int)Math.Max(minThreshold, subjectResult.GradePoint - downgradeVal);
+                subjectResult.Grade = subjectResult.GradePoint < minThreshold ? "F" : subjectResult.Grade;
             }
 
             return Task.CompletedTask;

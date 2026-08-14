@@ -10,7 +10,7 @@ namespace ExamAPI.Tests
     public class AddGraceHandlerTests
     {
         [Fact]
-        public async Task ExecuteAsync_AppliesGraceAndSetsRemark()
+        public async Task ExecuteAsync_AppliesGraceToHeadWiseSubject()
         {
             // Arrange
             var handler = new AddGraceHandler();
@@ -53,7 +53,6 @@ namespace ExamAPI.Tests
             // Assert
             Assert.Equal(40, studentMarks.Marks); // 38 + 2 grace = 40
             Assert.Equal("2$", studentMarks.Grace); // Should record "2$" as the grace applied
-            Assert.Equal("Successful", studentMarks.Remark); // Status should change to Pass/Successful
         }
 
         [Fact]
@@ -99,7 +98,6 @@ namespace ExamAPI.Tests
             // Assert
             Assert.Equal(30, studentMarks.Marks); // Marks should remain unchanged
             Assert.Null(studentMarks.Grace); // No grace should be applied
-            Assert.Equal("Fail", studentMarks.Remark); // Status remains fail
         }
     }
 }

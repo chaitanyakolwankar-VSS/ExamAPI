@@ -1,3 +1,4 @@
+using ExamAPI.Models;
 using ExamAPI.DTOs;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
@@ -40,8 +41,7 @@ namespace ExamAPI.Services.Report.Documents
         {
             container.Column(column =>
             {
-                column.Item().AlignCenter().Text("UNIVERSITY OF MUMBAI").FontSize(11).Bold().FontColor(Colors.Grey.Darken2);
-                column.Item().AlignCenter().Text("ENGINEERING COLLEGE").FontSize(15).Bold().FontColor(Colors.Blue.Darken3);
+                column.Item().AlignCenter().Text(model.CollegeName).FontSize(15).Bold().FontColor(Colors.Blue.Darken3);
                 column.Item().AlignCenter().Text("STATEMENT OF MARKS").FontSize(12).Bold().FontColor(Colors.Grey.Darken4);
                 
                 column.Item().PaddingTop(10).Background(Colors.Grey.Lighten4).Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(8).Row(row =>
@@ -107,7 +107,7 @@ namespace ExamAPI.Services.Report.Documents
                             }
                         });
                         table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(4).AlignCenter().Text($"{sub.TotalObtained}/{sub.TotalMax}").FontSize(9);
-                        table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(4).AlignCenter().Text(sub.Grade).FontSize(9);
+                        table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(4).AlignCenter().Text($"{sub.Grade}{sub.Grace}").FontSize(9);
                         table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(4).AlignCenter().Text(sub.GradePoint.ToString()).FontSize(9);
                         table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(4).AlignCenter().Text(sub.Credits.ToString()).FontSize(9);
                         table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(4).AlignCenter().Text(sub.EarnedGradePoints.ToString()).FontSize(9);
@@ -120,7 +120,7 @@ namespace ExamAPI.Services.Report.Documents
                     row.RelativeItem().AlignCenter().Text(text => { text.Span("Credits Earned\n").Bold().FontSize(8).FontColor(Colors.Blue.Darken3); text.Span($"{model.CreditsEarned} / {model.TotalCredits}").FontSize(11).Bold(); });
                     row.RelativeItem().AlignCenter().Text(text => { text.Span("SGPI\n").Bold().FontSize(8).FontColor(Colors.Blue.Darken3); text.Span($"{model.SGPI:F2}").FontSize(11).Bold(); });
                     row.RelativeItem().AlignCenter().Text(text => { text.Span("CGPI\n").Bold().FontSize(8).FontColor(Colors.Blue.Darken3); text.Span(model.CGPI.HasValue ? $"{model.CGPI:F2}" : "-").FontSize(11).Bold(); });
-                    row.RelativeItem().AlignCenter().Text(text => { text.Span("Remark\n").Bold().FontSize(8).FontColor(Colors.Blue.Darken3); text.Span(model.Remark).FontSize(11).Bold().FontColor(model.Remark.Equals("Pass", StringComparison.OrdinalIgnoreCase) || model.Remark.Equals("SUCCESSFUL", StringComparison.OrdinalIgnoreCase) ? Colors.Green.Darken2 : Colors.Red.Darken2); });
+                    row.RelativeItem().AlignCenter().Text(text => { text.Span("Remark\n").Bold().FontSize(8).FontColor(Colors.Blue.Darken3); text.Span(model.Remark).FontSize(11).Bold().FontColor(OverallRemarks.IsPass(model.Remark) ? Colors.Green.Darken2 : Colors.Red.Darken2); });
                 });
 
                 if (model.PastSemesters != null && model.PastSemesters.Any())

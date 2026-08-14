@@ -49,7 +49,11 @@ namespace ExamAPI.DTOs
         public string InternalOutOf { get; set; }
         public string InternalPassing { get; set; }
 
+        /// <summary>Combined pass threshold as a percentage of the subject total; read only when Combined.</summary>
         public string PassingPercentage { get; set; }
+
+        /// <summary>"HeadWise" (default) or "Combined".</summary>
+        public string? PassingStrategy { get; set; }
     }
     public class SaveCreditsDto
     {

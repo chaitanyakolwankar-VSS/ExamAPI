@@ -3,8 +3,34 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace ExamAPI.Models
 {
-    public class MarksMaster : BaseEntity
+    /// <summary>
+    /// Allowed values for <see cref="MarksMaster.OverallRemark"/> -- the printed student verdict.
+    /// Distinct from <see cref="SubjectStatuses"/>, which is the per-subject internal enum.
+    /// </summary>
+    public static class OverallRemarks
     {
+        public const string Pass = "Pass";
+        public const string Fail = "Fail";
+
+        /// <summary>Whether a stored remark means "passed".</summary>
+        public static bool IsPass(string? remark) =>
+            string.Equals(remark, Pass, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Forces any externally supplied verdict onto the two allowed values. Rule authors can
+        /// type anything into a SetResult action, but only these two may ever reach the column.
+        /// "Successful" is accepted because earlier builds of this branch wrote that spelling.
+        /// </summary>
+        public static string Normalize(string? value) => IsPass(value) ? Pass : Fail;
+    }
+
+    public class MarksMaster : BaseEntity, ICollegeScoped
+    {
+
+        /// <summary>Tenant owner. See <see cref="ICollegeScoped"/>.</summary>
+        public Guid? CollegeId { get; set; }
+        [ForeignKey(nameof(CollegeId))]
+        public College? OwningCollege { get; set; }
         [Key]
         public Guid MarksId { get; set; }
 
@@ -23,7 +49,7 @@ namespace ExamAPI.Models
         public string? Pattern { get; set; }
 
         [MaxLength(255)]
-        public string? OverallRemark { get; set; } // e.g., "Pass", "Fail"
+        public string? OverallRemark { get; set; } // "Pass" or "Fail" -- see OverallRemarks
 
         [Column(TypeName = "decimal(18, 2)")]
         public decimal? SGPI { get; set; }
@@ -54,5 +80,6 @@ namespace ExamAPI.Models
 
         // Navigation Properties
         public ICollection<StudentMarks>? StudentMarks { get; set; }
+        public ICollection<StudentSubjectResult>? SubjectResults { get; set; }
     }
 }
