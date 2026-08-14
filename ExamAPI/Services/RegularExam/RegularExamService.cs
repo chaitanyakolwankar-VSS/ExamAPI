@@ -76,6 +76,31 @@ namespace ExamAPI.Services.RegularExam
             }
         }
 
+        /// <summary>
+        /// Active exams of every type (Regular, ATKT and Revaluation) for the course + academic
+        /// year. Used by the post-assignment screens -- Marks Entry, Gazette, Hall Ticket,
+        /// Marksheet, Assign Seat No -- which must be able to pick an ATKT/Revaluation exam, not
+        /// only Regular. The Regular *conduct* screen keeps using <see cref="GetExam"/>.
+        /// </summary>
+        public async Task<List<RegularExamResponse>> GetAllExams(GetExam dto)
+        {
+            try
+            {
+                var exams = _context.Exams
+                    .Where(a => a.IsActive == true && a.CourseId == dto.Courseid && a.AcademicYearAYID == dto.Ayid)
+                    .Select(a => new RegularExamResponse
+                    {
+                        ExamId = a.ExamId,
+                        Examname = a.RevaluationForExamId != null ? a.Name + " (Revaluation)" : a.Name,
+                    });
+                return exams.ToList();
+            }
+            catch (Exception ex)
+            {
+                throw new Exception(ex.Message);
+            }
+        }
+
         public async Task<RegularStudentResponse> GetStudents(RegularExamStudents dto)
         {
             try

@@ -5,6 +5,7 @@ namespace ExamAPI.Services.RegularExam
     public interface IRegularExamService
     {
         Task<List<RegularExamResponse>> GetExam(GetExam dto);
+        Task<List<RegularExamResponse>> GetAllExams(GetExam dto);
         Task<ApiResponseDto<object>> CheckCredits(CheckCredits dto);
 
         Task<RegularStudentResponse> GetStudents(RegularExamStudents dto);

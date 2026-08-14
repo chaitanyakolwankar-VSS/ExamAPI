@@ -634,10 +634,17 @@ namespace ExamAPI.Services.Ordinance
         // === Metadata Methods ===
         public async Task<EngineMetadataDto> GetEngineMetadataAsync()
         {
+            // Result-engine handlers, plus the assignment action. AllowExamAssignment has no result
+            // handler by design (result processing skips unknown action types); it is interpreted
+            // only by AtktRevalExamService, so it must be added here to be authorable in Ordinance.
+            // The UI shows it only for KT/Reval rule sets.
+            var actions = _engineRegistry.GetRegisteredActions().ToList();
+            actions.Add(Services.AtktRevalExam.AtktRevalExamService.AllowExamAssignmentAction);
+
             var metadata = new EngineMetadataDto
             {
                 Facts = _engineRegistry.GetRegisteredFacts().ToList(),
-                Actions = _engineRegistry.GetRegisteredActions().ToList(),
+                Actions = actions,
                 Operators = new List<string> { "==", "!=", ">", ">=", "<", "<=" }
             };
 

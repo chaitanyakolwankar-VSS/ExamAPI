@@ -22,6 +22,12 @@ namespace ExamAPI.Controllers
             var result=await _RegularExamService.GetExam(request);
             return Ok(result);
         }
+        [HttpGet("get-all-exams")]
+        public async Task<IActionResult> GetAll([FromQuery] GetExam request)
+        {
+            var result = await _RegularExamService.GetAllExams(request);
+            return Ok(result);
+        }
         [HttpPost("get-credit")]
         public async Task<IActionResult> GetCredit([FromBody] CheckCredits request)
         {

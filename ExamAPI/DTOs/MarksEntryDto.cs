@@ -59,6 +59,13 @@ namespace ExamAPI.DTOs
         public int? Resolution { get; set; }
 
         public bool IsEnabled { get; set; } // Based on HMCheck or other logic
+
+        /// <summary>
+        /// True when this head was carried forward from the source attempt by an ATKT/Revaluation
+        /// assignment: the student is not appearing for it, so the mark is fixed and the cell is
+        /// locked for entry. Always false for a normal (fresh) exam head.
+        /// </summary>
+        public bool IsCarryForward { get; set; }
     }
 
     public class SaveMarksRequest

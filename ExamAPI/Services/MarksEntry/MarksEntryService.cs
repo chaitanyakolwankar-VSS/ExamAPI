@@ -88,7 +88,10 @@ namespace ExamAPI.Services.MarksEntry
                                 IsAbsent = sm.IsAbsent,
                                 IsPassed = !sm.IsAbsent && SubjectPassEvaluator.IsHeadPassed(sm),
                                 Resolution = credit != null && resolutionLimits.TryGetValue(credit.Id, out var limit) ? limit : null,
-                                IsEnabled = true
+                                // A carried-forward head (ATKT/Revaluation) is not being re-sat, so
+                                // its mark is fixed -- lock it for entry. Fresh heads stay editable.
+                                IsCarryForward = sm.IsCarryForward,
+                                IsEnabled = !sm.IsCarryForward
                             };
                         }).ToList()
                     };
