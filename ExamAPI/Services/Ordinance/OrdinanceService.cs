@@ -641,14 +641,28 @@ namespace ExamAPI.Services.Ordinance
             var actions = _engineRegistry.GetRegisteredActions().ToList();
             actions.Add(Services.AtktRevalExam.AtktRevalExamService.AllowExamAssignmentAction);
 
+            // The configured head labels this college actually uses, so a rule author picks a real
+            // head name from the Target multiselect instead of free-typing one that silently no-ops.
+            var headTypes = await _context.SubjectCredits
+                .Where(sc => !sc.IsDeleted && sc.HeadType != null && sc.HeadType != "")
+                .Select(sc => sc.HeadType!)
+                .Distinct()
+                .OrderBy(h => h)
+                .ToListAsync();
+
             var metadata = new EngineMetadataDto
             {
                 Facts = _engineRegistry.GetRegisteredFacts().ToList(),
                 Actions = actions,
-                Operators = new List<string> { "==", "!=", ">", ">=", "<", "<=" }
+                Operators = new List<string> { "==", "!=", ">", ">=", "<", "<=" },
+                SubjectScopes = new List<string>
+                {
+                    "AllSubjects", "FailingSubjects", "PassingSubjects", "AbsentSubjects", "NotAttempted"
+                },
+                HeadTypes = headTypes
             };
 
-            return await Task.FromResult(metadata);
+            return metadata;
         }
     }
 }
