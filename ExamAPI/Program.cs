@@ -1,20 +1,18 @@
 using CloudinaryDotNet;
 using ExamAPI.Data;
 using ExamAPI.Models;
+using ExamAPI.Services.Dashboard;
 using ExamAPI.Services.Email;
 using ExamAPI.Services.PasswordResetOTP;
-using ExamAPI.Services.RoleMaster;
 using ExamAPI.Services.Result.Engine;
+using ExamAPI.Services.RoleMaster;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
-
 using Microsoft.Extensions.FileProviders;
-
 using Microsoft.IdentityModel.Tokens;
 using OfficeOpenXml;
 using System.Text;
-
 using System.Text; 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -62,6 +60,7 @@ builder.Services.AddScoped<ExamAPI.Services.Result.IResultService, ExamAPI.Servi
 builder.Services.AddScoped<ExamAPI.Services.MarksEntry.IMarksEntryService, ExamAPI.Services.MarksEntry.MarksEntryService>();
 builder.Services.AddScoped<ExamAPI.Services.Report.IReportService, ExamAPI.Services.Report.ReportService>();
 builder.Services.AddScoped<ExamAPI.Services.ReleaseHallTicket.IReleaseHallticketService, ExamAPI.Services.ReleaseHallTicket.ReleaseHallticketService>();
+builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddOrdinanceEngine();
 
 
