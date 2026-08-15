@@ -568,6 +568,11 @@ namespace ExamAPI.Services.AtktRevalExam
                         .Select(h =>
                         {
                             var headFailing = !h.IsAbsent && !SubjectPassEvaluator.IsHeadPassed(h);
+                            // A head may be re-sat only when the subject is selectable AND the rule's
+                            // head scope permits this head. With no rule (or an unrestricted Target)
+                            // every head qualifies; a Target naming e.g. "ESE" locks the others so an
+                            // internal-assessment head carries forward instead of being re-examined.
+                            var headSelectable = cell.Selectable && grant.Scope.MatchesHead(h);
                             return new AtktCellHeadDto
                             {
                                 Head = h.Head ?? string.Empty,
@@ -577,13 +582,13 @@ namespace ExamAPI.Services.AtktRevalExam
                                 Pass = SubjectPassEvaluator.GetHeadPass(h),
                                 IsAbsent = h.IsAbsent,
                                 IsFailing = headFailing,
-                                Selectable = cell.Selectable,
+                                Selectable = headSelectable,
                                 Selected = isAssigned
                                     ? targetHeads.Any(t => t.SubjectId == column.SubjectId
                                         && t.Head == h.Head && !t.IsCarryForward)
-                                    // New head-wise default re-sits only the failing/absent heads;
-                                    // combined follows the whole-subject choice.
-                                    : cell.Selectable && !isReval
+                                    // New head-wise default re-sits only the failing/absent heads
+                                    // that are in scope; combined follows the whole-subject choice.
+                                    : headSelectable && !isReval
                                       && (isCombined ? cell.Selected : (h.IsAbsent || headFailing))
                             };
                         })
