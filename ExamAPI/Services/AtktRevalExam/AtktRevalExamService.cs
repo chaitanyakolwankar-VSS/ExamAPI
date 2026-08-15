@@ -1116,105 +1116,160 @@ namespace ExamAPI.Services.AtktRevalExam
                 .Select(c => c.Name)
                 .FirstOrDefaultAsync() ?? string.Empty;
 
+            var columns = build.Response.Columns;
+            var students = build.Response.Students;
+
+            var headerFill = Color.FromArgb(0xE5, 0xE7, 0xEB); // light grey
+            var zebraFill = Color.FromArgb(0xF7, 0xF8, 0xFA);  // near-white
+            var appliedFill = Color.FromArgb(0xDC, 0xFC, 0xE7); // light green
+            var titleColor = Color.FromArgb(0x11, 0x18, 0x27);
+
             ExcelPackage.License.SetNonCommercialPersonal("ReactApi Project");
             using var package = new ExcelPackage();
             var sheet = package.Workbook.Worksheets.Add(Sanitize(examName));
 
-            var columns = build.Response.Columns;
-            var leading = seatNoOnly ? 1 : 3;
-            var totalColumns = Math.Max(leading + columns.Count, 1);
-
-            sheet.Cells[1, 1, 1, totalColumns].Merge = true;
-            sheet.Cells[1, 1].Value = course.ToUpperInvariant();
-            sheet.Cells[2, 1, 2, totalColumns].Merge = true;
-            sheet.Cells[2, 1].Value = $"{filter.Semester} :- {examName}" +
-                                      (seatNoOnly ? " (seat numbers appearing)" : string.Empty);
-            sheet.Cells[1, 1, 2, totalColumns].Style.Font.Bold = true;
-            sheet.Cells[1, 1, 2, totalColumns].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
+            // The heads a student re-sits for a subject: the head labels for combined/head-wise,
+            // "Yes" when the subject has no distinct heads.
+            static string AppliedHeads(AtktCellDto? cell)
+            {
+                if (cell == null || !cell.Selected) return string.Empty;
+                var heads = cell.Heads.Where(h => h.Selected).Select(h => h.HeadType)
+                    .Where(h => !string.IsNullOrWhiteSpace(h)).ToList();
+                return heads.Count > 0 ? string.Join(", ", heads) : "Yes";
+            }
 
             const int headerRow = 4;
-            if (seatNoOnly)
-            {
-                sheet.Cells[headerRow, 1].Value = "Seat No.";
-            }
-            else
-            {
-                sheet.Cells[headerRow, 1].Value = "Student ID";
-                sheet.Cells[headerRow, 2].Value = "Seat No.";
-                sheet.Cells[headerRow, 3].Value = "Student Name";
-            }
-
-            for (var i = 0; i < columns.Count; i++)
-            {
-                var column = columns[i];
-                var heads = column.Heads.Count == 0
-                    ? string.Empty
-                    : " [" + string.Join(", ", column.Heads.Select(h => $"{h.HeadType} {h.Pass}/{h.OutOf}")) + "]";
-                sheet.Cells[headerRow, leading + 1 + i].Value = $"{column.SubjectCode} - {column.SubjectName}{heads}";
-            }
-
-            var headerRange = sheet.Cells[headerRow, 1, headerRow, totalColumns];
-            headerRange.Style.Font.Bold = true;
-            headerRange.Style.WrapText = true;
-            headerRange.Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
-            headerRange.Style.Fill.PatternType = ExcelFillStyle.Solid;
-            headerRange.Style.Fill.BackgroundColor.SetColor(Color.LightGray);
-            headerRange.Style.Border.BorderAround(ExcelBorderStyle.Thin);
-            sheet.Row(headerRow).Height = 42;
 
             if (seatNoOnly)
             {
-                // One compacted, top-aligned column of seat numbers per subject -- the list the
-                // invigilator carries into the hall.
+                var totalCols = Math.Max(columns.Count, 1);
+                WriteTitle(sheet, totalCols, course, $"{filter.Semester} — {examName} · seat numbers appearing", titleColor);
+
+                var maxRows = 0;
                 for (var i = 0; i < columns.Count; i++)
                 {
-                    var row = headerRow + 1;
-                    foreach (var student in build.Response.Students)
-                    {
-                        var cell = student.Cells.FirstOrDefault(c => c.SubjectId == columns[i].SubjectId);
-                        if (cell?.Selected != true) continue;
-                        sheet.Cells[row++, leading + 1 + i].Value = student.SeatNo ?? student.StudentId;
-                    }
+                    var seats = students
+                        .Where(s => s.Cells.FirstOrDefault(c => c.SubjectId == columns[i].SubjectId)?.Selected == true)
+                        .Select(s => s.SeatNo ?? s.StudentId)
+                        .ToList();
+                    sheet.Cells[headerRow, i + 1].Value = $"{columns[i].SubjectCode}\n{columns[i].SubjectName}\n({seats.Count})";
+                    var r = headerRow + 1;
+                    foreach (var seat in seats) sheet.Cells[r++, i + 1].Value = seat;
+                    maxRows = Math.Max(maxRows, seats.Count);
                 }
+
+                StyleHeader(sheet.Cells[headerRow, 1, headerRow, totalCols], headerFill);
+                sheet.Row(headerRow).Height = 48;
+
+                var lastRow = headerRow + Math.Max(maxRows, 1);
+                var body = sheet.Cells[headerRow, 1, lastRow, totalCols];
+                Grid(body);
+                body.Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
+                body.Style.VerticalAlignment = ExcelVerticalAlignment.Center;
+                sheet.View.FreezePanes(headerRow + 1, 1);
+                for (var c = 1; c <= totalCols; c++) sheet.Column(c).Width = 12;
             }
             else
             {
-                var row = headerRow + 1;
-                foreach (var student in build.Response.Students)
-                {
-                    sheet.Cells[row, 1].Value = student.StudentId;
-                    sheet.Cells[row, 2].Value = student.SeatNo;
-                    sheet.Cells[row, 3].Value = student.StudentName;
+                const int leading = 4;               // Sr, Student ID, Seat No, Student Name
+                var totalCols = leading + columns.Count + 1; // + Applied
+                WriteTitle(sheet, totalCols, course, $"{filter.Semester} — {examName}", titleColor);
 
-                    for (var i = 0; i < columns.Count; i++)
+                sheet.Cells[headerRow, 1].Value = "Sr.";
+                sheet.Cells[headerRow, 2].Value = "Student ID";
+                sheet.Cells[headerRow, 3].Value = "Seat No.";
+                sheet.Cells[headerRow, 4].Value = "Student Name";
+                for (var i = 0; i < columns.Count; i++)
+                    sheet.Cells[headerRow, leading + 1 + i].Value = $"{columns[i].SubjectCode}\n{columns[i].SubjectName}";
+                sheet.Cells[headerRow, totalCols].Value = "Applied";
+
+                StyleHeader(sheet.Cells[headerRow, 1, headerRow, totalCols], headerFill);
+                sheet.Row(headerRow).Height = 42;
+
+                var row = headerRow + 1;
+                var sr = 1;
+                foreach (var s in students)
+                {
+                    sheet.Cells[row, 1].Value = sr++;
+                    sheet.Cells[row, 2].Value = s.StudentId;
+                    sheet.Cells[row, 3].Value = s.SeatNo;
+                    sheet.Cells[row, 4].Value = s.StudentName;
+
+                    if ((row - headerRow) % 2 == 0)
                     {
-                        var cell = student.Cells.FirstOrDefault(c => c.SubjectId == columns[i].SubjectId);
-                        sheet.Cells[row, leading + 1 + i].Value = cell?.Selected == true
-                            ? "Applied"
-                            : cell == null || cell.Status == StatusNotAttempted
-                                ? string.Empty
-                                : cell.ObtainedTotal.ToString();
+                        var lead = sheet.Cells[row, 1, row, leading];
+                        lead.Style.Fill.PatternType = ExcelFillStyle.Solid;
+                        lead.Style.Fill.BackgroundColor.SetColor(zebraFill);
                     }
 
+                    var applied = 0;
+                    for (var i = 0; i < columns.Count; i++)
+                    {
+                        var cell = s.Cells.FirstOrDefault(c => c.SubjectId == columns[i].SubjectId);
+                        var text = AppliedHeads(cell);
+                        var target = sheet.Cells[row, leading + 1 + i];
+                        target.Value = text;
+                        if (text.Length > 0)
+                        {
+                            applied++;
+                            target.Style.Fill.PatternType = ExcelFillStyle.Solid;
+                            target.Style.Fill.BackgroundColor.SetColor(appliedFill);
+                        }
+                    }
+                    sheet.Cells[row, totalCols].Value = applied;
                     row++;
                 }
-            }
 
-            if (sheet.Dimension != null)
-            {
-                sheet.Cells[sheet.Dimension.Address].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
-            }
+                var lastRow = Math.Max(row - 1, headerRow);
+                var body = sheet.Cells[headerRow, 1, lastRow, totalCols];
+                Grid(body);
+                body.Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
+                body.Style.VerticalAlignment = ExcelVerticalAlignment.Center;
+                if (row - 1 >= headerRow + 1)
+                    sheet.Cells[headerRow + 1, 4, lastRow, 4].Style.HorizontalAlignment = ExcelHorizontalAlignment.Left;
 
-            if (!seatNoOnly && build.Response.Students.Count > 0)
-            {
-                sheet.Cells[headerRow + 1, 3, headerRow + build.Response.Students.Count, 3]
-                    .Style.HorizontalAlignment = ExcelHorizontalAlignment.Left;
+                sheet.View.FreezePanes(headerRow + 1, leading + 1);
+                sheet.Column(1).Width = 5;
+                sheet.Column(2).Width = 12;
+                sheet.Column(3).Width = 10;
+                sheet.Column(4).Width = 26;
+                for (var i = 0; i < columns.Count; i++) sheet.Column(leading + 1 + i).Width = 14;
+                sheet.Column(totalCols).Width = 9;
             }
-
-            sheet.Cells.AutoFitColumns();
 
             var fileName = $"{Sanitize(examName)} {(seatNoOnly ? "Seat No" : "ALL")}.xlsx";
             return (package.GetAsByteArray(), fileName);
+        }
+
+        private static void WriteTitle(ExcelWorksheet sheet, int totalCols, string course, string subtitle, Color titleColor)
+        {
+            sheet.Cells[1, 1, 1, totalCols].Merge = true;
+            sheet.Cells[1, 1].Value = course.ToUpperInvariant();
+            sheet.Cells[2, 1, 2, totalCols].Merge = true;
+            sheet.Cells[2, 1].Value = subtitle;
+            var title = sheet.Cells[1, 1, 2, totalCols];
+            title.Style.Font.Bold = true;
+            title.Style.Font.Color.SetColor(titleColor);
+            title.Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
+            sheet.Cells[1, 1].Style.Font.Size = 13;
+            sheet.Row(1).Height = 20;
+            sheet.Row(2).Height = 18;
+        }
+
+        private static void StyleHeader(ExcelRange range, Color fill)
+        {
+            range.Style.Font.Bold = true;
+            range.Style.WrapText = true;
+            range.Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
+            range.Style.VerticalAlignment = ExcelVerticalAlignment.Center;
+            range.Style.Fill.PatternType = ExcelFillStyle.Solid;
+            range.Style.Fill.BackgroundColor.SetColor(fill);
+        }
+
+        private static void Grid(ExcelRange range)
+        {
+            var b = range.Style.Border;
+            b.Top.Style = b.Bottom.Style = b.Left.Style = b.Right.Style = ExcelBorderStyle.Thin;
         }
 
         private static string Sanitize(string name)
