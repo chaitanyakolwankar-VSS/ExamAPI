@@ -28,5 +28,9 @@ namespace ExamAPI.Models
 
         [MaxLength(50)]
         public string? Pattern { get; set; }
+
+        public Guid? CollegeId { get; set; }
+
+        public bool IsEligible { get; set; } 
     }
 }
