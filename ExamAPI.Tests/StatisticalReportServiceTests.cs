@@ -79,6 +79,46 @@ public sealed class StatisticalReportServiceTests
         Assert.Contains("Results have not been processed", response.Message);
     }
 
+    [Fact]
+    public async Task GetReport_merge_uses_the_best_processed_attempt_per_student_and_subject()
+    {
+        SeedProcessedExam();
+        var mergedExamId = Guid.NewGuid();
+        var secondStudent = _context.StudentMasters.Single(student => student.StudentId == "ST002");
+        var combinedSubject = _context.SubjectMasters.Single(subject => subject.SubjectCode == "COMB");
+        var headWiseSubject = _context.SubjectMasters.Single(subject => subject.SubjectCode == "HEAD");
+        _context.Exams.Add(new ExamMaster
+        {
+            ExamId = mergedExamId, CollegeId = _collegeId, CourseId = _courseId,
+            AcademicYearAYID = _academicYearId, Name = "ATKT Oct 2026", ExamType = "KT", IsActive = true
+        });
+        var retry = new MarksMaster
+        {
+            MarksId = Guid.NewGuid(), StudentID = secondStudent.StudentId, StdMstId = secondStudent.StdMstId,
+            ExamId = mergedExamId, AcademicYearAYID = _academicYearId, SemesterId = Semester, Pattern = Pattern,
+            CollegeId = _collegeId, OverallRemark = OverallRemarks.Pass
+        };
+        _context.MarksMasters.Add(retry);
+        AddSubjectResult(retry, combinedSubject, obtained: 62, outOf: 100, passed: true, grace: 0);
+        AddSubjectResult(retry, headWiseSubject, obtained: 65, outOf: 100, passed: true, grace: 0);
+        await _context.SaveChangesAsync();
+
+        var response = await _service.GetReportAsync(new StatisticalReportRequestDto
+        {
+            CourseId = _courseId, AcademicYearId = _academicYearId, ExamId = _examId,
+            MergeExam = true, MergedExamId = mergedExamId, SemesterId = Semester, Pattern = Pattern
+        }, _collegeId);
+
+        Assert.True(response.Success);
+        var report = Assert.IsType<StatisticalReportDto>(response.Data);
+        Assert.Equal(2, report.TotalStudentsAppeared);
+        Assert.Equal(2, report.TotalStudentsPassed);
+        var combined = Assert.Single(report.Rows, row => row.SubjectCode == "COMB");
+        Assert.Equal(2, combined.TotalPassed);
+        Assert.Equal(1, combined.PassedBetween40And60);
+        Assert.Equal(1, combined.PassedAtOrAbove60);
+    }
+
     private StatisticalReportRequestDto Request() => new()
     {
         CourseId = _courseId,

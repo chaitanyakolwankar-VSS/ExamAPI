@@ -41,12 +41,36 @@ public sealed class StatisticalReportService : IStatisticalReportService
             return Failure("The selected exam is unavailable for the selected course and academic year.");
         }
 
+        var examIds = new List<Guid> { request.ExamId };
+        var mergedExamName = string.Empty;
+        if (request.MergeExam)
+        {
+            if (!request.MergedExamId.HasValue || request.MergedExamId.Value == request.ExamId)
+            {
+                return Failure("Select a different exam to merge.");
+            }
+
+            var mergedExam = await _context.Exams.AsNoTracking()
+                .FirstOrDefaultAsync(e => e.ExamId == request.MergedExamId.Value
+                    && e.CourseId == request.CourseId
+                    && e.AcademicYearAYID == request.AcademicYearId
+                    && !e.IsDeleted);
+            if (mergedExam == null)
+            {
+                return Failure("The exam selected for merging is unavailable for the selected course and academic year.");
+            }
+
+            examIds.Add(mergedExam.ExamId);
+            mergedExamName = mergedExam.Name ?? "Merged exam";
+        }
+
         var marksMasters = await _context.MarksMasters
             .AsNoTracking()
             .Include(m => m.SubjectResults)
                 .ThenInclude(r => r.Subject)
             .Where(m => !m.IsDeleted
-                && m.ExamId == request.ExamId
+                && m.ExamId.HasValue
+                && examIds.Contains(m.ExamId.Value)
                 && m.AcademicYearAYID == request.AcademicYearId
                 && m.SemesterId == request.SemesterId
                 && m.Pattern == request.Pattern
@@ -76,7 +100,28 @@ public sealed class StatisticalReportService : IStatisticalReportService
                 .Select(result => new { MarksMaster = m, Result = result }))
             .ToList();
 
-        var rows = subjectResults
+        // A legacy merge took the best pivoted mark per student/subject. The modern equivalent
+        // is explicit and respects result semantics: a passed processed attempt always wins;
+        // otherwise the highest processed percentage wins. This works for both combined and
+        // head-wise subjects because IsPassed was decided by the shared result engine.
+        var reportingResults = request.MergeExam
+            ? subjectResults
+                .GroupBy(item => new
+                {
+                    Student = item.MarksMaster.StdMstId?.ToString()
+                        ?? item.MarksMaster.StudentID
+                        ?? item.MarksMaster.MarksId.ToString(),
+                    item.Result.SubjectId
+                })
+                .Select(group => group
+                    .OrderByDescending(item => item.Result.IsPassed)
+                    .ThenByDescending(item => Percentage(item.Result))
+                    .ThenByDescending(item => item.Result.ObtainedTotal)
+                    .First())
+                .ToList()
+            : subjectResults;
+
+        var rows = reportingResults
             .GroupBy(item => item.Result.SubjectId)
             .OrderBy(group => group.First().Result.Subject?.SubjectCode ?? string.Empty, StringComparer.OrdinalIgnoreCase)
             .Select((group, index) =>
@@ -101,8 +146,14 @@ public sealed class StatisticalReportService : IStatisticalReportService
             })
             .ToList();
 
-        var totalAppeared = marksMasters.Select(m => m.MarksId).Distinct().Count();
-        var totalPassed = marksMasters.Count(m => OverallRemarks.IsPass(m.OverallRemark));
+        var overallResults = request.MergeExam
+            ? marksMasters
+                .GroupBy(m => m.StdMstId?.ToString() ?? m.StudentID ?? m.MarksId.ToString())
+                .Select(group => group.OrderByDescending(m => OverallRemarks.IsPass(m.OverallRemark)).First())
+                .ToList()
+            : marksMasters;
+        var totalAppeared = overallResults.Count;
+        var totalPassed = overallResults.Count(m => OverallRemarks.IsPass(m.OverallRemark));
         var report = new StatisticalReportDto
         {
             CollegeName = college?.Name ?? "College Name Not Found",
@@ -111,7 +162,7 @@ public sealed class StatisticalReportService : IStatisticalReportService
             AcademicYearName = academicYear?.FullDuration ?? academicYear?.ShortDuration ?? "",
             SemesterName = FormatSemester(request.SemesterId),
             Pattern = request.Pattern,
-            ExamName = exam.Name ?? "Exam",
+            ExamName = request.MergeExam ? $"{exam.Name} + {mergedExamName}" : exam.Name ?? "Exam",
             GeneratedAt = DateTime.Now,
             Rows = rows,
             TotalStudentsAppeared = totalAppeared,

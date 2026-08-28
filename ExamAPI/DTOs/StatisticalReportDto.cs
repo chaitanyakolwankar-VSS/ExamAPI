@@ -6,6 +6,8 @@ public sealed class StatisticalReportRequestDto
     public Guid CourseId { get; set; }
     public Guid AcademicYearId { get; set; }
     public Guid ExamId { get; set; }
+    public bool MergeExam { get; set; }
+    public Guid? MergedExamId { get; set; }
     public string SemesterId { get; set; } = string.Empty;
     public string Pattern { get; set; } = string.Empty;
 }
