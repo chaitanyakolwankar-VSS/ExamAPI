@@ -1,8 +1,6 @@
 ﻿using ExamAPI.Data;
 using ExamAPI.DTOs;
 using ExamAPI.Models;
-using CloudinaryDotNet;
-using CloudinaryDotNet.Actions;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 
@@ -47,26 +45,12 @@ namespace ExamAPI.Services.CollegeDetail
 
             if (dto.Logo != null)
             {
-                //var uploadParams = new ImageUploadParams()
-                //{
-                //    File = new FileDescription(dto.Logo.FileName, dto.Logo.OpenReadStream()),
-                //    Folder = "college_logos"
-                //};
-                //var uploadResult = await _cloudinary.UploadAsync(uploadParams);
-                //logoUrl = uploadResult.SecureUrl.ToString();
                 ValidateImage(dto.Logo,"Logo");
                 logoUrl = await SaveImageToServerAsync(dto.Logo, ExamAPI.Services.Files.FileStorage.CollegeLogosFolder);
             }
 
             if (dto.Banner != null)
             {
-                //var uploadParams = new ImageUploadParams()
-                //{
-                //    File = new FileDescription(dto.Banner.FileName, dto.Banner.OpenReadStream()),
-                //    Folder = "college_banners"
-                //};
-                //var uploadResult = await _cloudinary.UploadAsync(uploadParams);
-                //bannerUrl = uploadResult.SecureUrl.ToString();
                 ValidateImage(dto.Banner, "Banner");
                 bannerUrl = await SaveImageToServerAsync(dto.Banner, ExamAPI.Services.Files.FileStorage.CollegeBannersFolder);
             }
@@ -106,25 +90,11 @@ namespace ExamAPI.Services.CollegeDetail
                 ValidateImage(dto.Logo, "Logo");
                 DeleteImageFromServer(college.LogoUrl);
                 college.LogoUrl = await SaveImageToServerAsync(dto.Logo, ExamAPI.Services.Files.FileStorage.CollegeLogosFolder);
-                //var uploadParams = new ImageUploadParams
-                //{
-                //    File = new FileDescription(dto.Logo.FileName, dto.Logo.OpenReadStream()),
-                //    Folder = "college_logos"
-                //};
-                //var uploadResult = await _cloudinary.UploadAsync(uploadParams);
-                //college.LogoUrl = uploadResult.SecureUrl.ToString();
             }
 
             if (dto.Banner != null)
             {
                 ValidateImage(dto.Banner, "Banner");
-                //var uploadParams = new ImageUploadParams
-                //{
-                //    File = new FileDescription(dto.Banner.FileName, dto.Banner.OpenReadStream()),
-                //    Folder = "college_banners"
-                //};
-                //var uploadResult = await _cloudinary.UploadAsync(uploadParams);
-                //college.LogoBannerUrl = uploadResult.SecureUrl.ToString();
                 DeleteImageFromServer(college.LogoBannerUrl);
                 college.LogoBannerUrl = await SaveImageToServerAsync(dto.Banner, ExamAPI.Services.Files.FileStorage.CollegeBannersFolder);
             }

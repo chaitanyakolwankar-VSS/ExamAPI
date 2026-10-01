@@ -1,4 +1,3 @@
-using CloudinaryDotNet;
 using ExamAPI.Data;
 using ExamAPI.Models;
 using ExamAPI.Services.Auth;
@@ -29,14 +28,6 @@ builder.Services.AddHttpContextAccessor();
 // global college query filter, so it must be registered before the DbContext.
 builder.Services.AddScoped<ExamAPI.Services.Tenancy.ICurrentUser, ExamAPI.Services.Tenancy.CurrentUser>();
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
-
-var cloudConfig = builder.Configuration.GetSection("Cloudinary");
-var account = new Account(
-    cloudConfig["CloudName"],
-    cloudConfig["ApiKey"],
-    cloudConfig["ApiSecret"]
-);
-builder.Services.AddSingleton(new Cloudinary(account));
 
 //  connection string
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
