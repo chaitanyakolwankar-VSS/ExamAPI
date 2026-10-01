@@ -1208,7 +1208,7 @@ namespace ExamAPI.Services.AtktRevalExam
             if (seatNoOnly)
             {
                 var totalCols = Math.Max(columns.Count, 1);
-                WriteTitle(sheet, totalCols, course, $"{filter.Semester} — {examName} · seat numbers appearing", titleColor, branding);
+                WriteTitle(sheet, totalCols, course, $"{filter.Semester} — {examName} · seat numbers appearing", titleColor, branding, textStartCol: 2);
 
                 var maxRows = 0;
                 for (var i = 0; i < columns.Count; i++)
@@ -1224,7 +1224,7 @@ namespace ExamAPI.Services.AtktRevalExam
                 }
 
                 StyleHeader(sheet.Cells[headerRow, 1, headerRow, totalCols], headerFill);
-                sheet.Row(headerRow).Height = 48;
+                sheet.Row(headerRow).Height = 80;
 
                 var lastRow = headerRow + Math.Max(maxRows, 1);
                 var body = sheet.Cells[headerRow, 1, lastRow, totalCols];
@@ -1232,13 +1232,14 @@ namespace ExamAPI.Services.AtktRevalExam
                 body.Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
                 body.Style.VerticalAlignment = ExcelVerticalAlignment.Center;
                 sheet.View.FreezePanes(headerRow + 1, 1);
-                for (var c = 1; c <= totalCols; c++) sheet.Column(c).Width = 12;
+                for (var c = 1; c <= totalCols; c++) sheet.Column(c).Width = 20;
+                ApplyPrintSetup(sheet, headerRow);
             }
             else
             {
                 const int leading = 4;               // Sr, Student ID, Seat No, Student Name
                 var totalCols = leading + columns.Count + 1; // + Applied
-                WriteTitle(sheet, totalCols, course, $"{filter.Semester} — {examName}", titleColor, branding);
+                WriteTitle(sheet, totalCols, course, $"{filter.Semester} — {examName}", titleColor, branding, textStartCol: 3);
 
                 sheet.Cells[headerRow, 1].Value = "Sr.";
                 sheet.Cells[headerRow, 2].Value = "Student ID";
@@ -1249,7 +1250,7 @@ namespace ExamAPI.Services.AtktRevalExam
                 sheet.Cells[headerRow, totalCols].Value = "Applied";
 
                 StyleHeader(sheet.Cells[headerRow, 1, headerRow, totalCols], headerFill);
-                sheet.Row(headerRow).Height = 42;
+                sheet.Row(headerRow).Height = 80;
 
                 var row = headerRow + 1;
                 var sr = 1;
@@ -1297,43 +1298,56 @@ namespace ExamAPI.Services.AtktRevalExam
                 sheet.Column(1).Width = 5;
                 sheet.Column(2).Width = 12;
                 sheet.Column(3).Width = 10;
-                sheet.Column(4).Width = 26;
-                for (var i = 0; i < columns.Count; i++) sheet.Column(leading + 1 + i).Width = 14;
+                sheet.Column(4).Width = 38;
+                for (var i = 0; i < columns.Count; i++) sheet.Column(leading + 1 + i).Width = 20;
                 sheet.Column(totalCols).Width = 9;
+                ApplyPrintSetup(sheet, headerRow);
             }
 
             var fileName = $"{Sanitize(examName)} {(seatNoOnly ? "Seat No" : "ALL")}.xlsx";
             return (package.GetAsByteArray(), fileName);
         }
 
-        private static void WriteTitle(ExcelWorksheet sheet, int totalCols, string course, string subtitle, Color titleColor, ExamAPI.Services.Report.CollegeBrandingInfo? branding = null)
+        private static void ApplyPrintSetup(ExcelWorksheet sheet, int headerRow)
         {
-            sheet.Cells[1, 1, 1, totalCols].Merge = true;
-            sheet.Cells[1, 1].Value = course.ToUpperInvariant();
-            sheet.Cells[2, 1, 2, totalCols].Merge = true;
-            sheet.Cells[2, 1].Value = subtitle;
-            var title = sheet.Cells[1, 1, 2, totalCols];
-            title.Style.Font.Bold = true;
-            title.Style.Font.Color.SetColor(titleColor);
-            title.Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
-            sheet.Cells[1, 1].Style.Font.Size = 13;
-            sheet.Row(1).Height = 20;
-            sheet.Row(2).Height = 18;
+            var ps = sheet.PrinterSettings;
+            ps.Orientation = eOrientation.Landscape;
+            ps.PaperSize = ePaperSize.A4;
+            ps.FitToPage = true;
+            ps.FitToWidth = 1;
+            ps.FitToHeight = 0;
+            ps.RepeatRows = sheet.Cells[$"{headerRow}:{headerRow}"];
+        }
 
-            // College name on the spare row above the table header (row 3), and the logo floating at
-            // the top left. Nothing existing moves: the header stays on row 4 and the title on rows 1-2.
-            if (branding != null)
+        // Rows 1-3 carry the title block: college name first (when known), then the course and the
+        // semester/exam line. The table header stays on row 4. The logo floats top-left, so when one
+        // is drawn the text is merged from textStartCol onward to keep clear of it.
+        private static void WriteTitle(ExcelWorksheet sheet, int totalCols, string course, string subtitle, Color titleColor, ExamAPI.Services.Report.CollegeBrandingInfo? branding = null, int textStartCol = 1)
+        {
+            var hasLogo = branding?.Logo is { Length: > 0 };
+            var startCol = hasLogo && totalCols > textStartCol ? textStartCol : 1;
+
+            var lines = new List<(string Text, float Size, double Height)>();
+            if (!string.IsNullOrWhiteSpace(branding?.Name)) lines.Add((branding!.Name, 14, 22));
+            lines.Add((course.ToUpperInvariant(), 13, 20));
+            lines.Add((subtitle, 11, 18));
+
+            for (var i = 0; i < lines.Count; i++)
             {
-                if (!string.IsNullOrWhiteSpace(branding.Name))
-                {
-                    sheet.Cells[3, 1, 3, totalCols].Merge = true;
-                    sheet.Cells[3, 1].Value = branding.Name;
-                    sheet.Cells[3, 1].Style.Font.Bold = true;
-                    sheet.Cells[3, 1].Style.Font.Color.SetColor(titleColor);
-                    sheet.Cells[3, 1].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
-                }
-                ExamAPI.Services.Report.ExcelBranding.TryAddLogo(sheet, branding.Logo, 1, 1, 80, 44);
+                var row = i + 1;
+                sheet.Cells[row, startCol, row, totalCols].Merge = true;
+                var cell = sheet.Cells[row, startCol];
+                cell.Value = lines[i].Text;
+                cell.Style.Font.Bold = true;
+                cell.Style.Font.Size = lines[i].Size;
+                cell.Style.Font.Color.SetColor(titleColor);
+                cell.Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
+                cell.Style.VerticalAlignment = ExcelVerticalAlignment.Center;
+                sheet.Row(row).Height = lines[i].Height;
             }
+
+            if (branding != null)
+                ExamAPI.Services.Report.ExcelBranding.TryAddLogo(sheet, branding.Logo, 1, 1, 80, 44);
         }
 
         private static void StyleHeader(ExcelRange range, Color fill)
