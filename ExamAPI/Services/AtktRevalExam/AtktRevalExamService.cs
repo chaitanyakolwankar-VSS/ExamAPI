@@ -362,6 +362,15 @@ namespace ExamAPI.Services.AtktRevalExam
                 return build;
             }
 
+            // DEC-16: the revaluation reuses its parent's seat numbers, so the source must be that parent.
+            if (isReval && request.SourceExamId != targetExam.RevaluationForExamId)
+            {
+                build.TargetExam = null;
+                response.Success = false;
+                response.Message = "The selected revaluation exam does not belong to the chosen source exam.";
+                return build;
+            }
+
             build.Rules = await ResolveRulesAsync(request.Pattern, targetExam, isReval);
             response.Policy = DescribeRules(build.Rules, isReval);
 
@@ -908,6 +917,20 @@ namespace ExamAPI.Services.AtktRevalExam
                 };
                 _context.MarksMasters.Add(target);
                 context.Target = target;
+            }
+            else if (AssignmentModes.IsRevaluation(filter.Mode))
+            {
+                // DEC-16: a revaluation is only a paper re-check, so it reuses the parent exam's
+                // seat number rather than getting its own. Keep the row in step with the parent
+                // on every save (the Seat No screen does not list revaluation exams).
+                if (!string.IsNullOrWhiteSpace(context.Source?.SeatNo))
+                {
+                    target.SeatNo = context.Source!.SeatNo;
+                }
+                if (string.IsNullOrWhiteSpace(target.QuotaType))
+                {
+                    target.QuotaType = context.Source?.QuotaType;
+                }
             }
             else if (string.IsNullOrWhiteSpace(target.SeatNo))
             {
