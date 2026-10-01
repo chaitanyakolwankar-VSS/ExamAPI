@@ -10,6 +10,8 @@ namespace ExamAPI.Controllers
     // The policy is per action, not on the class: GET me must stay open to every signed-in user, and a
     // class-level policy would also apply to it. A new action here gets only the global fallback
     // (authenticated) - give it an explicit policy.
+    // The Permission table is one catalog shared by every college, so only the platform admin may create,
+    // rename or delete its rows (T-05b). College admins read it to tick screens for their own roles.
     [Route("api/[controller]")]
     [ApiController]
     public class PermissionController : ControllerBase
@@ -33,7 +35,7 @@ namespace ExamAPI.Controllers
             return Ok(await _permissionService.GetMyAllowedFormsAsync());
         }
 
-        [Authorize(Policy = AccessPolicies.CollegeAdmin)]
+        [Authorize(Policy = AccessPolicies.PlatformAdmin)]
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] PermissionCreate dto)
         {
@@ -60,7 +62,7 @@ namespace ExamAPI.Controllers
             return Ok(data);
         }
 
-        [Authorize(Policy = AccessPolicies.CollegeAdmin)]
+        [Authorize(Policy = AccessPolicies.PlatformAdmin)]
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(Guid id, PermissionUpdate dto)
         {
@@ -68,7 +70,7 @@ namespace ExamAPI.Controllers
             return result ? Ok() : NotFound();
         }
 
-        [Authorize(Policy = AccessPolicies.CollegeAdmin)]
+        [Authorize(Policy = AccessPolicies.PlatformAdmin)]
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {

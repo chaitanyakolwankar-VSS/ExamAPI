@@ -113,14 +113,16 @@ public sealed class AdminAccessTests
             yield return new object[] { typeof(UserMasterController), m, AccessPolicies.CollegeAdmin };
         foreach (var m in new[] { "GetInfo", "Selectmodule", "GetRoleById", "SaveRole", "UpdateRole", "DeleteRole" })
             yield return new object[] { typeof(RoleMasterController), m, AccessPolicies.CollegeAdmin };
-        foreach (var m in new[] { "Create", "GetModules", "GetGroupedPermissions", "Update", "Delete" })
+        foreach (var m in new[] { "GetModules", "GetGroupedPermissions" })
             yield return new object[] { typeof(PermissionController), m, AccessPolicies.CollegeAdmin };
         yield return new object[] { typeof(CollegeDetailController), "Update", AccessPolicies.CollegeAdmin };
         foreach (var m in new[] { "DeleteStudent", "RestoreExam", "DeleteExam" })
             yield return new object[] { typeof(StudentMasterController), m, AccessPolicies.CollegeAdmin };
 
-        // platform-admin-only endpoint
+        // platform-admin-only endpoints (the Permission catalog is shared by every college)
         yield return new object[] { typeof(CollegeDetailController), "Create", AccessPolicies.PlatformAdmin };
+        foreach (var m in new[] { "Create", "Update", "Delete" })
+            yield return new object[] { typeof(PermissionController), m, AccessPolicies.PlatformAdmin };
     }
 
     private static string? EffectivePolicy(Type controller, string action)

@@ -233,8 +233,11 @@ public sealed class PermissionMenuTests
         Assert.NotNull(me);
         Assert.Null(me!.Policy);                                                              // authenticated only
 
-        foreach (var action in new[] { "Create", "GetModules", "GetGroupedPermissions", "Update", "Delete" })
+        // College admins read the shared catalog to tick screens for their roles; only the platform admin edits it.
+        foreach (var action in new[] { "GetModules", "GetGroupedPermissions" })
             Assert.Equal(AccessPolicies.CollegeAdmin, M(action).GetCustomAttribute<AuthorizeAttribute>()?.Policy);
+        foreach (var action in new[] { "Create", "Update", "Delete" })
+            Assert.Equal(AccessPolicies.PlatformAdmin, M(action).GetCustomAttribute<AuthorizeAttribute>()?.Policy);
     }
 
     // ---------- Role Master lists every role (T-06) ----------
