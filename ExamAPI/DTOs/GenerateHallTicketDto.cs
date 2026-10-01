@@ -56,5 +56,7 @@
     {
         public  string Logo { get; set; }
         public string Center { get; set; }
+        /// <summary>College name for the hall-ticket header when there is no logo (empty when unknown).</summary>
+        public string CollegeName { get; set; } = string.Empty;
     }
 }

@@ -115,7 +115,9 @@ namespace ExamAPI.Services.GenerateHallTicket
                 {
                     a.mm.MarksId,
                     a.mm.ExamId,
-                    Name = a.sm.FirstName + " " + a.sm.MiddleName + " " + a.sm.LastName,
+                    a.sm.FirstName,
+                    a.sm.MiddleName,
+                    a.sm.LastName,
                     Center = "",
                     Seat = a.mm.SeatNo,
                     StudentId = a.sm.StudentId,
@@ -132,7 +134,8 @@ namespace ExamAPI.Services.GenerateHallTicket
 
                     studentsData.Add(new StudentHallTicketData
                     {
-                        name = Student.Name,
+                        // Join only the parts that exist so a missing middle name leaves no double space.
+                        name = string.Join(" ", new[] { Student.FirstName, Student.MiddleName, Student.LastName }.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => p!.Trim())),
                         centre = Student.Center,
                         seat = Student.Seat,
                         Studentid=Student.StudentId,
@@ -155,11 +158,14 @@ namespace ExamAPI.Services.GenerateHallTicket
             {
                 // Banner preferred; fall back to the logo. Both are stored paths, read by the client through the
                 // authorised GET /api/Files endpoint (not a public URL).
-                var collegedata = _context.Colleges.FirstOrDefault(a => a.LogoBannerUrl != null || a.LogoUrl != null);
+                // The tenant filter on Colleges already narrows this to the current college; a college
+                // without a logo must still return its name and centre, so no logo predicate here.
+                var collegedata = _context.Colleges.FirstOrDefault();
                 var result = new HallTicketCollege
                 {
-                    Logo = collegedata.LogoBannerUrl ?? collegedata.LogoUrl ?? "",
-                    Center=collegedata.CollegeCenter
+                    Logo = collegedata?.LogoBannerUrl ?? collegedata?.LogoUrl ?? "",
+                    Center = collegedata?.CollegeCenter ?? "",
+                    CollegeName = ExamAPI.Services.Report.CollegeBranding.DisplayName(collegedata?.Name, collegedata?.CollegeCode)
                 };
                 return result;
             }
