@@ -16,7 +16,13 @@ public sealed class StatisticalReportService : IStatisticalReportService
 {
     private readonly ApplicationDbContext _context;
 
-    public StatisticalReportService(ApplicationDbContext context) => _context = context;
+    private readonly ExamAPI.Services.Files.IFileStorage? _storage;
+
+    public StatisticalReportService(ApplicationDbContext context, ExamAPI.Services.Files.IFileStorage? storage = null)
+    {
+        _context = context;
+        _storage = storage;
+    }
 
     public async Task<ApiResponseDto<StatisticalReportDto>> GetReportAsync(StatisticalReportRequestDto request, Guid collegeId)
     {
@@ -160,7 +166,7 @@ public sealed class StatisticalReportService : IStatisticalReportService
         var totalPassed = overallResults.Count(m => OverallRemarks.IsPass(m.OverallRemark));
         var report = new StatisticalReportDto
         {
-            CollegeName = college?.Name ?? "College Name Not Found",
+            CollegeName = ExamAPI.Services.Report.CollegeBranding.DisplayName(college?.Name, college?.CollegeCode),
             CollegeAddress = college?.Address,
             CourseName = exam.Course?.Name ?? "Course",
             AcademicYearName = academicYear?.FullDuration ?? academicYear?.ShortDuration ?? "",
@@ -209,6 +215,11 @@ public sealed class StatisticalReportService : IStatisticalReportService
         {
             MergeAndStyle(worksheet, 2, totalColumns, report.CollegeAddress, 10, false);
         }
+        // College logo (College Details), floating at the top left of the header block. A picture
+        // sits above the grid, so no data cell, row or column moves.
+        var branding = await Report.CollegeBranding.LoadAsync(_context, _storage, collegeId);
+        if (Report.ExcelBranding.TryAddLogo(worksheet, branding.Logo, 1, 1, 96, 44))
+            worksheet.Row(1).Height = Math.Max(worksheet.Row(1).Height, 30);
         MergeAndStyle(worksheet, 3, totalColumns, $"STATISTICAL REPORT — {report.CourseName} | {report.SemesterName} | {report.Pattern}", 12, true);
         MergeAndStyle(worksheet, 4, totalColumns, $"EXAMINATION: {report.ExamName}    ACADEMIC YEAR: {report.AcademicYearName}", 11, true);
         MergeAndStyle(worksheet, 5, totalColumns, "Subject-wise result statistics generated from processed examination results", 9, false);

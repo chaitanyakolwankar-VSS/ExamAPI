@@ -45,6 +45,14 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 
 
 //--services and interface ------//
+// Uploaded student photos/signatures and college logos: persistent, non-public storage (DB-07 / DEC-12).
+// Root = Storage:UploadsRoot (absolute path recommended, outside the publish folder); default <ContentRoot>/App_Data/uploads.
+builder.Services.AddSingleton<ExamAPI.Services.Files.IFileStorage>(sp =>
+{
+    var env = sp.GetRequiredService<IWebHostEnvironment>();
+    var config = sp.GetRequiredService<IConfiguration>();
+    return new ExamAPI.Services.Files.FileStorage(env.ContentRootPath, env.WebRootPath, config["Storage:UploadsRoot"]);
+});
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<ExamAPI.Services.Auth.IAuthService, ExamAPI.Services.Auth.AuthService>();
 builder.Services.AddScoped<ExamAPI.Services.Common.IGenericRepository, ExamAPI.Services.Common.GenericRepository>();
@@ -135,7 +143,9 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
-app.UseStaticFiles();
+// No app.UseStaticFiles(): wwwroot held only uploaded personal data (student photos/signatures, college
+// logos), which must not be anonymously readable (DEC-12). They are served solely by the authorised
+// GET /api/Files endpoint. Re-add static files only with an explicit block for /uploads and /Clg_detail*.
 app.UseHttpsRedirection();
 
 app.UseCors("AllowReactApp");

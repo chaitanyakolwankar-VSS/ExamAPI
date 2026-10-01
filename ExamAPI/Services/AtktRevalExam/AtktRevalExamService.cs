@@ -32,15 +32,18 @@ namespace ExamAPI.Services.AtktRevalExam
         private readonly ApplicationDbContext _context;
         private readonly IGenericRepository _genericRepository;
         private readonly EngineRegistry _registry;
+        private readonly ExamAPI.Services.Files.IFileStorage? _storage;
 
         public AtktRevalExamService(
             ApplicationDbContext context,
             IGenericRepository genericRepository,
-            EngineRegistry registry)
+            EngineRegistry registry,
+            ExamAPI.Services.Files.IFileStorage? storage = null)
         {
             _context = context;
             _genericRepository = genericRepository;
             _registry = registry;
+            _storage = storage;
         }
 
         /// <summary>A subject with no marks at all in the source attempt.</summary>
@@ -62,6 +65,9 @@ namespace ExamAPI.Services.AtktRevalExam
         /// their <see cref="ExamMaster.RevaluationForExamId"/> link, not by exam type.
         /// </summary>
         private static readonly HashSet<string> AtktTargetExamTypeKeys = new() { "ATKT", "KT" };
+
+        private static bool IsAtktTargetType(string? examType) =>
+            AtktTargetExamTypeKeys.Contains(HeadTargetSpec.NormalizeKey(examType));
 
         // =====================================================================
         // Rule resolution
@@ -268,7 +274,7 @@ namespace ExamAPI.Services.AtktRevalExam
             // not on any RuleSet -- who/what a rule permits is still evaluated only after a
             // concrete target has been chosen.
             exams = exams
-                .Where(e => AtktTargetExamTypeKeys.Contains(HeadTargetSpec.NormalizeKey(e.ExamType)))
+                .Where(e => IsAtktTargetType(e.ExamType))
                 .ToList();
 
             return exams.Select(ToExamOption).OrderBy(e => e.ExamName).ToList();
@@ -326,6 +332,26 @@ namespace ExamAPI.Services.AtktRevalExam
             {
                 response.Success = false;
                 response.Message = "Select the exam to assign students to.";
+                return build;
+            }
+
+            // The picker (GetTargetExamsAsync) only offers a mode-appropriate target; enforce the
+            // same predicates here so a hand-crafted request cannot pair a mode with the wrong exam.
+            if (isReval)
+            {
+                if (targetExam.RevaluationForExamId == null)
+                {
+                    build.TargetExam = null; // so Save/AssignAll treat this as a failed build
+                    response.Success = false;
+                    response.Message = "The selected exam is not a revaluation exam. Select the revaluation exam for the chosen source exam.";
+                    return build;
+                }
+            }
+            else if (targetExam.RevaluationForExamId != null || !IsAtktTargetType(targetExam.ExamType))
+            {
+                build.TargetExam = null;
+                response.Success = false;
+                response.Message = "The selected exam is not an ATKT exam. Select an ATKT exam to assign students to.";
                 return build;
             }
 
@@ -1047,6 +1073,17 @@ namespace ExamAPI.Services.AtktRevalExam
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
+                var targetExam = await _context.Exams
+                    .FirstOrDefaultAsync(e => e.ExamId == request.Filter.TargetExamId);
+                if (targetExam != null && targetExam.IsLocked)
+                {
+                    return new ApiResponseDto<object>
+                    {
+                        Success = false,
+                        Message = "This exam is locked. Unlock it before changing assignments."
+                    };
+                }
+
                 var target = await _context.MarksMasters
                     .Include(mm => mm.StudentMarks)
                     .FirstOrDefaultAsync(mm => mm.StdMstId == request.StdMstId
@@ -1116,6 +1153,11 @@ namespace ExamAPI.Services.AtktRevalExam
                 .Select(c => c.Name)
                 .FirstOrDefaultAsync() ?? string.Empty;
 
+            // College name/logo from College Details (DEC-14). No tenant (platform admin) = no branding.
+            var branding = _context.CurrentCollegeId is Guid brandingCollegeId
+                ? await ExamAPI.Services.Report.CollegeBranding.LoadAsync(_context, _storage, brandingCollegeId)
+                : ExamAPI.Services.Report.CollegeBrandingInfo.Empty;
+
             var columns = build.Response.Columns;
             var students = build.Response.Students;
 
@@ -1143,7 +1185,7 @@ namespace ExamAPI.Services.AtktRevalExam
             if (seatNoOnly)
             {
                 var totalCols = Math.Max(columns.Count, 1);
-                WriteTitle(sheet, totalCols, course, $"{filter.Semester} — {examName} · seat numbers appearing", titleColor);
+                WriteTitle(sheet, totalCols, course, $"{filter.Semester} — {examName} · seat numbers appearing", titleColor, branding);
 
                 var maxRows = 0;
                 for (var i = 0; i < columns.Count; i++)
@@ -1173,7 +1215,7 @@ namespace ExamAPI.Services.AtktRevalExam
             {
                 const int leading = 4;               // Sr, Student ID, Seat No, Student Name
                 var totalCols = leading + columns.Count + 1; // + Applied
-                WriteTitle(sheet, totalCols, course, $"{filter.Semester} — {examName}", titleColor);
+                WriteTitle(sheet, totalCols, course, $"{filter.Semester} — {examName}", titleColor, branding);
 
                 sheet.Cells[headerRow, 1].Value = "Sr.";
                 sheet.Cells[headerRow, 2].Value = "Student ID";
@@ -1241,7 +1283,7 @@ namespace ExamAPI.Services.AtktRevalExam
             return (package.GetAsByteArray(), fileName);
         }
 
-        private static void WriteTitle(ExcelWorksheet sheet, int totalCols, string course, string subtitle, Color titleColor)
+        private static void WriteTitle(ExcelWorksheet sheet, int totalCols, string course, string subtitle, Color titleColor, ExamAPI.Services.Report.CollegeBrandingInfo? branding = null)
         {
             sheet.Cells[1, 1, 1, totalCols].Merge = true;
             sheet.Cells[1, 1].Value = course.ToUpperInvariant();
@@ -1254,6 +1296,21 @@ namespace ExamAPI.Services.AtktRevalExam
             sheet.Cells[1, 1].Style.Font.Size = 13;
             sheet.Row(1).Height = 20;
             sheet.Row(2).Height = 18;
+
+            // College name on the spare row above the table header (row 3), and the logo floating at
+            // the top left. Nothing existing moves: the header stays on row 4 and the title on rows 1-2.
+            if (branding != null)
+            {
+                if (!string.IsNullOrWhiteSpace(branding.Name))
+                {
+                    sheet.Cells[3, 1, 3, totalCols].Merge = true;
+                    sheet.Cells[3, 1].Value = branding.Name;
+                    sheet.Cells[3, 1].Style.Font.Bold = true;
+                    sheet.Cells[3, 1].Style.Font.Color.SetColor(titleColor);
+                    sheet.Cells[3, 1].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
+                }
+                ExamAPI.Services.Report.ExcelBranding.TryAddLogo(sheet, branding.Logo, 1, 1, 80, 44);
+            }
         }
 
         private static void StyleHeader(ExcelRange range, Color fill)
@@ -1274,10 +1331,15 @@ namespace ExamAPI.Services.AtktRevalExam
 
         private static string Sanitize(string name)
         {
+            // Used for both the sheet name and the file name. Excel forbids [ ] * ? : / \ in a
+            // sheet name, caps it at 31 characters and disallows a leading/trailing apostrophe.
             var invalid = Path.GetInvalidFileNameChars();
-            var cleaned = new string(name.Where(c => !invalid.Contains(c) && c != ':' && c != '/' && c != '\\').ToArray()).Trim();
+            var cleaned = new string(name
+                .Where(c => !invalid.Contains(c) && "[]*?:/\\".IndexOf(c) < 0)
+                .ToArray()).Trim().Trim('\'').Trim();
             if (string.IsNullOrWhiteSpace(cleaned)) return "Exam";
-            return cleaned.Length <= 28 ? cleaned : cleaned[..28];
+            // 28 leaves room for the " ALL" / " Seat No" file-name suffix and is under Excel's 31.
+            return cleaned.Length <= 28 ? cleaned : cleaned[..28].TrimEnd();
         }
     }
 }

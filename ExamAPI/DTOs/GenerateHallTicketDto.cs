@@ -39,6 +39,8 @@
         public string centre { get; set; }
         public string seat { get; set; }
         public string Studentid { get; set; }
+        /// <summary>Stored path of the student photo; load it via GET /api/Files?path=... (null when none).</summary>
+        public string? photo { get; set; }
         public List<StudentsHallTicketSubjects> subjects { get; set; }
     }
     public class StudentHallTicketDataRequest

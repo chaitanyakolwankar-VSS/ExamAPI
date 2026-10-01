@@ -19,7 +19,8 @@ namespace ExamAPI.Models
         /// <summary>
         /// Forces any externally supplied verdict onto the two allowed values. Rule authors can
         /// type anything into a SetResult action, but only these two may ever reach the column.
-        /// "Successful" is accepted because earlier builds of this branch wrote that spelling.
+        /// Only "Pass" (case-insensitive) counts as a pass -- the legacy "Successful" spelling written by
+        /// earlier builds is NOT accepted and normalises to "Fail" until the row is reprocessed (BUG-23).
         /// </summary>
         public static string Normalize(string? value) => IsPass(value) ? Pass : Fail;
     }

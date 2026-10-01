@@ -17,7 +17,7 @@ namespace ExamAPI.Services.Result.Engine.FactProviders
             var total = marksMaster.StudentMarks.Sum(sm => sm.Marks ?? 0);
             var outOf = marksMaster.StudentMarks.Sum(SubjectPassEvaluator.GetHeadOutOf);
 
-            double percentage = outOf > 0 ? (double)(total * 100 / outOf) : 0;
+            double percentage = outOf > 0 ? (double)total * 100.0 / (double)outOf : 0;
             return Task.FromResult(percentage);
         }
     }

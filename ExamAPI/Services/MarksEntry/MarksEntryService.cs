@@ -1,6 +1,7 @@
 using ExamAPI.Data;
 using ExamAPI.DTOs;
 using ExamAPI.Models;
+using ExamAPI.Services.Result;
 using ExamAPI.Services.Result.Engine;
 using Microsoft.EntityFrameworkCore;
 using OfficeOpenXml;
@@ -8,6 +9,7 @@ using OfficeOpenXml.Style;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -25,7 +27,6 @@ namespace ExamAPI.Services.MarksEntry
 
         /// <summary>What staff type into a marks box to record an absence.</summary>
         private const string AbsentInput = "Ab";
-        private const string ResolutionSymbol = "^";
 
         public async Task<ApiResponseDto<IEnumerable<MarksEntryDataDto>>> GetMarksEntryDataAsync(MarksEntryFilterRequest request, Guid collegeId)
         {
@@ -54,8 +55,6 @@ namespace ExamAPI.Services.MarksEntry
                 // The current schema has SubjectId in StudentMarks.
                 
                 var marksRecords = await query.ToListAsync();
-
-                var resolutionLimits = await GetResolutionLimitsAsync(request.ExamId, marksRecords);
 
                 var result = marksRecords.Select(mm =>
                 {
@@ -87,7 +86,6 @@ namespace ExamAPI.Services.MarksEntry
                                 Grace = sm.Grace,
                                 IsAbsent = sm.IsAbsent,
                                 IsPassed = !sm.IsAbsent && SubjectPassEvaluator.IsHeadPassed(sm),
-                                Resolution = credit != null && resolutionLimits.TryGetValue(credit.Id, out var limit) ? limit : null,
                                 // A carried-forward head (ATKT/Revaluation) is not being re-sat, so
                                 // its mark is fixed -- lock it for entry. Fresh heads stay editable.
                                 IsCarryForward = sm.IsCarryForward,
@@ -114,7 +112,7 @@ namespace ExamAPI.Services.MarksEntry
                     .Select(group => group.Last())
                     .ToList() ?? new List<StudentMarksUpdateDto>();
 
-                if (!updates.Any() && request.Resolutions.Count == 0)
+                if (!updates.Any())
                 {
                     return new ApiResponseDto<object> { Success = false, Message = "No marks updates were supplied." };
                 }
@@ -149,19 +147,41 @@ namespace ExamAPI.Services.MarksEntry
                 }
 
                 var marksMasters = new HashSet<MarksMaster>();
+                var saved = 0;
+                var skippedCarried = 0;
                 foreach (var update in updates)
                 {
                     var studentMark = studentMarks[update.StudentMarksId];
+
+                    // A carried-forward head (ATKT/Revaluation) is not being re-sat: its mark is
+                    // frozen. The grid locks the cell, and the server enforces it too.
+                    if (studentMark.IsCarryForward)
+                    {
+                        skippedCarried++;
+                        continue;
+                    }
+
                     var error = ApplyMarkAsync(studentMark, update.Marks);
                     if (error != null)
                     {
                         return new ApiResponseDto<object> { Success = false, Message = error };
                     }
 
+                    saved++;
                     if (studentMark.MarksMaster != null)
                     {
                         marksMasters.Add(studentMark.MarksMaster);
                     }
+                }
+
+                if (saved == 0)
+                {
+                    return new ApiResponseDto<object>
+                    {
+                        Success = false,
+                        Message = "The selected head(s) are carried forward from the source attempt and locked. Nothing was saved.",
+                        Data = new { saved, skippedCarryForward = skippedCarried }
+                    };
                 }
 
                 foreach (var marksMaster in marksMasters)
@@ -169,13 +189,21 @@ namespace ExamAPI.Services.MarksEntry
                     marksMaster.Rank = request.Rank;
                 }
 
-                // Resolution is a marks-entry decision: its config is set on this screen and
-                // applied here, so the '^' is already on the marks before results are processed.
-                await UpsertResolutionsAsync(request, collegeId);
-                await ApplySubjectResolutionsAsync(request.ExamId, request.SubjectId, collegeId);
-
+                // Marks entry stores raw marks only. Resolution ('^') is configured through the
+                // resolution dialog and derived from ResolutionMaster when results are processed.
                 await _context.SaveChangesAsync();
-                return new ApiResponseDto<object> { Success = true, Message = "Marks saved successfully." };
+
+                var message = "Marks saved successfully.";
+                if (skippedCarried > 0)
+                {
+                    message += $" {skippedCarried} carried-forward head(s) are locked and were left unchanged.";
+                }
+                return new ApiResponseDto<object>
+                {
+                    Success = true,
+                    Message = message,
+                    Data = new { saved, skippedCarryForward = skippedCarried }
+                };
             }
             catch (Exception ex)
             {
@@ -183,115 +211,18 @@ namespace ExamAPI.Services.MarksEntry
             }
         }
 
-        /// <summary>The condonation limit configured per SubjectCredits row for this exam.</summary>
-        private async Task<Dictionary<Guid, int>> GetResolutionLimitsAsync(Guid examId, IEnumerable<MarksMaster> marksRecords)
-        {
-            var creditIds = marksRecords
-                .SelectMany(mm => mm.StudentMarks ?? Enumerable.Empty<StudentMarks>())
-                .Where(sm => sm.CreditsId.HasValue)
-                .Select(sm => sm.CreditsId!.Value)
-                .Distinct()
-                .ToList();
-
-            var resolutions = await _context.Resolution
-                .Where(r => r.ExamID == examId && !r.IsDeleted && r.CreditID.HasValue && creditIds.Contains(r.CreditID.Value))
-                .ToListAsync();
-
-            return resolutions
-                .Where(r => int.TryParse(r.Resolution, out var limit) && limit > 0)
-                .GroupBy(r => r.SubjectCreditID)
-                .ToDictionary(g => g.Key, g => int.Parse(g.First().Resolution!));
-        }
-
         /// <summary>
-        /// Writes the resolution limits entered on the marks-entry screen into ResolutionMaster.
-        /// This config used to be set in Exam Master; it now lives with the marks it condones.
-        /// </summary>
-        private async Task UpsertResolutionsAsync(SaveMarksRequest request, Guid collegeId)
-        {
-            if (request.Resolutions.Count == 0 || request.ExamId == Guid.Empty) return;
-
-            var subjectCreditIds = request.Resolutions.Select(r => r.SubjectCreditId).ToList();
-            var existing = await _context.Resolution
-                .Where(r => r.ExamID == request.ExamId && subjectCreditIds.Contains(r.SubjectCreditID))
-                .ToListAsync();
-
-            var configuredHeads = await _context.SubjectCredits
-                .Where(c => subjectCreditIds.Contains(c.Id))
-                .ToListAsync();
-
-            var academicYearId = await _context.MarksMasters
-                .Where(mm => mm.ExamId == request.ExamId && mm.Student!.CollegeId == collegeId)
-                .Select(mm => mm.AcademicYearAYID)
-                .FirstOrDefaultAsync();
-
-            foreach (var update in request.Resolutions)
-            {
-                var row = existing.FirstOrDefault(r => r.SubjectCreditID == update.SubjectCreditId && !r.IsDeleted);
-                if (row == null)
-                {
-                    var head = configuredHeads.FirstOrDefault(c => c.Id == update.SubjectCreditId);
-                    if (head == null) continue;
-
-                    row = new ResolutionMaster
-                    {
-                        ID = Guid.NewGuid(),
-                        ExamID = request.ExamId,
-                        CreditID = head.CreditsId,
-                        SubjectCreditID = update.SubjectCreditId,
-                        Head = head.Head,
-                        AYID = academicYearId,
-                        CreatedAt = DateTime.UtcNow
-                    };
-                    _context.Resolution.Add(row);
-                }
-
-                row.Resolution = (update.Resolution ?? 0).ToString();
-                row.UpdatedAt = DateTime.UtcNow;
-            }
-        }
-
-        /// <summary>
-        /// Applies resolution across every subject the save touched. The client only sends the
-        /// heads it changed, so the sibling heads are reloaded to judge the subject as a whole.
-        /// </summary>
-        private async Task ApplySubjectResolutionsAsync(Guid examId, Guid subjectId, Guid collegeId)
-        {
-            if (examId == Guid.Empty || subjectId == Guid.Empty) return;
-
-            var allHeads = await _context.StudentMarks
-                .Include(sm => sm.MarksMaster)
-                .Include(sm => sm.CreditMaster)
-                    .ThenInclude(cm => cm!.Credits)
-                .Where(sm => sm.SubjectId == subjectId
-                    && sm.MarksMaster!.ExamId == examId
-                    && sm.MarksMaster.Student!.CollegeId == collegeId)
-                .ToListAsync();
-
-            if (allHeads.Count == 0) return;
-
-            var creditIds = allHeads.Where(sm => sm.CreditsId.HasValue).Select(sm => sm.CreditsId!.Value).Distinct().ToList();
-            var resolutionRows = await _context.Resolution
-                .Where(r => r.ExamID == examId && !r.IsDeleted && r.CreditID.HasValue && creditIds.Contains(r.CreditID.Value))
-                .ToListAsync();
-
-            var resolutionLimits = resolutionRows
-                .Where(r => int.TryParse(r.Resolution, out var limit) && limit > 0)
-                .GroupBy(r => r.SubjectCreditID)
-                .ToDictionary(g => g.Key, g => int.Parse(g.First().Resolution!));
-
-            foreach (var group in allHeads.GroupBy(sm => sm.MarksId))
-            {
-                ApplyResolutionAsync(group.OrderBy(sm => sm.Head).ToList(), resolutionLimits);
-            }
-        }
-
-        /// <summary>
-        /// Records what the staff typed for one head. Raw input only -- resolution is applied
-        /// afterwards by <see cref="ApplyResolutionAsync"/>, which needs the whole subject.
+        /// Records what the staff typed for one head. Raw input only: any previously derived
+        /// resolution/grace on the head is now stale, so it is cleared, and result processing
+        /// re-derives it. Never touches a carried-forward (locked) head.
         /// </summary>
         private static string? ApplyMarkAsync(StudentMarks studentMark, string? input)
         {
+            if (studentMark.IsCarryForward)
+            {
+                return $"{SubjectPassEvaluator.GetHeadLabel(studentMark)} is carried forward from the source attempt and cannot be edited.";
+            }
+
             var value = input?.Trim();
             studentMark.Resolution = null;
             studentMark.Grace = null;
@@ -336,53 +267,336 @@ namespace ExamAPI.Services.MarksEntry
             return null;
         }
 
-        /// <summary>
-        /// Applies the staff's condonation to one subject, bumping the head(s) they configured
-        /// resolution on and marking them with '^'.
-        /// <para>
-        /// Head-wise closes each failing head's own shortfall; combined closes the subject
-        /// deficit across the configured heads, each capped by its limit and its headroom.
-        /// </para>
-        /// </summary>
-        private static void ApplyResolutionAsync(IList<StudentMarks> subjectHeads, IReadOnlyDictionary<Guid, int> resolutionLimits)
+        // ------------------------------------------------------------------------------------
+        // Resolution configuration
+        // ------------------------------------------------------------------------------------
+
+        public async Task<ApiResponseDto<ResolutionConfigDto>> GetResolutionConfigAsync(ResolutionConfigRequest request, Guid collegeId)
         {
-            var verdict = SubjectPassEvaluator.Evaluate(subjectHeads);
-            if (verdict.IsPassed || verdict.IsAllAbsent) return;
-
-            var remainingDeficit = verdict.Deficit;
-
-            foreach (var sm in subjectHeads)
+            try
             {
-                if (remainingDeficit <= 0) break;
-                if (sm.IsAbsent || !sm.Marks.HasValue) continue;
+                var exam = await _context.Exams.FirstOrDefaultAsync(e => e.ExamId == request.ExamId && !e.IsDeleted);
 
-                var credit = SubjectPassEvaluator.FindCredit(sm);
-                if (credit == null || !resolutionLimits.TryGetValue(credit.Id, out var limit) || limit <= 0) continue;
+                var marksRecords = await _context.MarksMasters
+                    .Include(mm => mm.StudentMarks)
+                        .ThenInclude(sm => sm.Subject)
+                    .Include(mm => mm.StudentMarks)
+                        .ThenInclude(sm => sm.CreditMaster)
+                            .ThenInclude(cm => cm!.Credits)
+                    .AsSplitQuery()
+                    .Where(mm => mm.ExamId == request.ExamId
+                        && mm.SemesterId == request.SemId
+                        && mm.Pattern == request.Pattern
+                        && mm.Exam != null
+                        && mm.Exam.CourseId == request.BranchId
+                        && mm.Student != null
+                        && mm.Student.CollegeId == collegeId
+                        && !mm.IsDeleted)
+                    .ToListAsync();
 
-                var headPass = SubjectPassEvaluator.GetHeadPass(sm);
-                var headRoom = verdict.IsCombined
-                    ? SubjectPassEvaluator.GetHeadOutOf(sm) - sm.Marks.Value
-                    : headPass - sm.Marks.Value;
+                var resolutionRows = await _context.Resolution
+                    .Where(r => r.ExamID == request.ExamId && !r.IsDeleted)
+                    .ToListAsync();
+                var limits = ResolutionDerivation.ParseLimits(resolutionRows);
 
-                var bump = Math.Min(Math.Min(limit, headRoom), remainingDeficit);
-                if (bump <= 0) continue;
+                var subjects = new List<ResolutionConfigSubjectDto>();
+                var bySubject = marksRecords
+                    .SelectMany(mm => (mm.StudentMarks ?? Enumerable.Empty<StudentMarks>()).Select(sm => (Master: mm, Mark: sm)))
+                    .Where(x => x.Mark.SubjectId.HasValue)
+                    .GroupBy(x => x.Mark.SubjectId!.Value);
 
-                sm.Resolution = bump;
-                sm.Marks = (sm.RawMarks ?? 0) + bump;
-                sm.Grace = ResolutionSymbol;
-                sm.UpdatedAt = DateTime.UtcNow;
-                remainingDeficit -= bump;
-            }
-
-            // All or nothing: a partial bump would leave the subject failing while showing '^'.
-            if (remainingDeficit > 0)
-            {
-                foreach (var sm in subjectHeads.Where(sm => sm.Resolution.HasValue))
+                foreach (var subjectGroup in bySubject)
                 {
-                    sm.Marks = sm.RawMarks;
-                    sm.Resolution = null;
-                    sm.Grace = null;
+                    var anyMark = subjectGroup.First().Mark;
+                    var creditMaster = subjectGroup.Select(x => x.Mark.CreditMaster).FirstOrDefault(cm => cm != null);
+
+                    var headConfigs = subjectGroup
+                        .Select(x => SubjectPassEvaluator.FindCredit(x.Mark))
+                        .Where(c => c != null)
+                        .GroupBy(c => c!.Id)
+                        .Select(g => g.First()!)
+                        .OrderBy(c => c.Head, StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+
+                    var subject = new ResolutionConfigSubjectDto
+                    {
+                        SubjectId = subjectGroup.Key,
+                        SubjectCode = anyMark.Subject?.SubjectCode ?? string.Empty,
+                        SubjectName = anyMark.Subject?.Name ?? string.Empty,
+                        PassingStrategy = creditMaster?.PassingStrategy ?? PassingStrategies.HeadWise,
+                        PassPercentage = creditMaster?.PassPercentage,
+                        Heads = headConfigs.Select(c => new ResolutionConfigHeadDto
+                        {
+                            SubjectCreditId = c.Id,
+                            Head = c.Head ?? string.Empty,
+                            HeadType = string.IsNullOrWhiteSpace(c.HeadType) ? c.Head ?? string.Empty : c.HeadType,
+                            OutOf = int.TryParse(c.HeadOutOf, out var outOf) ? outOf : 0,
+                            Passing = int.TryParse(c.HeadPass, out var pass) ? pass : 0,
+                            Limit = limits.TryGetValue(c.Id, out var limit) ? limit : 0
+                        }).ToList()
+                    };
+
+                    var isCombined = SubjectPassEvaluator.IsCombined(creditMaster);
+                    subject.SelectedHeadSubjectCreditId = isCombined
+                        ? subject.Heads.FirstOrDefault(h => h.Limit > 0)?.SubjectCreditId
+                        : null;
+                    subject.OutOfTotal = subject.Heads.Sum(h => h.OutOf);
+                    subject.RequiredToPass = isCombined && creditMaster?.PassPercentage is > 0
+                        ? (int)Math.Ceiling(subject.OutOfTotal * creditMaster.PassPercentage!.Value / 100.0)
+                        : subject.Heads.Sum(h => h.Passing);
+
+                    foreach (var studentHeads in subjectGroup.GroupBy(x => x.Master.MarksId))
+                    {
+                        subject.StudentCount++;
+                        var marks = studentHeads.Select(x => x.Mark).ToList();
+
+                        if (marks.Any(sm => (sm.Resolution ?? 0) > 0))
+                        {
+                            subject.AppliedCount++;
+                        }
+
+                        // Preview from RAW marks, on detached copies so nothing is tracked or saved.
+                        var preview = marks.Select(ToRawCopy).ToList();
+                        if (preview.Any(sm => !sm.IsAbsent && !sm.Marks.HasValue)) continue; // not fully entered
+
+                        var verdict = SubjectPassEvaluator.Evaluate(preview);
+                        if (verdict.IsAllAbsent) continue;
+
+                        if (!verdict.IsPassed)
+                        {
+                            subject.FailingCount++;
+                        }
+
+                        if (verdict.IsCombined)
+                        {
+                            if (!verdict.IsPassed && preview.All(sm => !sm.IsAbsent))
+                            {
+                                subject.Deficits.Add(verdict.Deficit);
+                            }
+                        }
+                        else
+                        {
+                            foreach (var copy in preview.Where(sm => !sm.IsAbsent && !SubjectPassEvaluator.IsHeadPassed(sm)))
+                            {
+                                var configId = SubjectPassEvaluator.FindCredit(copy)?.Id;
+                                var headDto = subject.Heads.FirstOrDefault(h => h.SubjectCreditId == configId);
+                                headDto?.Deficits.Add(SubjectPassEvaluator.GetHeadPass(copy) - copy.Marks!.Value);
+                            }
+                        }
+
+                        if (ResolutionDerivation.Apply(preview, limits))
+                        {
+                            subject.WithinLimitCount++;
+                        }
+                    }
+
+                    subjects.Add(subject);
                 }
+
+                foreach (var subject in subjects)
+                {
+                    subject.Deficits.Sort();
+                    foreach (var head in subject.Heads) head.Deficits.Sort();
+                }
+
+                return new ApiResponseDto<ResolutionConfigDto>
+                {
+                    Success = true,
+                    Data = new ResolutionConfigDto
+                    {
+                        ExamId = request.ExamId,
+                        IsLocked = exam?.IsLocked ?? false,
+                        Subjects = subjects.OrderBy(s => s.SubjectCode).ThenBy(s => s.SubjectName).ToList()
+                    }
+                };
+            }
+            catch (Exception ex)
+            {
+                return new ApiResponseDto<ResolutionConfigDto> { Success = false, Message = $"Error: {ex.Message}" };
+            }
+        }
+
+        /// <summary>A detached copy of a head as staff typed it (raw marks, nothing derived).</summary>
+        private static StudentMarks ToRawCopy(StudentMarks sm)
+        {
+            int? raw = sm.IsAbsent
+                ? null
+                : sm.RawMarks ?? (sm.Marks.HasValue ? Math.Max(0, sm.Marks.Value - (sm.Resolution ?? 0)) : null);
+
+            return new StudentMarks
+            {
+                Id = sm.Id,
+                Head = sm.Head,
+                SubjectId = sm.SubjectId,
+                CreditsId = sm.CreditsId,
+                CreditMaster = sm.CreditMaster,
+                IsCarryForward = sm.IsCarryForward,
+                IsAbsent = sm.IsAbsent,
+                RawMarks = raw,
+                Marks = raw,
+                // A carried head keeps the bump it carries from the source attempt.
+                Resolution = sm.IsCarryForward && (sm.Resolution ?? 0) > 0 ? sm.Resolution : null,
+            };
+        }
+
+        public async Task<ApiResponseDto<object>> SaveResolutionConfigAsync(SaveResolutionConfigRequest request, Guid collegeId)
+        {
+            try
+            {
+                if (request.ExamId == Guid.Empty)
+                {
+                    return new ApiResponseDto<object> { Success = false, Message = "Select an exam before saving resolution." };
+                }
+                if (request.Limits == null || request.Limits.Count == 0)
+                {
+                    return new ApiResponseDto<object> { Success = false, Message = "No resolution limits were supplied." };
+                }
+
+                // 1. Validate the values. Integer >= 0, no upper limit. Last entry wins per head.
+                var requested = new Dictionary<Guid, int>();
+                foreach (var entry in request.Limits)
+                {
+                    var value = entry.Limit ?? 0m;
+                    if (value < 0)
+                    {
+                        return new ApiResponseDto<object> { Success = false, Message = "Validation Error: Resolution cannot be negative." };
+                    }
+                    if (value != decimal.Truncate(value))
+                    {
+                        return new ApiResponseDto<object> { Success = false, Message = "Validation Error: Resolution must be a whole number." };
+                    }
+                    if (value > int.MaxValue)
+                    {
+                        return new ApiResponseDto<object> { Success = false, Message = "Validation Error: Resolution is too large." };
+                    }
+                    if (entry.SubjectCreditId == Guid.Empty)
+                    {
+                        return new ApiResponseDto<object> { Success = false, Message = "Validation Error: A resolution limit is missing its head." };
+                    }
+
+                    requested[entry.SubjectCreditId] = (int)value;
+                }
+
+                var exam = await _context.Exams.FirstOrDefaultAsync(e => e.ExamId == request.ExamId && !e.IsDeleted);
+                if (exam == null || (exam.CollegeId.HasValue && exam.CollegeId != collegeId))
+                {
+                    return new ApiResponseDto<object> { Success = false, Message = "Exam not found." };
+                }
+                if (exam.IsLocked)
+                {
+                    return new ApiResponseDto<object> { Success = false, Message = "This exam is locked. Resolution can no longer be changed." };
+                }
+
+                // 2. The heads must exist, belong to this college, and be part of this exam.
+                var requestedIds = requested.Keys.ToList();
+                var configuredHeads = await _context.SubjectCredits
+                    .Include(c => c.CreditMaster)
+                        .ThenInclude(cm => cm!.Credits)
+                    .Where(c => requestedIds.Contains(c.Id) && c.CreditMaster != null)
+                    .ToListAsync();
+                var unknown = requestedIds.Except(configuredHeads.Select(c => c.Id)).ToList();
+                if (unknown.Count > 0)
+                {
+                    return new ApiResponseDto<object> { Success = false, Message = "One or more heads are unavailable for the current college." };
+                }
+
+                var creditIdsInExam = (await _context.StudentMarks
+                    .Where(sm => sm.CreditsId.HasValue
+                        && sm.MarksMaster != null
+                        && sm.MarksMaster.ExamId == request.ExamId
+                        && sm.MarksMaster.Student != null
+                        && sm.MarksMaster.Student.CollegeId == collegeId)
+                    .Select(sm => sm.CreditsId!.Value)
+                    .Distinct()
+                    .ToListAsync()).ToHashSet();
+                if (configuredHeads.Any(c => !c.CreditsId.HasValue || !creditIdsInExam.Contains(c.CreditsId.Value)))
+                {
+                    return new ApiResponseDto<object> { Success = false, Message = "One or more heads do not belong to subjects of this exam." };
+                }
+
+                // 3. Existing rows: keep one per head, drop the duplicates.
+                var existingRows = await _context.Resolution
+                    .Where(r => r.ExamID == request.ExamId && !r.IsDeleted)
+                    .ToListAsync();
+                var rowByHead = new Dictionary<Guid, ResolutionMaster>();
+                var duplicates = 0;
+                foreach (var group in existingRows.GroupBy(r => r.SubjectCreditID))
+                {
+                    var keep = ResolutionDerivation.Latest(group);
+                    rowByHead[group.Key] = keep;
+                    foreach (var extra in group.Where(r => r.ID != keep.ID))
+                    {
+                        _context.Resolution.Remove(extra);
+                        duplicates++;
+                    }
+                }
+
+                // 4. A combined subject condones on the combined marks through ONE head: at most one
+                // of its heads may carry a limit above 0 (what is already stored counts too).
+                var currentLimits = rowByHead.ToDictionary(kv => kv.Key, kv => ResolutionDerivation.ParseLimit(kv.Value.Resolution));
+                foreach (var (id, limit) in requested) currentLimits[id] = limit;
+
+                foreach (var creditMaster in configuredHeads.Select(c => c.CreditMaster!).DistinctBy(cm => cm.CreditsId))
+                {
+                    if (!SubjectPassEvaluator.IsCombined(creditMaster)) continue;
+
+                    var withLimit = (creditMaster.Credits ?? new List<SubjectCredits>())
+                        .Where(c => currentLimits.TryGetValue(c.Id, out var l) && l > 0)
+                        .ToList();
+                    if (withLimit.Count > 1)
+                    {
+                        return new ApiResponseDto<object>
+                        {
+                            Success = false,
+                            Message = "Validation Error: A combined subject takes resolution on one head only. Set the limit on a single head and 0 on the others."
+                        };
+                    }
+                }
+
+                // 5. Upsert.
+                var written = 0;
+                foreach (var (subjectCreditId, limit) in requested)
+                {
+                    var stored = limit.ToString(CultureInfo.InvariantCulture);
+                    if (rowByHead.TryGetValue(subjectCreditId, out var row))
+                    {
+                        if (row.Resolution != stored)
+                        {
+                            row.Resolution = stored;
+                            row.UpdatedAt = DateTime.UtcNow;
+                            written++;
+                        }
+                        continue;
+                    }
+
+                    var head = configuredHeads.First(c => c.Id == subjectCreditId);
+                    _context.Resolution.Add(new ResolutionMaster
+                    {
+                        ID = Guid.NewGuid(),
+                        CollegeId = collegeId,
+                        ExamID = request.ExamId,
+                        CreditID = head.CreditsId,
+                        SubjectCreditID = subjectCreditId,
+                        Head = head.Head,
+                        CourseID = exam.CourseId,
+                        AYID = exam.AcademicYearAYID,
+                        Resolution = stored,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                    written++;
+                }
+
+                await _context.SaveChangesAsync();
+                return new ApiResponseDto<object>
+                {
+                    Success = true,
+                    Message = "Saved. Applies on next Process Results.",
+                    Data = new { updated = written, duplicatesRemoved = duplicates }
+                };
+            }
+            catch (Exception ex)
+            {
+                return new ApiResponseDto<object> { Success = false, Message = $"Error: {ex.Message}" };
             }
         }
 
@@ -541,6 +755,7 @@ namespace ExamAPI.Services.MarksEntry
                     }
 
                     int updatedCount = 0;
+                    int skippedCarried = 0;
                     for (int row = 7; row <= rowCount; row++)
                     {
                         foreach (var (markCol, idCol) in headColumns)
@@ -566,6 +781,13 @@ namespace ExamAPI.Services.MarksEntry
                                     return new ApiResponseDto<object> { Success = false, Message = $"Import Error: Row {row} does not match the selected exam, subject, or college." };
                                 }
 
+                                // Carried-forward heads are frozen; skip them and report the count.
+                                if (sm.IsCarryForward)
+                                {
+                                    skippedCarried++;
+                                    continue;
+                                }
+
                                 var error = ApplyMarkAsync(sm, markValue);
                                 if (error != null)
                                 {
@@ -577,11 +799,21 @@ namespace ExamAPI.Services.MarksEntry
                         }
                     }
 
-                    // An import is marks entry by another route, so resolution applies here too.
-                    await ApplySubjectResolutionsAsync(examId, subjectId, collegeId);
-
+                    // An import is marks entry by another route: raw marks only. Resolution is derived
+                    // from ResolutionMaster when results are processed.
                     await _context.SaveChangesAsync();
-                    return new ApiResponseDto<object> { Success = true, Message = $"Successfully imported marks for {updatedCount} records." };
+
+                    var importMessage = $"Successfully imported marks for {updatedCount} records.";
+                    if (skippedCarried > 0)
+                    {
+                        importMessage += $" {skippedCarried} carried-forward head(s) are locked and were skipped.";
+                    }
+                    return new ApiResponseDto<object>
+                    {
+                        Success = true,
+                        Message = importMessage,
+                        Data = new { updated = updatedCount, skippedCarryForward = skippedCarried }
+                    };
                 }
             }
             catch (Exception ex)

@@ -118,7 +118,8 @@ namespace ExamAPI.Services.GenerateHallTicket
                     Name = a.sm.FirstName + " " + a.sm.MiddleName + " " + a.sm.LastName,
                     Center = "",
                     Seat = a.mm.SeatNo,
-                    StudentId = a.sm.StudentId
+                    StudentId = a.sm.StudentId,
+                    Photo = a.sm.PhotoUrl
                 });
                 foreach (var Student in HallTicketStudents)
                 {
@@ -135,6 +136,7 @@ namespace ExamAPI.Services.GenerateHallTicket
                         centre = Student.Center,
                         seat = Student.Seat,
                         Studentid=Student.StudentId,
+                        photo = Student.Photo,
                         subjects = StudentSubjects.ToList()
                     });
                 }
@@ -151,10 +153,12 @@ namespace ExamAPI.Services.GenerateHallTicket
         {
             try
             {
-                var collegedata = _context.Colleges.FirstOrDefault(a=>a.LogoBannerUrl!=null);
+                // Banner preferred; fall back to the logo. Both are stored paths, read by the client through the
+                // authorised GET /api/Files endpoint (not a public URL).
+                var collegedata = _context.Colleges.FirstOrDefault(a => a.LogoBannerUrl != null || a.LogoUrl != null);
                 var result = new HallTicketCollege
                 {
-                    Logo = collegedata.LogoBannerUrl,
+                    Logo = collegedata.LogoBannerUrl ?? collegedata.LogoUrl ?? "",
                     Center=collegedata.CollegeCenter
                 };
                 return result;

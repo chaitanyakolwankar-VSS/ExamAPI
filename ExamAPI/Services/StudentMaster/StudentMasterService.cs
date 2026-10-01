@@ -19,11 +19,12 @@ namespace ExamAPI.Services.StudentMasters
     {
 
         private readonly ApplicationDbContext _context;
+        private readonly ExamAPI.Services.Files.IFileStorage _storage;
 
-
-        public StudentMasterService(ApplicationDbContext context)
+        public StudentMasterService(ApplicationDbContext context, ExamAPI.Services.Files.IFileStorage storage)
         {
             _context = context;
+            _storage = storage;
         }
 
         public async Task<List<StudentMasterDto>> GetDataAsync(Guid ayid)
@@ -204,8 +205,6 @@ namespace ExamAPI.Services.StudentMasters
             student.Gender = dto.Gender;
             student.Dyslexia = dto.Dyslexia;
 
-            string uploadsFolder = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot/uploads");
-
             // PHOTO UPDATE
             if (!string.IsNullOrWhiteSpace(dto.PhotoUrl))
             {
@@ -214,7 +213,7 @@ namespace ExamAPI.Services.StudentMasters
                     Guid imageGuid = Guid.NewGuid();
                     string photoFileName = $"{imageGuid}_photo.png";
 
-                    student.PhotoUrl = SaveBase64Image(dto.PhotoUrl, uploadsFolder, photoFileName);
+                    student.PhotoUrl = await SaveBase64ImageAsync(dto.PhotoUrl, photoFileName);
                 }
             }
 
@@ -225,7 +224,7 @@ namespace ExamAPI.Services.StudentMasters
                     Guid imageGuid = Guid.NewGuid();
                     string signFileName = $"{imageGuid}_sign.png";
 
-                    student.SignUrl = SaveBase64Image(dto.SignUrl, uploadsFolder, signFileName);
+                    student.SignUrl = await SaveBase64ImageAsync(dto.SignUrl, signFileName);
                 }
             }
             // 5️⃣ Update Eligibility
@@ -283,14 +282,12 @@ namespace ExamAPI.Services.StudentMasters
                 };
 
                 // ✅ HANDLE IMAGE AFTER OBJECT CREATION
-                string uploadsFolder = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot/uploads");
-
                 if (!string.IsNullOrWhiteSpace(dto.PhotoUrl) && dto.PhotoUrl.StartsWith("data:image"))
                 {
                     Guid imageGuid = Guid.NewGuid();
                     string photoFileName = $"{imageGuid}_photo.png";
 
-                    studentMaster.PhotoUrl = SaveBase64Image(dto.PhotoUrl, uploadsFolder, photoFileName);
+                    studentMaster.PhotoUrl = await SaveBase64ImageAsync(dto.PhotoUrl, photoFileName);
                 }
 
                 if (!string.IsNullOrWhiteSpace(dto.SignUrl) && dto.SignUrl.StartsWith("data:image"))
@@ -298,7 +295,7 @@ namespace ExamAPI.Services.StudentMasters
                     Guid imageGuid = Guid.NewGuid();
                     string signFileName = $"{imageGuid}_sign.png";
 
-                    studentMaster.SignUrl = SaveBase64Image(dto.SignUrl, uploadsFolder, signFileName);
+                    studentMaster.SignUrl = await SaveBase64ImageAsync(dto.SignUrl, signFileName);
                 }
 
                 _context.StudentMasters.Add(studentMaster);
@@ -329,7 +326,12 @@ namespace ExamAPI.Services.StudentMasters
                 throw;
             }
         }
-        private string? SaveBase64Image(string? base64Data, string folderPath, string fileName)
+        /// <summary>
+        /// Decodes a data-URL image and stores it in the persistent, non-public upload root
+        /// (Storage:UploadsRoot). Returns the stored path to persist in PhotoUrl / SignUrl; the
+        /// file is read back only through the authorised GET /api/Files endpoint.
+        /// </summary>
+        private async Task<string?> SaveBase64ImageAsync(string? base64Data, string fileName)
         {
             if (string.IsNullOrEmpty(base64Data))
                 return null;
@@ -340,13 +342,7 @@ namespace ExamAPI.Services.StudentMasters
 
             byte[] imageBytes = Convert.FromBase64String(base64Data);
 
-            if (!Directory.Exists(folderPath))
-                Directory.CreateDirectory(folderPath);
-
-            string filePath = Path.Combine(folderPath, fileName);
-            File.WriteAllBytes(filePath, imageBytes);
-
-            return $"/uploads/{fileName}";
+            return await _storage.SaveAsync(imageBytes, ExamAPI.Services.Files.FileStorage.StudentsFolder, fileName);
         }
         public async Task<(byte[] FileBytes, string FileName)> GenerateExcelTemplateAsync(StudExcelDto dto)
         {
@@ -596,11 +592,15 @@ namespace ExamAPI.Services.StudentMasters
         }
         public async Task<List<ExamDetailsResultDto>> GetExamDetailsAsync(string studentId)
         {
+            // IgnoreQueryFilters() is needed to see soft-deleted rows, but it also drops the
+            // tenant filter -- so scope to the current college explicitly (StudentId is only
+            // unique per college).
+            var collegeId = _context.CurrentCollegeId;
             var data = await (
                 from mm in _context.MarksMasters.IgnoreQueryFilters()
                 join em in _context.Exams
                     on mm.ExamId equals em.ExamId
-                where mm.StudentID == studentId
+                where mm.StudentID == studentId && mm.CollegeId == collegeId
                 select new
                 {
                     mm.MarksId,
@@ -666,13 +666,19 @@ namespace ExamAPI.Services.StudentMasters
 
         public async Task<string> RestoreExamAsync(string studentId, Guid marksId)
         {
+            // IgnoreQueryFilters() drops the tenant filter as well as the soft-delete one, so
+            // scope to the current college explicitly. StudentMarks has no CollegeId of its own;
+            // it is scoped through its parent MarksMaster.
+            var collegeId = _context.CurrentCollegeId;
             var marksRecords = await _context.MarksMasters.IgnoreQueryFilters()
-                .Where(x => x.StudentID == studentId && x.MarksId == marksId )
+                .Where(x => x.StudentID == studentId && x.MarksId == marksId && x.CollegeId == collegeId)
                 .ToListAsync();
 
-            
+
             var studentRecords = await _context.StudentMarks.IgnoreQueryFilters()
-                .Where(x => x.MarksId == marksId )
+                .Where(x => x.MarksId == marksId
+                    && _context.MarksMasters.IgnoreQueryFilters()
+                        .Any(m => m.MarksId == x.MarksId && m.CollegeId == collegeId))
                 .ToListAsync();
 
             if (!marksRecords.Any() && !studentRecords.Any())

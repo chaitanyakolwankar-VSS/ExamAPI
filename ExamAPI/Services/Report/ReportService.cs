@@ -1,6 +1,7 @@
 using ExamAPI.Data;
 using ExamAPI.DTOs;
 using ExamAPI.Models;
+using ExamAPI.Services.Common;
 using ExamAPI.Services.Result.Engine;
 using ExamAPI.Services.Report.Documents;
 using ExamAPI.Services.Result;
@@ -14,19 +15,21 @@ namespace ExamAPI.Services.Report
     {
         private readonly IResultService _resultService;
         private readonly ApplicationDbContext _context;
+        private readonly ExamAPI.Services.Files.IFileStorage? _storage;
 
-        public ReportService(IResultService resultService, ApplicationDbContext context)
+        public ReportService(IResultService resultService, ApplicationDbContext context, ExamAPI.Services.Files.IFileStorage? storage = null)
         {
             _resultService = resultService;
             _context = context;
+            _storage = storage;
         }
 
-        /// <summary>The tenant's name as printed on every report header.</summary>
-        private async Task<string> GetCollegeNameAsync(Guid collegeId)
-        {
-            var college = await _context.Colleges.FirstOrDefaultAsync(c => c.CollegeId == collegeId);
-            return college?.Name ?? "College Name Not Found";
-        }
+        /// <summary>
+        /// The tenant's name, address and logo as printed on every report header (DEC-14). Never the
+        /// literal "College Name Not Found": the name falls back to the college code, then to empty.
+        /// </summary>
+        private Task<CollegeBrandingInfo> GetBrandingAsync(Guid collegeId)
+            => CollegeBranding.LoadAsync(_context, _storage, collegeId);
 
         /// <summary>The computed verdict for the subject these head rows belong to.</summary>
         private static StudentSubjectResult? FindSubjectResult(MarksMaster marksMaster, IEnumerable<StudentMarks> group)
@@ -115,7 +118,7 @@ namespace ExamAPI.Services.Report
 
             var gradeMaster = ruleSet?.GradeMaster;
 
-            var collegeName = await GetCollegeNameAsync(collegeId);
+            var branding = await GetBrandingAsync(collegeId);
 
             var programName = exam?.Course?.Name ?? "N/A";
             if (programName == "CS & E(DS)") programName = "Computer Science & Engineering (Data Science)";
@@ -123,7 +126,8 @@ namespace ExamAPI.Services.Report
 
             var reportDto = new GazetteReportDto
             {
-                CollegeName = collegeName,
+                CollegeName = branding.Name,
+                CollegeLogo = branding.Logo,
                 ProgramName = programName,
                 Semester = $"Semester {request.SemId}",
                 ExamName = exam?.Name ?? "Regular Exam",
@@ -316,6 +320,10 @@ namespace ExamAPI.Services.Report
             worksheet.Cells[currentRow, 1].Style.Font.Bold = true;
             worksheet.Cells[currentRow, 1].Style.Font.Size = 18;
             worksheet.Cells[currentRow, 1].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
+            worksheet.Cells[currentRow, 1].Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Center;
+            // College logo (College Details) floats at the left of the name row; no cell moves.
+            if (ExcelBranding.TryAddLogo(worksheet, reportDto.CollegeLogo, currentRow, 1, 96, 40))
+                worksheet.Row(currentRow).Height = 32;
             currentRow++;
 
             // Header: Program & Date
@@ -560,13 +568,13 @@ namespace ExamAPI.Services.Report
 
             var student = marksMaster.Student;
 
-            var collegeName = await GetCollegeNameAsync(collegeId);
+            var branding = await GetBrandingAsync(collegeId);
             var programName = exam?.Course?.Name ?? "N/A";
             if (programName == "CS & E(DS)") programName = "Computer Science & Engineering (Data Science)";
             else if (programName == "CS & E") programName = "Computer Science & Engineering";
 
             var examName = exam?.Name ?? "Regular Exam";
-            if (marksMaster.Exam?.ExamType == "KT" || marksMaster.Exam?.ExamType == "ATKT" || exam?.ExamType == "KT" || exam?.ExamType == "ATKT")
+            if (ExamTypeKeys.IsAtkt(marksMaster.Exam?.ExamType) || ExamTypeKeys.IsAtkt(exam?.ExamType))
             {
                 if (!examName.Contains("(ATKT)")) examName += " (ATKT)";
             }
@@ -582,7 +590,8 @@ namespace ExamAPI.Services.Report
 
             var reportDto = new MarksheetReportDto
             {
-                CollegeName = collegeName,
+                CollegeName = branding.Name,
+                CollegeLogo = branding.Logo,
                 StudentName = student != null ? ((marksMaster.QuotaType == "LD" ? "~" : "") + $"{student.FirstName} {student.LastName}") : "N/A",
                 SeatNo = marksMaster.SeatNo ?? "N/A",
                 PRN = student?.StudentPRN ?? "N/A",
@@ -682,7 +691,7 @@ namespace ExamAPI.Services.Report
             if (!marksMasters.Any())
                 throw new Exception("No results found for the given criteria. Have you processed the results yet?");
 
-            var collegeName = await GetCollegeNameAsync(collegeId);
+            var branding = await GetBrandingAsync(collegeId);
             var reports = new List<MarksheetReportDto>();
 
             Dictionary<Guid, List<SemesterRecordDto>> bulkHistory = new();
@@ -703,7 +712,7 @@ namespace ExamAPI.Services.Report
                 else if (programName == "CS & E") programName = "Computer Science & Engineering";
 
                 var examName = exam?.Name ?? "Regular Exam";
-                if (marksMaster.Exam?.ExamType == "KT" || marksMaster.Exam?.ExamType == "ATKT" || exam?.ExamType == "KT" || exam?.ExamType == "ATKT")
+                if (ExamTypeKeys.IsAtkt(marksMaster.Exam?.ExamType) || ExamTypeKeys.IsAtkt(exam?.ExamType))
                 {
                     if (!examName.Contains("(ATKT)")) examName += " (ATKT)";
                 }
@@ -719,7 +728,8 @@ namespace ExamAPI.Services.Report
 
                 var reportDto = new MarksheetReportDto
                 {
-                    CollegeName = collegeName,
+                    CollegeName = branding.Name,
+                    CollegeLogo = branding.Logo,
                     StudentName = student != null ? ((marksMaster.QuotaType == "LD" ? "~" : "") + $"{student.FirstName} {student.LastName}") : "N/A",
                     SeatNo = marksMaster.SeatNo ?? "N/A",
                     PRN = student?.StudentPRN ?? "N/A",

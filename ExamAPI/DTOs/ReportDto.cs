@@ -30,6 +30,10 @@ namespace ExamAPI.DTOs
     public class GazetteReportDto
     {
         public string CollegeName { get; set; } = string.Empty;
+
+        /// <summary>College logo image bytes for the PDF/Excel header; null when College Details has none.</summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public byte[]? CollegeLogo { get; set; }
         public string ProgramName { get; set; } = string.Empty;
         public string Semester { get; set; } = string.Empty;
         public string ExamName { get; set; } = string.Empty;
@@ -42,6 +46,10 @@ namespace ExamAPI.DTOs
     {
         /// <summary>Printed at the head of the marksheet; resolved from the College entity.</summary>
         public string CollegeName { get; set; } = string.Empty;
+
+        /// <summary>College logo image bytes for the PDF header; null when College Details has none.</summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public byte[]? CollegeLogo { get; set; }
 
         public string StudentName { get; set; } = string.Empty;
         public string SeatNo { get; set; } = string.Empty;
@@ -64,7 +72,7 @@ namespace ExamAPI.DTOs
         public double? CGPI { get; set; }
         public double? CumulativeGrade { get; set; }
         
-        public string Remark { get; set; } = string.Empty; // SUCCESSFUL, UNSUCCESSFUL, RLE
+        public string Remark { get; set; } = string.Empty; // "Pass", "Fail", "RLE" or "Pending" (OverallRemarks); legacy "Successful" is not accepted
         
         // Final semester past records for the bottom table
         public List<SemesterRecordDto> PastSemesters { get; set; } = new();

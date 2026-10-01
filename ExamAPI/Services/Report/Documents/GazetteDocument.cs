@@ -43,11 +43,9 @@ namespace ExamAPI.Services.Report.Documents
         {
             container.Column(column =>
             {
-                // Spacious header, allows room for a potential logo on the left/center
-                column.Item().Row(row => 
-                {
-                    row.RelativeItem().AlignCenter().Text(Model.CollegeName).FontSize(14).SemiBold();
-                });
+                // College logo (College Details) left of the name when present, else the name alone.
+                column.Item().Element(c => BrandedHeader.Compose(c, Model.CollegeLogo, 36, title =>
+                    title.AlignCenter().Text(Model.CollegeName).FontSize(14).SemiBold()));
                 
                 column.Item().PaddingTop(8).Row(row =>
                 {

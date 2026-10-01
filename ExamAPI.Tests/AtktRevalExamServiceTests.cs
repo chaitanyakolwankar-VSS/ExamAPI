@@ -615,6 +615,99 @@ namespace ExamAPI.Tests
             Assert.False(row.CanDelete);
             Assert.NotNull(row.DeleteBlockedReason);
         }
+
+        // =================================================================
+        // Lock guard and mode validation
+        // =================================================================
+
+        [Fact]
+        public async Task Delete_IsRefusedOnALockedExam()
+        {
+            Seed();
+            await SaveSelection(_failedSubjectId);
+
+            _context.Exams.Single(e => e.ExamId == _targetExamId).IsLocked = true;
+            await _context.SaveChangesAsync();
+
+            var response = await _service.DeleteAssignmentAsync(new AtktDeleteRequest
+            {
+                Filter = Request(),
+                StdMstId = _studentId
+            });
+
+            Assert.False(response.Success);
+            Assert.Contains("locked", response.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Single(_context.MarksMasters.Where(mm => mm.ExamId == _targetExamId));
+        }
+
+        [Fact]
+        public async Task Matrix_AtktMode_RejectsARegularTargetExam()
+        {
+            Seed();
+            var request = Request();
+            request.TargetExamId = _sourceExamId; // a Regular exam
+
+            var result = await _service.GetMatrixAsync(request);
+
+            Assert.False(result.Success);
+            Assert.Contains("not an ATKT exam", result.Message);
+            Assert.Empty(result.Students);
+        }
+
+        [Fact]
+        public async Task Save_AtktMode_RejectsARegularTargetExam()
+        {
+            Seed();
+            var request = Request();
+            request.TargetExamId = _sourceExamId;
+
+            var response = await _service.SaveAsync(new AtktSaveRequest
+            {
+                Filter = request,
+                Students = new List<AtktStudentSelectionDto>
+                {
+                    new() { StdMstId = _studentId, SubjectIds = new List<Guid> { _failedSubjectId } }
+                }
+            });
+
+            Assert.False(response.Success);
+            Assert.Empty(_context.MarksMasters.Where(mm => mm.ExamId == _sourceExamId && mm.CreatedAt > DateTime.UtcNow.AddMinutes(-5)));
+        }
+
+        [Fact]
+        public async Task Matrix_RevaluationMode_RejectsANonRevaluationTarget()
+        {
+            Seed();
+            var request = Request();
+            request.Mode = AssignmentModes.Revaluation;
+            request.SourceExamId = _sourceExamId;
+            request.TargetExamId = _targetExamId; // an ATKT exam, not a revaluation mirror
+
+            var result = await _service.GetMatrixAsync(request);
+
+            Assert.False(result.Success);
+            Assert.Contains("not a revaluation exam", result.Message);
+        }
+
+        [Theory]
+        [InlineData("Result [Sem-6]: A*B?", "Result Sem-6 AB")]
+        [InlineData(@"A/B\C:D", "ABCD")]
+        [InlineData("[]*?", "Exam")]
+        public void Sanitize_StripsExcelInvalidChars(string input, string expected)
+        {
+            var sanitize = typeof(AtktRevalExamService).GetMethod("Sanitize",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+            Assert.Equal(expected, (string)sanitize.Invoke(null, new object[] { input })!);
+        }
+
+        [Fact]
+        public void Sanitize_CapsSheetNameWithinExcelLimit()
+        {
+            var sanitize = typeof(AtktRevalExamService).GetMethod("Sanitize",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+            var result = (string)sanitize.Invoke(null, new object[] { new string('x', 80) })!;
+            Assert.True(result.Length <= 31);
+        }
     }
 
     /// <summary>

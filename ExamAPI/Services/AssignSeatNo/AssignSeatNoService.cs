@@ -51,7 +51,7 @@ namespace ExamAPI.Services.AssignSeatNo
             try
             {
                 // ✅ Allowed quota list
-                var allowedQuotaTypes = new List<string> { "NSS", "NCC", "DLLE", "LD", "SP" };
+                var allowedQuotaTypes = new List<string> { "NSS", "NCC", "DLLE", "LD", "SP", "SPORTS" };
 
                 // ✅ Find invalid quota types
                 var invalidStudents = dto.Students
@@ -64,7 +64,7 @@ namespace ExamAPI.Services.AssignSeatNo
                     return new ApiResponseDto<object>
                     {
                         Success = false,
-                        Message = "Invalid QuotaType found. Allowed values: NSS, NCC, DLLE, LD, SP"
+                        Message = "Invalid QuotaType found. Allowed values: NSS, NCC, DLLE, LD, SP (or SPORTS)"
                     };
                 }
 
