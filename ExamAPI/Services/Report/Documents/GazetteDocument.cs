@@ -39,27 +39,33 @@ namespace ExamAPI.Services.Report.Documents
                 });
         }
 
+        /// <summary>Banner height cap in points on the landscape gazette (about 19 mm).</summary>
+        const float BannerMaxHeight = 54;
+
         void ComposeHeader(IContainer container)
         {
+            // With a banner the header is kept short so the default 4 students x 6 subjects still fit
+            // on one landscape page: a lower banner and tighter spacing (student data is untouched).
+            var compact = Model.CollegeBanner is { Length: > 0 };
             container.Column(column =>
             {
-                // College logo (College Details) left of the name when present, else the name alone.
-                column.Item().Element(c => BrandedHeader.Compose(c, Model.CollegeLogo, 36, title =>
+                // College Details banner as the header when present, else logo left of the name, else the name alone.
+                column.Item().Element(c => BrandedHeader.Compose(c, Model.CollegeBanner, BannerMaxHeight, Model.CollegeLogo, 36, title =>
                     title.AlignCenter().Text(Model.CollegeName).FontSize(14).SemiBold()));
                 
-                column.Item().PaddingTop(8).Row(row =>
+                column.Item().PaddingTop(compact ? 3 : 8).Row(row =>
                 {
                     row.RelativeItem().AlignLeft().Text($"Program Name: {Model.ProgramName}").FontSize(10).Bold();
                     row.RelativeItem().AlignRight().Text($"Result Date : {Model.ResultDate:dd/MM/yyyy}").FontSize(10).Bold();
                 });
                 
-                column.Item().PaddingTop(4).Row(row =>
+                column.Item().PaddingTop(compact ? 1 : 4).Row(row =>
                 {
                     row.RelativeItem().AlignLeft().Text($"{Model.Semester}").FontSize(10).Bold();
                     row.RelativeItem().AlignRight().Text($"Exam: {Model.ExamName}").FontSize(10).Bold();
                 });
                 
-                column.Item().PaddingTop(10).LineHorizontal(1).LineColor(Colors.Black);
+                column.Item().PaddingTop(compact ? 3 : 10).LineHorizontal(1).LineColor(Colors.Black);
             });
         }
 

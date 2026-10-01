@@ -5,9 +5,9 @@ using Microsoft.EntityFrameworkCore;
 namespace ExamAPI.Services.Report
 {
     /// <summary>
-    /// What every report prints in its header for the current college (DEC-14): name, address and,
-    /// when College Details has one, the logo image. Reports draw the logo left of the name when
-    /// <see cref="Logo"/> is present and fall back to the plain text header when it is null.
+    /// What every report prints in its header for the current college (DEC-14, DEC-19): name,
+    /// address and the images from College Details (local storage only). Fallback order:
+    /// banner (full-width, replaces the name text) -> logo left of the name -> name only.
     /// </summary>
     public sealed class CollegeBrandingInfo
     {
@@ -18,7 +18,14 @@ namespace ExamAPI.Services.Report
         /// <summary>Decodable image bytes of the college logo, or null when there is none / it is unreadable.</summary>
         public byte[]? Logo { get; init; }
 
+        /// <summary>
+        /// Decodable image bytes of the college banner (full-width letterhead), or null when there is
+        /// none / it is unreadable. When present, reports print it instead of the logo and name text.
+        /// </summary>
+        public byte[]? Banner { get; init; }
+
         public bool HasLogo => Logo is { Length: > 0 };
+        public bool HasBanner => Banner is { Length: > 0 };
 
         public static CollegeBrandingInfo Empty { get; } = new();
     }
@@ -50,7 +57,7 @@ namespace ExamAPI.Services.Report
         {
             var college = await context.Colleges.AsNoTracking()
                 .Where(c => c.CollegeId == collegeId && !c.IsDeleted)
-                .Select(c => new { c.Name, c.CollegeCode, c.Address, c.LogoUrl })
+                .Select(c => new { c.Name, c.CollegeCode, c.Address, c.LogoUrl, c.LogoBannerUrl })
                 .FirstOrDefaultAsync(ct);
 
             if (college == null) return CollegeBrandingInfo.Empty;
@@ -59,13 +66,17 @@ namespace ExamAPI.Services.Report
             {
                 Name = DisplayName(college.Name, college.CollegeCode),
                 Address = string.IsNullOrWhiteSpace(college.Address) ? null : college.Address.Trim(),
-                Logo = await ReadLogoAsync(storage, college.LogoUrl, ct)
+                Logo = await ReadLogoAsync(storage, college.LogoUrl, ct),
+                Banner = await ReadLogoAsync(storage, college.LogoBannerUrl, ct)
             };
         }
 
         public static async Task<byte[]?> ReadLogoAsync(IFileStorage? storage, string? storedPath, CancellationToken ct = default)
         {
             if (storage == null || string.IsNullOrWhiteSpace(storedPath)) return null;
+            // Images live in local storage only (DEC-19); a remote http(s) URL (e.g. a legacy
+            // Cloudinary link) is never fetched and counts as "no image".
+            if (IsRemoteUrl(storedPath)) return null;
 
             try
             {
@@ -80,6 +91,15 @@ namespace ExamAPI.Services.Report
             {
                 return null;
             }
+        }
+
+        public static bool IsRemoteUrl(string? storedPath)
+        {
+            var t = storedPath?.TrimStart();
+            return !string.IsNullOrEmpty(t)
+                && (t.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                    || t.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                    || t.StartsWith("//", StringComparison.Ordinal));
         }
 
         /// <summary>
@@ -104,9 +124,62 @@ namespace ExamAPI.Services.Report
 
 namespace ExamAPI.Services.Report
 {
-    /// <summary>Places the college logo on a worksheet as a floating picture.</summary>
+    /// <summary>Places the college logo or banner on a worksheet as a floating picture.</summary>
     public static class ExcelBranding
     {
+        /// <summary>Excel row heights are in points; pictures are sized in pixels (96 dpi).</summary>
+        private const double PxPerPoint = 96.0 / 72.0;
+
+        /// <summary>
+        /// Puts the banner over rows <paramref name="firstRow"/> to <c>firstRow + rowCount - 1</c>.
+        /// The picture is scaled to the sheet width (capped at <paramref name="maxWidthPx"/> and
+        /// <paramref name="maxHeightPx"/>, aspect ratio kept), centred across columns 1..
+        /// <paramref name="lastColumn"/>, and the reserved rows get a height that fits it, so no cell
+        /// content sits under the picture. Returns the number of rows used (0 when nothing was
+        /// added) so callers can start their text below it.
+        /// </summary>
+        public static int TryAddBanner(
+            OfficeOpenXml.ExcelWorksheet sheet, byte[]? banner, int firstRow, int lastColumn,
+            int rowCount = 4, int maxWidthPx = 640, int maxHeightPx = 120)
+        {
+            if (banner == null || banner.Length == 0 || rowCount < 1 || lastColumn < 1) return 0;
+
+            try
+            {
+                if (!ImageSize.TryRead(banner, out var imageWidth, out var imageHeight)) return 0;
+
+                // Sheet width in pixels (a column width unit is ~7 px, plus 5 px padding).
+                double sheetPx = 0;
+                for (var c = 1; c <= lastColumn; c++)
+                {
+                    var w = sheet.Column(c).Width;
+                    sheetPx += (w <= 0 ? 8.43 : w) * 7 + 5;
+                }
+
+                var targetWidth = Math.Min((double)maxWidthPx, sheetPx);
+                var scale = Math.Min(targetWidth / imageWidth, (double)maxHeightPx / imageHeight);
+                var width = Math.Max(1, (int)Math.Round(imageWidth * scale));
+                var height = Math.Max(1, (int)Math.Round(imageHeight * scale));
+
+                // The reserved rows share the picture height (plus a little air) so it sits inside them.
+                var rowHeightPt = Math.Round((height + 6) / (double)rowCount / PxPerPoint, 1);
+                for (var r = firstRow; r < firstRow + rowCount; r++)
+                    sheet.Row(r).Height = rowHeightPt;
+
+                var leftOffset = Math.Max(0, (int)((sheetPx - width) / 2));
+                using var stream = new MemoryStream(banner);
+                var picture = sheet.Drawings.AddPicture($"CollegeBanner_{Guid.NewGuid():N}", stream);
+                picture.SetPosition(firstRow - 1, 3, 0, leftOffset);
+                picture.SetSize(width, height);
+                return rowCount;
+            }
+            catch
+            {
+                // A banner EPPlus cannot embed must not fail the export; the text header remains.
+                return 0;
+            }
+        }
+
         /// <summary>
         /// Inserts the logo as a picture anchored at the given 1-based cell, scaled to fit
         /// <paramref name="maxWidthPx"/> x <paramref name="maxHeightPx"/> keeping its aspect ratio.

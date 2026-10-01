@@ -215,13 +215,9 @@ public sealed class StatisticalReportService : IStatisticalReportService
         {
             MergeAndStyle(worksheet, 2, totalColumns, report.CollegeAddress, 10, false);
         }
-        // College logo (College Details), floating at the top left of the header block. A picture
-        // sits above the grid, so no data cell, row or column moves.
+        // College Details branding: the banner (added below, once the column widths are known) or the
+        // logo at the top left of the name. Pictures sit above the grid, so no data cell moves.
         var branding = await Report.CollegeBranding.LoadAsync(_context, _storage, collegeId);
-        // Row 1 (18pt college name) gets an explicit height rather than relying on autofit.
-        worksheet.Row(1).Height = 26;
-        if (Report.ExcelBranding.TryAddLogo(worksheet, branding.Logo, 1, 1, 96, 44))
-            worksheet.Row(1).Height = 32;
         MergeAndStyle(worksheet, 3, totalColumns, $"STATISTICAL REPORT — {report.CourseName} | {report.SemesterName} | {report.Pattern}", 12, true);
         MergeAndStyle(worksheet, 4, totalColumns, $"EXAMINATION: {report.ExamName}    ACADEMIC YEAR: {report.AcademicYearName}", 11, true);
         MergeAndStyle(worksheet, 5, totalColumns, "Subject-wise result statistics generated from processed examination results", 9, false);
@@ -295,6 +291,21 @@ public sealed class StatisticalReportService : IStatisticalReportService
         worksheet.Column(9).Width = 18;
         worksheet.Cells[1, 1, row, totalColumns].Style.WrapText = true;
         worksheet.View.FreezePanes(8, 1);
+
+        // Banner -> logo + name -> name only. The banner covers rows 1-2 (name + address rows), so
+        // those texts are not printed again and every row below keeps its position.
+        if (Report.ExcelBranding.TryAddBanner(worksheet, branding.Banner, 1, totalColumns, 2) > 0)
+        {
+            worksheet.Cells[1, 1].Value = null;
+            worksheet.Cells[2, 1].Value = null;
+        }
+        else
+        {
+            // Row 1 (18pt college name) gets an explicit height rather than relying on autofit.
+            worksheet.Row(1).Height = 26;
+            if (Report.ExcelBranding.TryAddLogo(worksheet, branding.Logo, 1, 1, 96, 44))
+                worksheet.Row(1).Height = 32;
+        }
 
         return new ApiResponseDto<byte[]>
         {

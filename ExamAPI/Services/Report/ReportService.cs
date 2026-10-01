@@ -141,6 +141,7 @@ namespace ExamAPI.Services.Report
             {
                 CollegeName = branding.Name,
                 CollegeLogo = branding.Logo,
+                CollegeBanner = branding.Banner,
                 ProgramName = programName,
                 Semester = SemesterLabel(request.SemId),
                 ExamName = exam?.Name ?? "Regular Exam",
@@ -329,16 +330,11 @@ namespace ExamAPI.Services.Report
 
             int currentRow = 1;
 
-            // Header: College Name
-            worksheet.Cells[currentRow, 1, currentRow, totalColumns].Merge = true;
-            worksheet.Cells[currentRow, 1].Value = reportDto.CollegeName;
-            worksheet.Cells[currentRow, 1].Style.Font.Bold = true;
-            worksheet.Cells[currentRow, 1].Style.Font.Size = 18;
-            worksheet.Cells[currentRow, 1].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
-            worksheet.Cells[currentRow, 1].Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Center;
-            // College logo (College Details) floats at the left of the name row; no cell moves.
-            // An explicit height: Excel does not autofit merged cells, so the 18pt name would be clipped in a default 15pt row.
-            worksheet.Row(currentRow).Height = ExcelBranding.TryAddLogo(worksheet, reportDto.CollegeLogo, currentRow, 1, 96, 40) ? 32 : 26;
+            // Header row 1: the College Details banner (added once the column widths are known, below)
+            // or, without one, the college name with the logo at its left. Row 1 in both cases, so
+            // every row index that follows is the same whichever header is printed.
+            int brandingRow = currentRow;
+            worksheet.Cells[brandingRow, 1, brandingRow, totalColumns].Merge = true;
             currentRow++;
 
             // Header: Program & Date
@@ -540,6 +536,19 @@ namespace ExamAPI.Services.Report
             if (reportDto.ShowCgpi) worksheet.Column(c++).Width = 8; // CGPI
             worksheet.Column(c).Width = 12; // Remark
 
+            // Banner (full-width header, replaces the name text) -> logo + name -> name only.
+            if (ExcelBranding.TryAddBanner(worksheet, reportDto.CollegeBanner, brandingRow, totalColumns, 1) == 0)
+            {
+                worksheet.Cells[brandingRow, 1].Value = reportDto.CollegeName;
+                worksheet.Cells[brandingRow, 1].Style.Font.Bold = true;
+                worksheet.Cells[brandingRow, 1].Style.Font.Size = 18;
+                worksheet.Cells[brandingRow, 1].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
+                worksheet.Cells[brandingRow, 1].Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Center;
+                // College logo (College Details) floats at the left of the name row; no cell moves.
+                // An explicit height: Excel does not autofit merged cells, so the 18pt name would be clipped in a default 15pt row.
+                worksheet.Row(brandingRow).Height = ExcelBranding.TryAddLogo(worksheet, reportDto.CollegeLogo, brandingRow, 1, 96, 40) ? 32 : 26;
+            }
+
             return await package.GetAsByteArrayAsync();
         }
 
@@ -610,6 +619,7 @@ namespace ExamAPI.Services.Report
             {
                 CollegeName = branding.Name,
                 CollegeLogo = branding.Logo,
+                CollegeBanner = branding.Banner,
                 StudentName = student != null ? ((marksMaster.QuotaType == "LD" ? "~" : "") + $"{student.FirstName} {student.LastName}") : "N/A",
                 SeatNo = marksMaster.SeatNo ?? "N/A",
                 PRN = student?.StudentPRN ?? "N/A",
@@ -750,6 +760,7 @@ namespace ExamAPI.Services.Report
                 {
                     CollegeName = branding.Name,
                     CollegeLogo = branding.Logo,
+                    CollegeBanner = branding.Banner,
                     StudentName = student != null ? ((marksMaster.QuotaType == "LD" ? "~" : "") + $"{student.FirstName} {student.LastName}") : "N/A",
                     SeatNo = marksMaster.SeatNo ?? "N/A",
                     PRN = student?.StudentPRN ?? "N/A",

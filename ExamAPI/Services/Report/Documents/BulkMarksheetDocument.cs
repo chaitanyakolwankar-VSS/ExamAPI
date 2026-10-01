@@ -41,7 +41,7 @@ namespace ExamAPI.Services.Report.Documents
         {
             container.Column(column =>
             {
-                column.Item().Element(c => BrandedHeader.Compose(c, model.CollegeLogo, 44, title =>
+                column.Item().Element(c => BrandedHeader.Compose(c, model.CollegeBanner, 72, model.CollegeLogo, 44, title =>
                     title.AlignCenter().Text(model.CollegeName).FontSize(15).Bold().FontColor(Colors.Blue.Darken3)));
                 column.Item().AlignCenter().Text("STATEMENT OF MARKS").FontSize(12).Bold().FontColor(Colors.Grey.Darken4);
                 

@@ -1233,6 +1233,7 @@ namespace ExamAPI.Services.AtktRevalExam
                 body.Style.VerticalAlignment = ExcelVerticalAlignment.Center;
                 sheet.View.FreezePanes(headerRow + 1, 1);
                 for (var c = 1; c <= totalCols; c++) sheet.Column(c).Width = 20;
+                AddBanner(sheet, totalCols, titleColor, branding);
                 ApplyPrintSetup(sheet, headerRow);
             }
             else
@@ -1301,6 +1302,7 @@ namespace ExamAPI.Services.AtktRevalExam
                 sheet.Column(4).Width = 38;
                 for (var i = 0; i < columns.Count; i++) sheet.Column(leading + 1 + i).Width = 20;
                 sheet.Column(totalCols).Width = 9;
+                AddBanner(sheet, totalCols, titleColor, branding);
                 ApplyPrintSetup(sheet, headerRow);
             }
 
@@ -1319,25 +1321,30 @@ namespace ExamAPI.Services.AtktRevalExam
             ps.RepeatRows = sheet.Cells[$"{headerRow}:{headerRow}"];
         }
 
-        // Rows 1-3 carry the title block: college name first (when known), then the course and the
-        // semester/exam line. The table header stays on row 4. The logo floats top-left, so when one
-        // is drawn the text is merged from textStartCol onward to keep clear of it.
+        // Rows 1-3 carry the title block: row 1 is the college banner (or, without one, the college
+        // name when known), then the course and the semester/exam line. The table header stays on
+        // row 4. With a banner the picture is added by AddBanner once the column widths are known
+        // and the name text is not printed; otherwise the logo floats top-left and the text is
+        // merged from textStartCol onward to keep clear of it.
         private static void WriteTitle(ExcelWorksheet sheet, int totalCols, string course, string subtitle, Color titleColor, ExamAPI.Services.Report.CollegeBrandingInfo? branding = null, int textStartCol = 1)
         {
-            var hasLogo = branding?.Logo is { Length: > 0 };
+            var hasBanner = branding?.HasBanner == true;
+            var hasLogo = !hasBanner && branding?.Logo is { Length: > 0 };
             var startCol = hasLogo && totalCols > textStartCol ? textStartCol : 1;
 
             var lines = new List<(string Text, float Size, double Height)>();
-            if (!string.IsNullOrWhiteSpace(branding?.Name)) lines.Add((branding!.Name, 14, 22));
+            if (hasBanner) lines.Add((string.Empty, 14, 60)); // banner row; resized by AddBanner
+            else if (!string.IsNullOrWhiteSpace(branding?.Name)) lines.Add((branding!.Name, 14, 22));
             lines.Add((course.ToUpperInvariant(), 13, 20));
             lines.Add((subtitle, 11, 18));
 
             for (var i = 0; i < lines.Count; i++)
             {
                 var row = i + 1;
-                sheet.Cells[row, startCol, row, totalCols].Merge = true;
-                var cell = sheet.Cells[row, startCol];
-                cell.Value = lines[i].Text;
+                var rowStartCol = hasBanner && i == 0 ? 1 : startCol;
+                sheet.Cells[row, rowStartCol, row, totalCols].Merge = true;
+                var cell = sheet.Cells[row, rowStartCol];
+                cell.Value = lines[i].Text.Length == 0 ? null : lines[i].Text;
                 cell.Style.Font.Bold = true;
                 cell.Style.Font.Size = lines[i].Size;
                 cell.Style.Font.Color.SetColor(titleColor);
@@ -1346,8 +1353,27 @@ namespace ExamAPI.Services.AtktRevalExam
                 sheet.Row(row).Height = lines[i].Height;
             }
 
-            if (branding != null)
+            if (branding != null && !hasBanner)
                 ExamAPI.Services.Report.ExcelBranding.TryAddLogo(sheet, branding.Logo, 1, 1, 80, 44);
+        }
+
+        /// <summary>
+        /// Draws the banner over row 1 of the title block once the column widths are final. If the
+        /// picture cannot be embedded the college name is printed there instead, so row 1 is never empty.
+        /// </summary>
+        private static void AddBanner(ExcelWorksheet sheet, int totalCols, Color titleColor, ExamAPI.Services.Report.CollegeBrandingInfo? branding)
+        {
+            if (branding?.HasBanner != true) return;
+            if (ExamAPI.Services.Report.ExcelBranding.TryAddBanner(sheet, branding.Banner, 1, totalCols, 1) > 0) return;
+
+            var cell = sheet.Cells[1, 1];
+            cell.Value = branding.Name;
+            cell.Style.Font.Bold = true;
+            cell.Style.Font.Size = 14;
+            cell.Style.Font.Color.SetColor(titleColor);
+            cell.Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
+            cell.Style.VerticalAlignment = ExcelVerticalAlignment.Center;
+            sheet.Row(1).Height = 22;
         }
 
         private static void StyleHeader(ExcelRange range, Color fill)

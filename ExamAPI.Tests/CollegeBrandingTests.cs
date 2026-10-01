@@ -51,12 +51,12 @@ public sealed class CollegeBrandingTests : IDisposable
         Assert.DoesNotContain("Not Found", result, StringComparison.OrdinalIgnoreCase);
     }
 
-    private void AddCollege(string name, string? logo)
+    private void AddCollege(string name, string? logo, string? banner = null)
     {
         _context.Colleges.Add(new College
         {
             CollegeId = _collegeId, Name = name, CollegeCode = "VC", CollegeCenter = "Main",
-            ContactEmail = "a@b.c", ContactPhone = "1", Address = "  12 Main Road ", LogoUrl = logo
+            ContactEmail = "a@b.c", ContactPhone = "1", Address = "  12 Main Road ", LogoUrl = logo, LogoBannerUrl = banner
         });
         _context.SaveChanges();
     }
@@ -95,6 +95,50 @@ public sealed class CollegeBrandingTests : IDisposable
     }
 
     [Fact]
+    public async Task Load_returns_banner_bytes_alongside_the_logo_and_banner_is_what_headers_prefer()
+    {
+        var logo = await _storage.SaveAsync(UploadsTests.Png, FileStorage.CollegeLogosFolder, "logo.png");
+        var banner = await _storage.SaveAsync(UploadsTests.Png, FileStorage.CollegeBannersFolder, "banner.png");
+        AddCollege("Viva College", logo, banner);
+
+        var branding = await CollegeBranding.LoadAsync(_context, _storage, _collegeId);
+
+        Assert.True(branding.HasBanner);
+        Assert.True(branding.HasLogo);
+        Assert.Equal(UploadsTests.Png, branding.Banner);
+    }
+
+    [Fact]
+    public async Task A_college_without_a_banner_has_none_and_keeps_its_logo()
+    {
+        var logo = await _storage.SaveAsync(UploadsTests.Png, FileStorage.CollegeLogosFolder, "logo.png");
+        AddCollege("Viva College", logo);
+
+        var branding = await CollegeBranding.LoadAsync(_context, _storage, _collegeId);
+
+        Assert.False(branding.HasBanner);
+        Assert.Null(branding.Banner);
+        Assert.True(branding.HasLogo);
+    }
+
+    [Theory]
+    [InlineData("https://res.cloudinary.com/demo/image/upload/college_logos/logo.png")]
+    [InlineData("http://example.com/banner.png")]
+    [InlineData("HTTPS://example.com/banner.png")]
+    public async Task A_stored_http_url_counts_as_no_image_for_logo_and_banner(string url)
+    {
+        AddCollege("Viva College", url, url);
+
+        var branding = await CollegeBranding.LoadAsync(_context, _storage, _collegeId);
+
+        Assert.False(branding.HasLogo);
+        Assert.False(branding.HasBanner);
+        Assert.Equal("Viva College", branding.Name);
+        Assert.True(CollegeBranding.IsRemoteUrl(url));
+        Assert.False(CollegeBranding.IsRemoteUrl("college/banners/banner.png"));
+    }
+
+    [Fact]
     public async Task Load_for_an_unknown_college_gives_empty_branding_not_a_placeholder()
     {
         var branding = await CollegeBranding.LoadAsync(_context, _storage, Guid.NewGuid());
@@ -125,6 +169,28 @@ public sealed class CollegeBrandingTests : IDisposable
     }
 
     [Fact]
+    public void Excel_banner_reserves_its_rows_and_moves_no_cells()
+    {
+        ExcelPackage.License.SetNonCommercialPersonal("ReactApi Project");
+        using var package = new ExcelPackage();
+        var sheet = package.Workbook.Worksheets.Add("S");
+        for (var c = 1; c <= 6; c++) sheet.Column(c).Width = 20;
+        sheet.Cells[4, 1].Value = "table header";
+
+        var rows = ExcelBranding.TryAddBanner(sheet, UploadsTests.Png, 1, 6, 2);
+
+        Assert.Equal(2, rows);
+        Assert.Single(sheet.Drawings);
+        Assert.True(sheet.Row(1).Height > 15);
+        Assert.Equal("table header", sheet.Cells[4, 1].Text);
+
+        // No banner / garbage: nothing added and 0 rows reserved, so callers print the text header.
+        Assert.Equal(0, ExcelBranding.TryAddBanner(sheet, null, 1, 6));
+        Assert.Equal(0, ExcelBranding.TryAddBanner(sheet, new byte[] { 1, 2, 3 }, 1, 6));
+        Assert.Single(sheet.Drawings);
+    }
+
+    [Fact]
     public void Image_size_is_read_from_the_header()
     {
         Assert.True(ImageSize.TryRead(UploadsTests.Png, out var w, out var h));
@@ -133,15 +199,18 @@ public sealed class CollegeBrandingTests : IDisposable
     }
 
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void Pdf_headers_render_with_and_without_a_logo(bool withLogo)
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    [InlineData(false, true)]
+    public void Pdf_headers_render_with_and_without_a_logo_or_banner(bool withLogo, bool withBanner)
     {
         QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
         byte[]? logo = withLogo ? UploadsTests.Png : null;
+        byte[]? banner = withBanner ? UploadsTests.Png : null;
 
-        var marksheet = new MarksheetReportDto { CollegeName = "Viva College", CollegeLogo = logo, StudentName = "A B" };
-        var gazette = new GazetteReportDto { CollegeName = "Viva College", CollegeLogo = logo };
+        var marksheet = new MarksheetReportDto { CollegeName = "Viva College", CollegeLogo = logo, CollegeBanner = banner, StudentName = "A B" };
+        var gazette = new GazetteReportDto { CollegeName = "Viva College", CollegeLogo = logo, CollegeBanner = banner };
 
         foreach (var pdf in new[]
         {
