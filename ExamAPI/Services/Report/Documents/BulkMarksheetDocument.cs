@@ -74,7 +74,7 @@ namespace ExamAPI.Services.Report.Documents
                 {
                     table.ColumnsDefinition(columns =>
                     {
-                        columns.ConstantColumn(50); // Course Code
+                        columns.ConstantColumn(64); // Course Code (wide enough for CSDLO6011 on one line)
                         columns.RelativeColumn(3);  // Course Name
                         columns.RelativeColumn(2.2f); // Configured heads
                         columns.RelativeColumn(1.2f); // Total

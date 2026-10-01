@@ -31,6 +31,19 @@ namespace ExamAPI.Services.Report
         private Task<CollegeBrandingInfo> GetBrandingAsync(Guid collegeId)
             => CollegeBranding.LoadAsync(_context, _storage, collegeId);
 
+        /// <summary>Printed subjects in subject-code order, so every student's gazette columns / marksheet rows line up.</summary>
+        private static List<SubjectMarksDto> SortBySubjectCode(IEnumerable<SubjectMarksDto> subjects)
+            => subjects.OrderBy(s => s.SubjectCode, StringComparer.OrdinalIgnoreCase).ToList();
+
+        /// <summary>"Sem-6" / "6" print as "Semester 6"; anything else (e.g. "Semester 6", "Trimester 2") is left as typed, never "Semester Sem-6".</summary>
+        internal static string SemesterLabel(string? semId)
+        {
+            var text = (semId ?? string.Empty).Trim();
+            if (text.Length == 0) return string.Empty;
+            var match = System.Text.RegularExpressions.Regex.Match(text, @"^(?:sem(?:ester)?[\s-]*)?(\d+)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            return match.Success ? $"Semester {match.Groups[1].Value}" : text;
+        }
+
         /// <summary>The computed verdict for the subject these head rows belong to.</summary>
         private static StudentSubjectResult? FindSubjectResult(MarksMaster marksMaster, IEnumerable<StudentMarks> group)
         {
@@ -129,7 +142,7 @@ namespace ExamAPI.Services.Report
                 CollegeName = branding.Name,
                 CollegeLogo = branding.Logo,
                 ProgramName = programName,
-                Semester = $"Semester {request.SemId}",
+                Semester = SemesterLabel(request.SemId),
                 ExamName = exam?.Name ?? "Regular Exam",
                 ResultDate = DateTime.Now,
                 ShowCgpi = request.CgpiForFail,
@@ -264,6 +277,8 @@ namespace ExamAPI.Services.Report
                     if (subDto.GradePoint > 0) creditsEarned += subDto.Credits;
                 }
 
+                studentDto.Subjects = SortBySubjectCode(studentDto.Subjects);
+
                 studentDto.TotalObtained = totalObtained;
                 studentDto.TotalMax = totalMax;
                 studentDto.TotalCredits = totalCredits;
@@ -322,8 +337,8 @@ namespace ExamAPI.Services.Report
             worksheet.Cells[currentRow, 1].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
             worksheet.Cells[currentRow, 1].Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Center;
             // College logo (College Details) floats at the left of the name row; no cell moves.
-            if (ExcelBranding.TryAddLogo(worksheet, reportDto.CollegeLogo, currentRow, 1, 96, 40))
-                worksheet.Row(currentRow).Height = 32;
+            // An explicit height: Excel does not autofit merged cells, so the 18pt name would be clipped in a default 15pt row.
+            worksheet.Row(currentRow).Height = ExcelBranding.TryAddLogo(worksheet, reportDto.CollegeLogo, currentRow, 1, 96, 40) ? 32 : 26;
             currentRow++;
 
             // Header: Program & Date
@@ -494,6 +509,8 @@ namespace ExamAPI.Services.Report
                 worksheet.Cells[currentRow, 1].Value = "Subjects: " + subjectText;
                 worksheet.Cells[currentRow, 1].Style.WrapText = true;
                 worksheet.Cells[currentRow, 1].Style.Font.Size = 8;
+                // Merged cells are not autofitted by Excel: size the row to the wrapped text (about 170 characters per line).
+                worksheet.Row(currentRow).Height = Math.Max(1, (int)Math.Ceiling(("Subjects: " + subjectText).Length / 170.0)) * 11 + 3;
                 currentRow++;
 
                 var abbrText = "C: Credits  |  G: Grade  |  GP: Grade Point  |  CG: Credits * Grade Point  |  CE: Credits Earned  |  SGPA: Semester Grade Point Average  |  CGPI: Cumulative Grade Point Index  |  --: Not Applicable  |  F: Fail  |  AB: Absent";
@@ -501,6 +518,7 @@ namespace ExamAPI.Services.Report
                 worksheet.Cells[currentRow, 1].Value = "Abbreviations: " + abbrText;
                 worksheet.Cells[currentRow, 1].Style.WrapText = true;
                 worksheet.Cells[currentRow, 1].Style.Font.Size = 8;
+                worksheet.Row(currentRow).Height = Math.Max(1, (int)Math.Ceiling(("Abbreviations: " + abbrText).Length / 170.0)) * 11 + 3;
                 currentRow++;
 
                 if (chunk != studentChunks.Last())
@@ -598,7 +616,7 @@ namespace ExamAPI.Services.Report
                 StudentId = marksMaster.StudentID ?? "N/A",
                 ProgramName = programName,
                 ExamName = examName,
-                Semester = $"Semester {semId}",
+                Semester = SemesterLabel(semId),
                 ResultDate = resultDate?.Date ?? DateTime.Today,
                 SGPI = (double)(marksMaster.SGPI ?? 0),
                 CGPI = marksMaster.CGPI.HasValue ? (double)marksMaster.CGPI.Value : null,
@@ -628,6 +646,8 @@ namespace ExamAPI.Services.Report
                 totalCredits += subDto.Credits;
                 if (subDto.GradePoint > 0) creditsEarned += subDto.Credits;
             }
+
+            reportDto.Subjects = SortBySubjectCode(reportDto.Subjects);
 
             reportDto.TotalObtained = totalObtained;
             reportDto.TotalMax = totalMax;
@@ -736,7 +756,7 @@ namespace ExamAPI.Services.Report
                     StudentId = marksMaster.StudentID ?? "N/A",
                     ProgramName = programName,
                     ExamName = examName,
-                    Semester = $"Semester {semId}",
+                    Semester = SemesterLabel(semId),
                     ResultDate = resultDate?.Date ?? DateTime.Today,
                     SGPI = (double)(marksMaster.SGPI ?? 0),
                     CGPI = marksMaster.CGPI.HasValue ? (double)marksMaster.CGPI.Value : null,
@@ -766,6 +786,8 @@ namespace ExamAPI.Services.Report
                     totalCredits += subDto.Credits;
                     if (subDto.GradePoint > 0) creditsEarned += subDto.Credits;
                 }
+
+                reportDto.Subjects = SortBySubjectCode(reportDto.Subjects);
 
                 reportDto.TotalObtained = totalObtained;
                 reportDto.TotalMax = totalMax;

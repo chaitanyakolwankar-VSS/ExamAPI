@@ -69,7 +69,7 @@ namespace ExamAPI.Services.Report.Documents
             var subjectsPerRow = Math.Clamp(Request.SubjectsPerRow, 1, 6);
             var studentChunks = Model.Students.Chunk(studentsPerPage).ToList();
 
-            container.PaddingVertical(10).Column(column =>
+            container.PaddingVertical(4).Column(column =>
             {
                 for (int chunkIndex = 0; chunkIndex < studentChunks.Count; chunkIndex++)
                 {
@@ -152,7 +152,9 @@ namespace ExamAPI.Services.Report.Documents
                                         {
                                             text.Line($"{head.Head}: {head.Marks}{head.Grace}/{FormatNumber(head.Max)}");
                                         }
-                                        text.Line($"C: {sub.Credits} G: {sub.Grade}{sub.Grace} GP: {sub.GradePoint} CG: {sub.EarnedGradePoints}");
+                                        // One compact line (7pt, no inner padding): at 4 students x 6 subjects a wrapped "CG: 21" added a
+                                        // line to every cell and pushed the fourth student onto a second page (35 pages for 69 students).
+                                        text.Line($"C:{sub.Credits} G:{sub.Grade}{sub.Grace} GP:{sub.GradePoint} CG:{sub.EarnedGradePoints}").FontSize(7);
                                     });
                                 }
 
