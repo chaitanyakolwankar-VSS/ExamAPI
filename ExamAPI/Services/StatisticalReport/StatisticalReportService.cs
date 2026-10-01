@@ -141,7 +141,11 @@ public sealed class StatisticalReportService : IStatisticalReportService
                     PassingPercentage = Percentage(part: passed.Select(item => item.MarksMaster.MarksId).Distinct().Count(), whole: group.Select(item => item.MarksMaster.MarksId).Distinct().Count()),
                     PassedBetween40And60 = between40And60,
                     PassedAtOrAbove60 = atOrAbove60,
-                    GraceMarksAwarded = group.Sum(item => item.Result.GraceApplied)
+                    // GraceApplied stores combined-subject ordinance grace only. The processed
+                    // uplift also includes head-wise ordinance grace and resolution marks.
+                    // Use the verdict's snapshot, without adding combined grace twice.
+                    GraceMarksAwarded = group.Sum(item => Math.Max(0,
+                        item.Result.ObtainedTotal - item.Result.RawObtainedTotal))
                 };
             })
             .ToList();

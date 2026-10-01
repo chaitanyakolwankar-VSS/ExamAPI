@@ -40,5 +40,6 @@ public sealed class StatisticalReportRowDto
     public decimal PassingPercentage { get; set; }
     public int PassedBetween40And60 { get; set; }
     public int PassedAtOrAbove60 { get; set; }
+    /// <summary>Processed mark uplift: head/subject ordinance grace plus resolution, counted once per selected attempt.</summary>
     public int GraceMarksAwarded { get; set; }
 }
