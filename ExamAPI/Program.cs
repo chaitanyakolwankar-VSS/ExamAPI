@@ -60,6 +60,8 @@ builder.Services.AddScoped<ExamAPI.Services.RegularExam.IRegularExamService, Exa
 builder.Services.AddScoped<ExamAPI.Services.Eligibility.IEligibilityService,ExamAPI.Services.Eligibility.EligibilityService>();
 builder.Services.AddScoped<ExamAPI.Services.GenerateHallTicket.IGenerateHallTicketService, ExamAPI.Services.GenerateHallTicket.GenerateHallTicketService>();
 builder.Services.AddScoped<ExamAPI.Services.UsersMaster.IUserMasterService, ExamAPI.Services.UsersMaster.UserMasterService>();
+builder.Services.AddScoped<ExamAPI.Services.Platform.IProvisionCollegeService, ExamAPI.Services.Platform.ProvisionCollegeService>();
+builder.Services.AddScoped<ExamAPI.Services.Platform.IPlatformCollegeService, ExamAPI.Services.Platform.PlatformCollegeService>();
 builder.Services.AddScoped<IPasswordResetService, PasswordResetService>();
 builder.Services.AddScoped<ExamAPI.Services.AssignSeatNo.IAssignSeatNoService, ExamAPI.Services.AssignSeatNo.AssignSeatNoService>();
 builder.Services.AddScoped<ExamAPI.Services.AtktRevalExam.IAtktRevalExamService, ExamAPI.Services.AtktRevalExam.AtktRevalExamService>();
