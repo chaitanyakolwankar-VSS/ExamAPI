@@ -1,5 +1,7 @@
 ﻿using ExamAPI.DTOs;
+using ExamAPI.Services.Auth;
 using ExamAPI.Services.UsersMaster;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
@@ -18,22 +20,36 @@ namespace ExamAPI.Controllers
         }
 
         [HttpPost]
+        [Authorize(Policy = AccessPolicies.CollegeAdmin)]
         public async Task<IActionResult> CreateUser([FromBody] CreateUserMasterDTO dto)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
-            // The new user is created inside the CALLER's college. CollegeId comes from the
-            // token and is no longer accepted from the request body.
-            var collegeIdClaim = User.FindFirstValue("CollegeId");
-            if (string.IsNullOrEmpty(collegeIdClaim) || !Guid.TryParse(collegeIdClaim, out var collegeId))
+            // The new user is created inside the CALLER's college. For a college admin CollegeId
+            // comes from the token and is never accepted from the request body. A platform admin
+            // has no college of their own, so they name the target college in the body -- this is
+            // how college admins get created (DEC-17).
+            var isPlatformAdmin = AccessPolicies.IsPlatformAdmin(User);
+            Guid collegeId;
+            if (isPlatformAdmin)
             {
-                return Unauthorized(new { message = "Invalid or missing CollegeId in token." });
+                if (dto.CollegeId is not Guid target || target == Guid.Empty)
+                    return BadRequest(new { message = "CollegeId is required when a platform admin creates a user." });
+                collegeId = target;
+            }
+            else
+            {
+                var collegeIdClaim = User.FindFirstValue("CollegeId");
+                if (string.IsNullOrEmpty(collegeIdClaim) || !Guid.TryParse(collegeIdClaim, out collegeId))
+                {
+                    return Unauthorized(new { message = "Invalid or missing CollegeId in token." });
+                }
             }
 
             try
             {
-                var result = await _service.CreateUserAsync(dto, collegeId);
+                var result = await _service.CreateUserAsync(dto, collegeId, isPlatformAdmin);
                 return Ok(result);
             }
             catch (InvalidOperationException ex)
@@ -43,6 +59,7 @@ namespace ExamAPI.Controllers
         }
 
         [HttpGet("GetInfo")]
+        [Authorize(Policy = AccessPolicies.CollegeAdmin)]
         public async Task<IActionResult> GetAllUsers()
         {
             var users = await _service.GetAllUsersAsync();
@@ -60,9 +77,18 @@ namespace ExamAPI.Controllers
         }
 
         [HttpDelete("DeleteUser/{id}")]
+        [Authorize(Policy = AccessPolicies.CollegeAdmin)]
         public async Task<IActionResult> DeleteUser(Guid id)
         {
-            var result = await _service.DeleteUserById(id);
+            bool result;
+            try
+            {
+                result = await _service.DeleteUserById(id, AccessPolicies.IsPlatformAdmin(User));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
 
             if (!result)
                 return NotFound(new { message = "User Not Found" });
@@ -71,12 +97,21 @@ namespace ExamAPI.Controllers
         }
 
         [HttpPut("Update")]
+        [Authorize(Policy = AccessPolicies.CollegeAdmin)]
         public async Task<IActionResult> UpdateUser([FromBody] UpdateUserMasterDTO dto)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
-            var result = await _service.UpdateUserMaster(dto);
+            bool result;
+            try
+            {
+                result = await _service.UpdateUserMaster(dto, AccessPolicies.IsPlatformAdmin(User));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
 
             if (!result)
                 return NotFound(new { message = "User not found" });

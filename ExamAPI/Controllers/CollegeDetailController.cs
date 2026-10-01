@@ -1,5 +1,7 @@
 ﻿using ExamAPI.DTOs;
+using ExamAPI.Services.Auth;
 using ExamAPI.Services.CollegeDetail;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
@@ -29,7 +31,9 @@ namespace ExamAPI.Controllers
 
 
 
+        // Only the platform (developer) login creates colleges (DEC-17).
         [HttpPost]
+        [Authorize(Policy = AccessPolicies.PlatformAdmin)]
         [Consumes("multipart/form-data")]
 
         public async Task<IActionResult> Create(CreateCollegeDTO dto)
@@ -38,7 +42,9 @@ namespace ExamAPI.Controllers
             return Ok(new { CollegeId = id });
         }
 
+        // A college admin edits their own college (the tenant filter hides all others); a platform admin any.
         [HttpPut("{id}")]
+        [Authorize(Policy = AccessPolicies.CollegeAdmin)]
         public async Task<IActionResult> Update(Guid id, [FromForm] CreateCollegeDTO dto)
         {
             var result = await _collegeDetailService.UpdateAsync(id, dto);

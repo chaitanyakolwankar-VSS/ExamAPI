@@ -2,8 +2,10 @@
 using DocumentFormat.OpenXml.Spreadsheet;
 using ExamAPI.DTOs;
 
+using ExamAPI.Services.Auth;
 using ExamAPI.Services.RoleMaster;
 using ExamAPI.Services.StudentMasters;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
@@ -78,6 +80,7 @@ namespace ExamAPI.Controllers
         }
 
         [HttpDelete("DeleteStudent")]
+        [Authorize(Policy = AccessPolicies.CollegeAdmin)]
         public async Task<IActionResult> DeleteStudent(string studentId)
         {
             var result = await _service.DeleteStudentAsync(studentId);
@@ -109,6 +112,7 @@ namespace ExamAPI.Controllers
         }
 
         [HttpPut("RestoreExam")]
+        [Authorize(Policy = AccessPolicies.CollegeAdmin)]
         public async Task<IActionResult> RestoreExam(string studentId, Guid marksId)
         {
             var result = await _service.RestoreExamAsync(studentId, marksId);
@@ -116,6 +120,7 @@ namespace ExamAPI.Controllers
         }
 
         [HttpDelete("DeleteExam")]
+        [Authorize(Policy = AccessPolicies.CollegeAdmin)]
         public async Task<IActionResult> DeleteExam(string studentId, Guid marksId)
         {
             var result = await _service.DeleteExamAsync(studentId, marksId);

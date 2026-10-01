@@ -1,6 +1,8 @@
 ﻿using ExamAPI.Data;
 using ExamAPI.DTOs;
 using ExamAPI.Models;
+using ExamAPI.Services.Auth;
+using ExamAPI.Services.Tenancy;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System;
@@ -13,9 +15,23 @@ namespace ExamAPI.Services.RoleMaster
     {
         private readonly ApplicationDbContext _context;
 
-        public RoleMasterService(ApplicationDbContext context)
+        private readonly ICurrentUser _currentUser;
+
+        public RoleMasterService(ApplicationDbContext context, ICurrentUser currentUser)
         {
             _context = context;
+            _currentUser = currentUser;
+        }
+
+        // The admin role is identified by name (no schema flag), so a college admin must not be able to
+        // mint, rename into, rename out of, or delete it: that would bypass the platform-admin-only,
+        // 2-admins-per-college rule (DEC-17) enforced when the role is assigned to a user.
+        private void EnsureAdminRoleNotTouched(string? newName, string? existingName)
+        {
+            if (_currentUser.IsPlatformAdmin) return;
+            var touchesAdmin = AccessPolicies.IsAdminRoleName(newName) != AccessPolicies.IsAdminRoleName(existingName);
+            if (touchesAdmin)
+                throw new InvalidOperationException("Only the platform administrator can create, rename or delete the Admin role");
         }
         public async Task<List<RoleMasterDto>> GetRoleAsync()
         {
@@ -72,6 +88,8 @@ namespace ExamAPI.Services.RoleMaster
             if (dto == null)
                 return "Invalid data";
 
+            EnsureAdminRoleNotTouched(dto.Name, existingName: null);
+
             var roleId = Guid.NewGuid();
 
             var role = new ExamAPI.Models.RoleMaster
@@ -112,6 +130,8 @@ namespace ExamAPI.Services.RoleMaster
             if (role == null)
                 return "Role not found";
 
+            EnsureAdminRoleNotTouched(dto.Name, role.Name);
+
             role.Name = dto.Name;
             role.Description = dto.Description;
             role.UpdatedAt = DateTime.UtcNow;
@@ -145,6 +165,8 @@ namespace ExamAPI.Services.RoleMaster
 
             if (role == null)
                 return "Role not found";
+
+            EnsureAdminRoleNotTouched(newName: null, existingName: role.Name);
 
             role.IsDeleted = true;
 

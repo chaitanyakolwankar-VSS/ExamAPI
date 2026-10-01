@@ -1,5 +1,7 @@
 ﻿using ExamAPI.DTOs;
+using ExamAPI.Services.Auth;
 using ExamAPI.Services.Permissions;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
@@ -7,6 +9,7 @@ namespace ExamAPI.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize(Policy = AccessPolicies.CollegeAdmin)]
     public class PermissionController : ControllerBase
     {
         private readonly IPermissionService _permissionService;

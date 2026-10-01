@@ -1,6 +1,7 @@
 using CloudinaryDotNet;
 using ExamAPI.Data;
 using ExamAPI.Models;
+using ExamAPI.Services.Auth;
 using ExamAPI.Services.Email;
 using ExamAPI.Services.PasswordResetOTP;
 using ExamAPI.Services.RoleMaster;
@@ -116,6 +117,9 @@ builder.Services.AddAuthorization(options =>
     options.FallbackPolicy = new AuthorizationPolicyBuilder()
         .RequireAuthenticatedUser()
         .Build();
+
+    // Access model (DEC-17 / DB-05): PlatformAdmin and CollegeAdmin policies.
+    options.AddAccessPolicies();
 });
 // Authorization end
 
