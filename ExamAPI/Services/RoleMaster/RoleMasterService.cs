@@ -35,20 +35,33 @@ namespace ExamAPI.Services.RoleMaster
         }
         public async Task<List<RoleMasterDto>> GetRoleAsync()
         {
-            var result =
-            (from rm in _context.RoleMasters
-             join rp in _context.RolePermissions on rm.RoleId equals rp.RoleId
-             join p in _context.Permissions on rp.PermissionId equals p.PermissionId
-             where !rm.IsDeleted && !rp.IsDeleted && !p.IsDeleted
-             group p by new { rm.RoleId, rm.Name, rm.Description } into g
-             select new RoleMasterDto
-             {
-                 RoleId = g.Key.RoleId,
-                 Name = g.Key.Name,
-                 Description = g.Key.Description,
-                 PermissionFormNames = string.Join(", ", g.Select(x => x.PermissionFormName))
-             }).ToList();
-            return result;
+            // Every non-deleted role of the caller's college (plus platform templates, via the query
+            // filter), INCLUDING roles with no permissions (e.g. Admin, which sees everything and needs none).
+            // The permission list is a left join: a role without rows gets an empty string.
+            var roles = await _context.RoleMasters
+                .Where(rm => !rm.IsDeleted)
+                .Select(rm => new
+                {
+                    rm.RoleId,
+                    rm.Name,
+                    rm.Description,
+                    Forms = rm.RolePermissions!
+                        .Where(rp => !rp.IsDeleted && !rp.Permission!.IsDeleted)
+                        .Select(rp => rp.Permission!.PermissionFormName)
+                        .ToList()
+                })
+                .ToListAsync();
+
+            return roles
+                .OrderBy(r => r.Name)
+                .Select(r => new RoleMasterDto
+                {
+                    RoleId = r.RoleId,
+                    Name = r.Name,
+                    Description = r.Description,
+                    PermissionFormNames = string.Join(", ", r.Forms.OrderBy(x => x))
+                })
+                .ToList();
         }
         public async Task<List<PermissionResponse>> GetPermissionsAsync()
         {
