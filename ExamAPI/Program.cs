@@ -69,6 +69,7 @@ builder.Services.AddScoped<ExamAPI.Services.Result.IResultService, ExamAPI.Servi
 builder.Services.AddScoped<ExamAPI.Services.MarksEntry.IMarksEntryService, ExamAPI.Services.MarksEntry.MarksEntryService>();
 builder.Services.AddScoped<ExamAPI.Services.Report.IReportService, ExamAPI.Services.Report.ReportService>();
 builder.Services.AddScoped<ExamAPI.Services.StatisticalReport.IStatisticalReportService, ExamAPI.Services.StatisticalReport.StatisticalReportService>();
+builder.Services.AddScoped<ExamAPI.Services.ATKTCummulativeReport.IATKTCummulativeReportService, ExamAPI.Services.ATKTCummulativeReport.ATKTCummulativeReportService>();
 builder.Services.AddOrdinanceEngine();
 
 // Configure QuestPDF
