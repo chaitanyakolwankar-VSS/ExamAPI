@@ -28,6 +28,8 @@ namespace ExamAPI.Controllers
             return Ok(result);
         }
         // GET SUBJECTS
+        // Duplicate of the shared lookup layer; kept for team branches, remove after they migrate (T-19 D).
+        [Obsolete("Use /api/Lookup/subjects -- kept for team branches; remove after they migrate (T-19 D)")]
         [HttpGet("get-subjects")]
         public async Task<IActionResult> GetSubjects([FromQuery] GetSubjectReqDtos dto)
         {

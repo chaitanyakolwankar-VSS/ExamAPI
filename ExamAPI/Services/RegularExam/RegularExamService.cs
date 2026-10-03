@@ -1,6 +1,7 @@
 ﻿using ExamAPI.Controllers;
 using ExamAPI.Data;
 using ExamAPI.DTOs;
+using ExamAPI.Services.Lookup;
 using ExamAPI.Models;
 using ExamAPI.Services.Common;
 using Microsoft.EntityFrameworkCore;
@@ -59,48 +60,32 @@ namespace ExamAPI.Services.RegularExam
             }
         }
 
+        // Kept for the obsolete GET /RegularExam/get-exam. Predicate = ExamPurposes.HallTicket
+        // (active, non-revaluation; ATKT exams included) -- the same filter this method always had.
+        // Kept for the obsolete GET /RegularExam/get-exam. Predicate = ExamPurposes.HallTicket
+        // (active, non-revaluation; ATKT exams included) -- the same filter this method always had.
         public async Task<List<RegularExamResponse>> GetExam(GetExam dto)
         {
-            try
-            {
-                var exams = _context.Exams.Where(a => a.IsActive == true && a.RevaluationForExamId == null && a.CourseId == dto.Courseid && a.AcademicYearAYID == dto.Ayid).Select(a => new RegularExamResponse
+            return await ExamPurposes.Query(_context, ExamPurposes.HallTicket, dto.Courseid, dto.Ayid, null)!
+                .Select(a => new RegularExamResponse
                 {
                     ExamId = a.ExamId,
                     Examname = a.RevaluationForExamId != null ? a.Name + " (Revaluation)" : a.Name,
-                });
-                return exams.ToList();
-            }
-            catch (Exception ex)
-            {
-                throw new Exception(ex.Message);
-            }
+                })
+                .ToListAsync();
         }
 
-        /// <summary>
-        /// Active exams of every type (Regular, ATKT and Revaluation) for the course + academic
-        /// year. Used by the post-assignment screens -- Marks Entry, Gazette, Hall Ticket,
-        /// Marksheet, Assign Seat No -- which must be able to pick an ATKT/Revaluation exam, not
-        /// only Regular. The Regular *conduct* screen keeps using <see cref="GetExam"/>.
-        /// </summary>
+        // Kept for the obsolete GET /RegularExam/get-all-exams. Predicate = ExamPurposes.All.
         public async Task<List<RegularExamResponse>> GetAllExams(GetExam dto)
         {
-            try
-            {
-                var exams = _context.Exams
-                    .Where(a => a.IsActive == true && a.CourseId == dto.Courseid && a.AcademicYearAYID == dto.Ayid)
-                    .Select(a => new RegularExamResponse
-                    {
-                        ExamId = a.ExamId,
-                        Examname = a.RevaluationForExamId != null ? a.Name + " (Revaluation)" : a.Name,
-                    });
-                return exams.ToList();
-            }
-            catch (Exception ex)
-            {
-                throw new Exception(ex.Message);
-            }
+            return await ExamPurposes.Query(_context, ExamPurposes.All, dto.Courseid, dto.Ayid, null)!
+                .Select(a => new RegularExamResponse
+                {
+                    ExamId = a.ExamId,
+                    Examname = a.RevaluationForExamId != null ? a.Name + " (Revaluation)" : a.Name,
+                })
+                .ToListAsync();
         }
-
         public async Task<RegularStudentResponse> GetStudents(RegularExamStudents dto)
         {
             try

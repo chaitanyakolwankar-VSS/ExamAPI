@@ -1,5 +1,6 @@
 using ExamAPI.Data;
 using ExamAPI.DTOs;
+using ExamAPI.Services.Lookup;
 using ExamAPI.Models;
 using ExamAPI.Services.Common;
 using Microsoft.EntityFrameworkCore;
@@ -132,48 +133,21 @@ namespace ExamAPI.Services.Exam
             }
         }
 
+        // Kept for the obsolete GET /ExamMaster/get-exam. Predicate = ExamPurposes.Master.
+        // Kept for the obsolete GET /ExamMaster/get-exam. Predicate = ExamPurposes.Master.
         public async Task<List<GetExamResponse>> GetExam(GetExam dto)
         {
-            try
-            {
-                var exams =  _context.Exams
-                    .Where(a => a.CourseId == dto.Courseid &&
-                                a.AcademicYearAYID == dto.Ayid &&
-                                !a.IsDeleted)
-                    .Select(a => new GetExamResponse
-                    {
-                        ExamId = a.ExamId,
-                        Name = a.RevaluationForExamId!=null? a.Name + " (Revaluation)":a.Name,
-                        ExamType = a.ExamType,
-                        IsActive=a.IsActive,
-                    }) ;
-
-                return exams.ToList();
-            }
-            catch (Exception ex)
-            {
-                throw new Exception(ex.Message);
-            }
-        }
-
-        public async Task<List<ResolutionExamResponse>> GetResolutionExam(GetResolutionExam dto)
-        {
-            try
-            {
-                var examcodes = _context.MarksMasters.Where(a => a.SemesterId == dto.Semester && a.Pattern==dto.Pattern).Select(x => x.ExamId).Distinct();
-                var exams = _context.Exams.Where(a =>  a.CourseId == dto.Courseid && a.AcademicYearAYID == dto.Ayid && examcodes.Contains(a.ExamId)).Select(a => new ResolutionExamResponse
+            return await ExamPurposes.Query(_context, ExamPurposes.Master, dto.Courseid, dto.Ayid, null)!
+                .Where(a => !a.IsDeleted)
+                .Select(a => new GetExamResponse
                 {
                     ExamId = a.ExamId,
-                    Examname = a.RevaluationForExamId != null ? a.Name+' '+a.ExamType + " (Revaluation)" : a.Name + ' ' + a.ExamType,
-                });
-                return exams.ToList();
-            }
-            catch (Exception ex)
-            {
-                throw new Exception(ex.Message);
-            }
+                    Name = a.RevaluationForExamId != null ? a.Name + " (Revaluation)" : a.Name,
+                    ExamType = a.ExamType,
+                    IsActive = a.IsActive,
+                })
+                .ToListAsync();
         }
-
 
         public async Task<ApiResponseDto<object>> SearchExam(Exams dto)
         {

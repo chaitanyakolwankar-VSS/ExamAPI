@@ -1,5 +1,6 @@
 ﻿using ExamAPI.Data;
 using ExamAPI.DTOs;
+using ExamAPI.Services.Lookup;
 using ExamAPI.Models;
 using Microsoft.EntityFrameworkCore;
 using static Microsoft.EntityFrameworkCore.DbLoggerCategory;
@@ -14,25 +15,18 @@ namespace ExamAPI.Services.GenerateHallTicket
             _context = context;
         }
 
+        // Kept for the obsolete GET /GenerateHallTicket/get-exam. Predicate = ExamPurposes.HallTicket.
+        // Kept for the obsolete GET /GenerateHallTicket/get-exam. Predicate = ExamPurposes.HallTicket.
         public async Task<List<RegularExamResponse>> GetExam(GetExam dto)
         {
-            try
-            {
-                var exams = _context.Exams
-                    .Where(a => a.IsActive == true && a.RevaluationForExamId == null && a.CourseId == dto.Courseid && a.AcademicYearAYID == dto.Ayid)
-                    .Select(a => new RegularExamResponse
-                    {
-                        ExamId = a.ExamId,
-                        Examname = a.RevaluationForExamId != null ? a.Name + " ( " + a.ExamType + " )" + " (Revaluation)" : a.Name + " ( " + a.ExamType + " )",
-                    });
-                return exams.ToList();
-            }
-            catch (Exception ex)
-            {
-                throw new Exception(ex.Message);
-            }
+            return await ExamPurposes.Query(_context, ExamPurposes.HallTicket, dto.Courseid, dto.Ayid, null)!
+                .Select(a => new RegularExamResponse
+                {
+                    ExamId = a.ExamId,
+                    Examname = a.RevaluationForExamId != null ? a.Name + " ( " + a.ExamType + " )" + " (Revaluation)" : a.Name + " ( " + a.ExamType + " )",
+                })
+                .ToListAsync();
         }
-
         public async Task<List<HallTicketSubjects>> GetHallTicketSubject(HallTicketSubjectsRequest dto)
         {
             try

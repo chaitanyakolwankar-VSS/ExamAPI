@@ -1,5 +1,6 @@
 ﻿using ExamAPI.Data;
 using ExamAPI.DTOs;
+using ExamAPI.Services.Lookup;
 using ExamAPI.Services.Common;
 using Microsoft.EntityFrameworkCore;
 
@@ -15,23 +16,18 @@ namespace ExamAPI.Services.AssignSeatNo
             _genericRepository = genericRepository;
         }
 
+        // Kept for the obsolete GET /AssignSeatNo/get-exam. Predicate = ExamPurposes.SeatNo.
+        // Kept for the obsolete GET /AssignSeatNo/get-exam. Predicate = ExamPurposes.SeatNo.
         public async Task<List<ExamResponse>> GetExam(GetAssignSeatNoExam dto)
         {
-            try
-            {
-                var exams =_context.MarksMasters.Where(a=>a.SemesterId==dto.Semester && a.AcademicYearAYID==dto.Ayid).Select(x=>x.ExamId).Distinct().ToList();
-                var AssignSeatNoExam = _context.Exams.Where(a => a.IsActive == true  && a.RevaluationForExamId == null && a.CourseId == dto.Courseid && a.AcademicYearAYID == dto.Ayid &&  exams.Contains(a.ExamId)).Select(a => new ExamResponse
+            return await ExamPurposes.Query(_context, ExamPurposes.SeatNo, dto.Courseid, dto.Ayid, dto.Semester)!
+                .Select(a => new ExamResponse
                 {
                     ExamId = a.ExamId,
                     Examname = a.RevaluationForExamId != null ? a.Name + " (Revaluation)" : a.Name,
-                });
-                return AssignSeatNoExam.ToList();
-            }
-            catch(Exception ex) {
-                throw new Exception(ex.Message);
-            }
+                })
+                .ToListAsync();
         }
-
         public async Task<List<AssignSeatNoStudents>> GetStudents(GetAssignSeatNoStudents dto)
         {
             try

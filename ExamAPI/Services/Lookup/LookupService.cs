@@ -109,12 +109,18 @@ namespace ExamAPI.Services.Lookup
                 .ToListAsync(ct);
         }
 
+        /// <summary>
+        /// The subject drop-down predicate (course + pattern + semester). Shared with the obsolete
+        /// GET /Subject/get-subjects so both answer from one definition.
+        /// </summary>
+        public static IQueryable<Models.SubjectMaster> SubjectsQuery(
+            ApplicationDbContext context, Guid courseId, string? pattern, string? semester)
+            => context.SubjectMasters.Where(s => s.CourseId == courseId && s.Pattern == pattern && s.SemId == semester);
+
         public async Task<List<LookupSubjectDto>> GetSubjectsAsync(
             Guid courseId, string? pattern, string? semester, CancellationToken ct = default)
         {
-            // Same predicate as SubjectService.GetSubjectsAsync.
-            return await _context.SubjectMasters.AsNoTracking()
-                .Where(s => s.CourseId == courseId && s.Pattern == pattern && s.SemId == semester)
+            return await SubjectsQuery(_context, courseId, pattern, semester).AsNoTracking()
                 .OrderBy(s => s.SubjectCode)
                 .Select(s => new LookupSubjectDto { SubjectId = s.SubjectId, Name = s.Name, Code = s.SubjectCode })
                 .ToListAsync(ct);

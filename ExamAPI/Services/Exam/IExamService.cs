@@ -10,6 +10,5 @@ namespace ExamAPI.Services.Exam
         Task<ApiResponseDto<object>> UpdateExamAsync(UpdateExam dto);
         Task<ApiResponseDto<object>> DeleteExamAsync(DeleteExam dto);
 
-        Task<List<ResolutionExamResponse>> GetResolutionExam(GetResolutionExam dto);
     }
 }

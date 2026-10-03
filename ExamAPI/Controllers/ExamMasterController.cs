@@ -22,6 +22,8 @@ namespace ExamAPI.Controllers
             return Ok(result);
         }
         // GET EXAMS
+        // Duplicate of the shared lookup layer; kept for team branches, remove after they migrate (T-19 D).
+        [Obsolete("Use /api/Lookup/exams?purpose=master -- kept for team branches; remove after they migrate (T-19 D)")]
         [HttpGet("get-exam")]
         public async Task<IActionResult> GetExam([FromQuery] GetExam request)
         {
@@ -47,12 +49,6 @@ namespace ExamAPI.Controllers
         public async Task<IActionResult> DeleteExam([FromBody] DeleteExam request)
         {
             var result = await _examService.DeleteExamAsync(request);
-            return Ok(result);
-        }
-        [HttpGet("get-resolutionexam")]
-        public async Task<IActionResult> GetResolutionExam([FromQuery] GetResolutionExam request)
-        {
-            var result = await _examService.GetResolutionExam(request);
             return Ok(result);
         }
     }

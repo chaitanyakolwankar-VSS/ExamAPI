@@ -21,7 +21,8 @@ namespace ExamAPI.Services.Subject
         public async Task<List<SubjectDtos>> GetSubjectsAsync(GetSubjectReqDtos dto)
         {
 
-            var subjects = await _context.SubjectMasters.Where(a => a.CourseId == dto.CourseId && a.Pattern == dto.Pattern && a.SemId == dto.Semester).Select(s => new SubjectDtos
+            // Kept for the obsolete GET /Subject/get-subjects; the predicate lives in LookupService.SubjectsQuery.
+            var subjects = await Lookup.LookupService.SubjectsQuery(_context, dto.CourseId, dto.Pattern, dto.Semester).Select(s => new SubjectDtos
             {
                 SubjectId = s.SubjectId,
                 SubjectName = s.Name

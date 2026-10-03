@@ -17,6 +17,8 @@ namespace ExamAPI.Services.Common
         {
             _context =courses;
         }
+        // Duplicate of /api/Lookup/bootstrap (courses); kept for team branches, remove after they migrate (T-19 D).
+        [Obsolete("Use /api/Lookup/bootstrap (courses) -- kept for team branches; remove after they migrate (T-19 D)")]
         [HttpGet]
         public IActionResult GetCourses()
         {

@@ -21,6 +21,8 @@ namespace ExamAPI.Controllers
             _resultService = resultService;
         }
 
+        // Duplicate of the shared lookup layer; kept for team branches, remove after they migrate (T-19 D).
+        [Obsolete("Use /api/Lookup/exams?purpose=process -- kept for team branches; remove after they migrate (T-19 D)")]
         [HttpGet("Exams")]
         public async Task<IActionResult> GetExams(Guid branchId, string semId, string pattern, Guid? ayid)
         {

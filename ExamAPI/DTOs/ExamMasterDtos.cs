@@ -16,13 +16,6 @@
         public Guid Courseid { get; set; }
         public Guid Ayid { get; set; }
     }
-    public class GetResolutionExam
-    {
-        public Guid Courseid { get; set; }
-        public Guid Ayid { get; set; }
-        public string Semester { get; set; }
-        public string Pattern { get; set; }
-    }
     public class GetExamResponse
     {
         public Guid ExamId { get; set; }
@@ -38,10 +31,5 @@
     public class DeleteExam
     {
         public Guid ExamId { get; set; }
-    }
-    public class ResolutionExamResponse
-    {
-        public Guid ExamId { get; set; }
-        public string Examname { get; set; }
     }
 }

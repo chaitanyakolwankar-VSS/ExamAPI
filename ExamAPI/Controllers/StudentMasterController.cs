@@ -23,6 +23,8 @@ namespace ExamAPI.Controllers
             _service = service;
 
         }
+        // Course list only (ayid is ignored); kept for team branches, remove after they migrate (T-19 D).
+        [Obsolete("Use /api/Lookup/bootstrap (courses) -- kept for team branches; remove after they migrate (T-19 D)")]
         [HttpGet("GetData")]
         public async Task<IActionResult> GetData(Guid ayid)
         {

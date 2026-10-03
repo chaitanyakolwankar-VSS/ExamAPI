@@ -14,6 +14,8 @@ namespace ExamAPI.Services.Common
         {
             _Context = context;
         }
+        // Duplicate of /api/Lookup/bootstrap (patterns); kept for team branches, remove after they migrate (T-19 D).
+        [Obsolete("Use /api/Lookup/bootstrap (patterns) -- kept for team branches; remove after they migrate (T-19 D)")]
         [HttpGet]
         public IActionResult GetPattern()
         {
