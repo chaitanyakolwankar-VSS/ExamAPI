@@ -5,6 +5,7 @@ using ExamAPI.Services.Common;
 using ExamAPI.Services.Result.Engine;
 using ExamAPI.Services.Report.Documents;
 using ExamAPI.Services.Result;
+using Humanizer;
 using Microsoft.EntityFrameworkCore;
 using OfficeOpenXml;
 using QuestPDF.Fluent;
@@ -669,7 +670,7 @@ namespace ExamAPI.Services.Report
             return document.GeneratePdf();
         }
 
-        public async Task<byte[]> GenerateBulkMarksheetPdfAsync(Guid examId, string semId, string pattern, string generationType, bool includeHistory, DateTime? resultDate, Guid collegeId, bool noRleForFail = false)
+        public async Task<byte[]> GenerateBulkMarksheetPdfAsync(Guid examId, string semId, string pattern, Guid courseId, Guid ayid, string generationType, bool includeHistory, DateTime? resultDate, Guid collegeId, bool noRleForFail = false)
         {
             var exam = await _context.Exams
                 .Include(e => e.Course)
@@ -732,6 +733,20 @@ namespace ExamAPI.Services.Report
                 {
                     bulkHistory = await GetBulkSemesterHistoryAsync(studentIds);
                 }
+            }
+
+            if (marksMasters.Count > 0)
+            {
+                var existingRecord = await _context.DeclareResults.FirstOrDefaultAsync(x => x.AcademicYear == ayid && x.ExamId == examId && x.Sem_id == semId && x.Pattern == pattern && x.CourseId == courseId);
+                if (existingRecord != null)
+                {
+                    existingRecord.ResDeclare = existingRecord.ResDeclare + 1;
+                    existingRecord.ResDeclareDateTime = DateTime.UtcNow;
+                    _context.DeclareResults.Update(existingRecord);
+                    //existingRecord.DeclareDate = DateTime.UtcNow;
+                    //_context.DeclareResults.Update(existingRecord);
+                }
+                await _context.SaveChangesAsync();
             }
 
             foreach (var marksMaster in marksMasters)

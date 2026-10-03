@@ -95,6 +95,11 @@ namespace ExamAPI.Data
         // =========================================
         public DbSet<AuditLog> AuditLogs { get; set; }
 
+        // =========================================
+        // 8. Student Management
+        // =========================================
+        public DbSet<DeclareResult> DeclareResults { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);

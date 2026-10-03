@@ -1,21 +1,19 @@
 using ExamAPI.Data;
 using ExamAPI.Models;
 using ExamAPI.Services.Auth;
+using ExamAPI.Services.Dashboard;
 using ExamAPI.Services.Email;
 using ExamAPI.Services.PasswordResetOTP;
-using ExamAPI.Services.RoleMaster;
 using ExamAPI.Services.Result.Engine;
+using ExamAPI.Services.RoleMaster;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
-
 using Microsoft.Extensions.FileProviders;
-
 using Microsoft.IdentityModel.Tokens;
 using OfficeOpenXml;
 using System.Text;
-
 using System.Text; 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -63,6 +61,7 @@ builder.Services.AddScoped<ExamAPI.Services.UsersMaster.IUserMasterService, Exam
 builder.Services.AddScoped<ExamAPI.Services.Platform.IProvisionCollegeService, ExamAPI.Services.Platform.ProvisionCollegeService>();
 builder.Services.AddScoped<ExamAPI.Services.Platform.IPlatformCollegeService, ExamAPI.Services.Platform.PlatformCollegeService>();
 builder.Services.AddScoped<IPasswordResetService, PasswordResetService>();
+builder.Services.AddScoped<ExamAPI.Services.DeclareResult.IDResultService, ExamAPI.Services.DeclareResult.DResultService>();
 builder.Services.AddScoped<ExamAPI.Services.AssignSeatNo.IAssignSeatNoService, ExamAPI.Services.AssignSeatNo.AssignSeatNoService>();
 builder.Services.AddScoped<ExamAPI.Services.AtktRevalExam.IAtktRevalExamService, ExamAPI.Services.AtktRevalExam.AtktRevalExamService>();
 builder.Services.AddScoped<ExamAPI.Services.Result.IResultService, ExamAPI.Services.Result.ResultService>();
@@ -71,9 +70,11 @@ builder.Services.AddScoped<ExamAPI.Services.Report.IReportService, ExamAPI.Servi
 builder.Services.AddScoped<ExamAPI.Services.StatisticalReport.IStatisticalReportService, ExamAPI.Services.StatisticalReport.StatisticalReportService>();
 builder.Services.AddScoped<ExamAPI.Services.ATKTCummulativeReport.IATKTCummulativeReportService, ExamAPI.Services.ATKTCummulativeReport.ATKTCummulativeReportService>();
 builder.Services.AddScoped<ExamAPI.Services.StudentPromotion.IStudentPromotionService, ExamAPI.Services.StudentPromotion.StudentPromotion>();
+builder.Services.AddScoped<ExamAPI.Services.ReleaseHallTicket.IReleaseHallticketService, ExamAPI.Services.ReleaseHallTicket.ReleaseHallticketService>();
+builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddOrdinanceEngine();
 
-// Configure QuestPDF
+
 QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
 
 //--services and interface end ------//

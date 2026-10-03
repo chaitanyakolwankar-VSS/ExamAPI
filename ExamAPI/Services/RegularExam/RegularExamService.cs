@@ -63,7 +63,7 @@ namespace ExamAPI.Services.RegularExam
         {
             try
             {
-                var exams = _context.Exams.Where(a => a.IsActive == true && a.ExamType == "Regular" && a.RevaluationForExamId == null && a.CourseId == dto.Courseid && a.AcademicYearAYID == dto.Ayid).Select(a => new RegularExamResponse
+                var exams = _context.Exams.Where(a => a.IsActive == true && a.RevaluationForExamId == null && a.CourseId == dto.Courseid && a.AcademicYearAYID == dto.Ayid).Select(a => new RegularExamResponse
                 {
                     ExamId = a.ExamId,
                     Examname = a.RevaluationForExamId != null ? a.Name + " (Revaluation)" : a.Name,
