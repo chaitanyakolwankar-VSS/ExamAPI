@@ -33,5 +33,8 @@ namespace ExamAPI.Models
 
         [MaxLength(50)]
         public string? Pattern { get; set; }
+
+        /// <summary>Student Promotion: false = not yet promoted/eligible for the next semester. Existing rows default to true.</summary>
+        public bool IsEligible { get; set; } = true;
     }
 }
