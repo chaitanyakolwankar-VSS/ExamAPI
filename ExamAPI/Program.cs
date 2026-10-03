@@ -72,6 +72,7 @@ builder.Services.AddScoped<ExamAPI.Services.ATKTCummulativeReport.IATKTCummulati
 builder.Services.AddScoped<ExamAPI.Services.StudentPromotion.IStudentPromotionService, ExamAPI.Services.StudentPromotion.StudentPromotion>();
 builder.Services.AddScoped<ExamAPI.Services.ReleaseHallTicket.IReleaseHallticketService, ExamAPI.Services.ReleaseHallTicket.ReleaseHallticketService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
+builder.Services.AddScoped<ExamAPI.Services.Lookup.ILookupService, ExamAPI.Services.Lookup.LookupService>();
 builder.Services.AddOrdinanceEngine();
 
 

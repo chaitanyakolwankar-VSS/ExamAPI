@@ -31,10 +31,16 @@ namespace ExamAPI.Services.Result
             _logger = logger;
         }
 
+        /// <summary>
+        /// Exams of a course (optionally one academic year) for Apply Grace Marks / result processing.
+        /// <paramref name="semId"/> and <paramref name="pattern"/> are accepted for compatibility but
+        /// IGNORED: ExamMaster.Semester is never written (Exam Master creates exams without one), so
+        /// filtering on it hid every exam (T-25). The semester is chosen separately by the caller.
+        /// </summary>
         public async Task<IEnumerable<ExamOptionDto>> GetExamsAsync(Guid branchId, string semId, string pattern, Guid collegeId, Guid? ayid = null)
         {
             var query = _context.Exams
-                .Where(e => e.Course != null && e.Course.CollegeId == collegeId && e.CourseId == branchId && e.Semester == semId && !e.IsDeleted);
+                .Where(e => e.Course != null && e.Course.CollegeId == collegeId && e.CourseId == branchId && !e.IsDeleted);
 
             if (ayid.HasValue && ayid.Value != Guid.Empty)
             {
