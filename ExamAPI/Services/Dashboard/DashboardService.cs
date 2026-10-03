@@ -49,22 +49,6 @@ namespace ExamAPI.Services.Dashboard
 
         public async Task<List<PassFailChartDTO>> GetPassFailChartAsync(Guid courseId, Guid ayId)
         {
-            var debugData = await (
-                from mm in _context.MarksMasters
-                join se in _context.StudentEligibilities
-                    on mm.StdMstId equals se.StdMstId
-                where !se.IsDeleted
-                      && !mm.IsDeleted
-                      && mm.AcademicYearAYID == se.AYID
-                      && se.CourseId == courseId
-                      && mm.AcademicYearAYID == ayId
-                select new
-                {
-                    mm.SemesterId,
-                    mm.OverallRemark
-                }
-            ).ToListAsync();
-
             var result = await (
                 from mm in _context.MarksMasters
                 join se in _context.StudentEligibilities
@@ -93,20 +77,18 @@ namespace ExamAPI.Services.Dashboard
 
         public async Task<List<SemesterExamTypeCountDTO>> GetSemesterWiseExamTypeCountAsync(Guid courseId, Guid ayId)
         {
+            // ExamMaster.Semester is never written, so the semester comes from the students' MarksMaster rows
+            // (MarksMaster.SemesterId). Tenant isolation: every set here sits behind the global college filter.
             var result = await (
                 from mm in _context.MarksMasters
                 join em in _context.Exams
                     on mm.ExamId equals em.ExamId
-                join se in _context.StudentEligibilities
-                    on new { em.Semester, em.AcademicYearAYID }
-                    equals new { Semester = se.SemesterId, AcademicYearAYID = se.AYID }
                 where !mm.IsDeleted
                       && !em.IsDeleted
-                      && !se.IsDeleted
-                      && mm.AcademicYearAYID == em.AcademicYearAYID
-                      && se.CourseId == courseId
+                      && em.CourseId == courseId
                       && mm.AcademicYearAYID == ayId
-                group se by new { mm.SemesterId, em.ExamType } into g
+                      && mm.AcademicYearAYID == em.AcademicYearAYID
+                group mm by new { mm.SemesterId, em.ExamType } into g
                 select new SemesterExamTypeCountDTO
                 {
                     SemesterId = g.Key.SemesterId,
@@ -121,28 +103,13 @@ namespace ExamAPI.Services.Dashboard
         public async Task<DashboardStatsDTO> GetDashboardStatsAsync(Guid collegeId, Guid ayId)
         {
             var stats = new DashboardStatsDTO();
-            var tasks = new List<Task>();
-
-            tasks.Add(Task.Run(async () =>
-                stats.TotalStudents = await GetTotalStudentsAsync(collegeId, ayId)));
-
-            tasks.Add(Task.Run(async () =>
-                stats.PassPercentage = await GetPassPercentageAsync(collegeId, ayId)));
-
-            // FIXED: Changed from GetTotalExamConductedAsync to GetTotalExamsConductedAsync
-            tasks.Add(Task.Run(async () =>
-                stats.TotalExamsConducted = await GetTotalExamsConductedAsync(collegeId, ayId)));
-
-            tasks.Add(Task.Run(async () =>
-                stats.ATKTStudentCount = await GetATKTStudentCountAsync(collegeId, ayId)));
-
-            tasks.Add(Task.Run(async () =>
-                stats.CourseStudentCounts = await GetCourseStudentCountAsync(ayId)));
-
-            tasks.Add(Task.Run(async () =>
-                stats.ExamLifecycle = await GetExamLifecycleAsync(collegeId, ayId)));
-
-            await Task.WhenAll(tasks);
+                        // One DbContext is not thread-safe: run the queries one after another, not with Task.Run.
+            stats.TotalStudents = await GetTotalStudentsAsync(collegeId, ayId);
+            stats.PassPercentage = await GetPassPercentageAsync(collegeId, ayId);
+            stats.TotalExamsConducted = await GetTotalExamsConductedAsync(collegeId, ayId);
+            stats.ATKTStudentCount = await GetATKTStudentCountAsync(collegeId, ayId);
+            stats.CourseStudentCounts = await GetCourseStudentCountAsync(ayId);
+            stats.ExamLifecycle = await GetExamLifecycleAsync(collegeId, ayId);
             return stats;
         }
 
@@ -276,12 +243,6 @@ namespace ExamAPI.Services.Dashboard
                         .Count()
                 };
 
-            // Get generated SQL
-            var sql = query.ToQueryString();
-
-            Console.WriteLine(sql);
-
-            // Or put breakpoint here and inspect `sql`
             var result = await query.ToListAsync();
 
             return result;
@@ -321,70 +282,56 @@ namespace ExamAPI.Services.Dashboard
         //}
 
         public async Task<List<ExamLifecycleDTO>> GetExamLifecycleAsync(
-    Guid collegeId,
-    Guid ayId)
+            Guid collegeId,
+            Guid ayId)
         {
-            var sql = @"
-    SELECT 
-        em.Name AS ExamName,
-
-        COUNT(DISTINCT mm.StdMstId) AS AssignedStudent,
-
-        COUNT(
-            DISTINCT CASE 
-                WHEN mm.SeatNo IS NOT NULL 
-                THEN mm.StdMstId 
-            END
-        ) AS SeatNo,
-
-        dr.ReleaseHallTicket AS ReleaseHallTicket,
-
-        COUNT(
-            DISTINCT CASE 
-                WHEN sm.Marks IS NOT NULL
-                THEN sm.MarksId
-            END
-        ) AS MarksEntered,
-
-        dr.GazetteGnrt AS GazetteGnrt,
-
-        dr.IsDeclare AS IsDeclare
-
-    FROM MarksMaster mm
-
-    INNER JOIN ExamMaster em
-        ON mm.ExamId = em.ExamId
-        AND em.AcademicYearAYID = mm.AcademicYearAYID
-
-    INNER JOIN DeclareResult dr
-        ON em.CourseId = dr.CourseId
-        AND em.AcademicYearAYID = dr.AcademicYear
-
-    INNER JOIN StudentMarks sm
-        ON sm.MarksId = mm.MarksId
-        AND sm.IsDeleted = 0
-
-    WHERE 
-        em.CollegeId = {0}
-        AND em.AcademicYearAYID = {1}
-        AND em.IsDeleted = 0
-        AND mm.IsDeleted = 0
-
-    GROUP BY 
-        em.Name,
-        dr.ReleaseHallTicket,
-        dr.GazetteGnrt,
-        dr.IsDeclare";
-
-            var result = await _context.Database
-                .SqlQueryRaw<ExamLifecycleDTO>(
-                    sql,
-                    collegeId,
-                    ayId
-                )
+            // Plain LINQ (not raw SQL) so the global college filter applies: a caller can only ever see the
+            // exams of its own college whatever collegeId it sends. DeclareResult is LEFT-joined by exam, so
+            // an exam with no row yet (hall tickets not released, nothing declared) still shows its progress.
+            var exams = await _context.Exams
+                .Where(e => e.AcademicYearAYID == ayId && e.CollegeId == collegeId)
+                .Select(e => new { e.ExamId, e.Name, e.CreatedAt })
                 .ToListAsync();
 
-            return result;
+            var students = await _context.MarksMasters
+                .Where(m => m.AcademicYearAYID == ayId && m.ExamId != null)
+                .Select(m => new
+                {
+                    ExamId = m.ExamId!.Value,
+                    m.StdMstId,
+                    HasSeat = m.SeatNo != null && m.SeatNo.Trim() != "",
+                    HasMarks = m.StudentMarks!.Any(sm => sm.Marks != null)
+                })
+                .ToListAsync();
+
+            var declares = await _context.DeclareResults
+                .Where(d => d.AcademicYear == ayId)
+                .Select(d => new { d.ExamId, d.ReleaseHallTicket, d.IsDeclare, d.GazetteGnrt })
+                .ToListAsync();
+
+            var studentsByExam = students.ToLookup(s => s.ExamId);
+            var declaresByExam = declares.ToLookup(d => d.ExamId);
+
+            return exams
+                .Where(e => studentsByExam[e.ExamId].Any())
+                .OrderBy(e => e.CreatedAt)
+                .Select(e =>
+                {
+                    var mine = studentsByExam[e.ExamId].ToList();
+                    var drs = declaresByExam[e.ExamId].ToList();
+                    return new ExamLifecycleDTO
+                    {
+                        ExamName = e.Name,
+                        AssignedStudent = mine.Select(x => x.StdMstId).Distinct().Count(),
+                        SeatNo = mine.Where(x => x.HasSeat).Select(x => x.StdMstId).Distinct().Count(),
+                        MarksEntered = mine.Where(x => x.HasMarks).Select(x => x.StdMstId).Distinct().Count(),
+                        // One exam can have a DeclareResult row per semester: released/declared means any of them.
+                        ReleaseHallTicket = drs.Any(d => d.ReleaseHallTicket),
+                        IsDeclare = drs.Any(d => d.IsDeclare),
+                        GazetteGnrt = drs.Count == 0 ? 0 : drs.Max(d => d.GazetteGnrt)
+                    };
+                })
+                .ToList();
         }
 
     }

@@ -1,8 +1,8 @@
-﻿using Azure.Messaging;
 using ExamAPI.Data;
 using ExamAPI.DTOs;
+using ExamAPI.Models;
 using ExamAPI.Services.Common;
-using Microsoft.AspNetCore.Http.HttpResults;
+using ExamAPI.Services.Lookup;
 using Microsoft.EntityFrameworkCore;
 
 
@@ -19,85 +19,117 @@ namespace ExamAPI.Services.DeclareResult
             _genericRepository = genericRepository;
         }
 
+        /// <summary>
+        /// The exams a Declare Result / Release Hall Ticket screen may list for a course + academic year +
+        /// semester + pattern. Starts from the shared ExamMaster filter (<see cref="ExamPurposes"/>) and keeps
+        /// the exams that have students in that semester/pattern (a MarksMaster row) or already have a
+        /// DeclareResult row for it. ExamMaster.Semester is never written, so the semester comes from the
+        /// request, MarksMaster.SemesterId and DeclareResult.Sem_id. No DeclareResult row is needed: a fresh
+        /// college lists its exams as "not declared / not released".
+        /// </summary>
+        internal static IQueryable<ExamMaster> EligibleExams(
+            ApplicationDbContext context, string purpose, Guid courseId, Guid ayid, string? semester, string? pattern)
+        {
+            var exams = ExamPurposes.Query(context, purpose, courseId, ayid, null)
+                        ?? context.Exams.Where(_ => false);
+
+            var withRow = context.DeclareResults
+                .Where(dr => dr.AcademicYear == ayid && dr.CourseId == courseId && dr.Sem_id == semester && dr.Pattern == pattern)
+                .Select(dr => dr.ExamId);
+            var withStudents = context.MarksMasters
+                .Where(m => m.AcademicYearAYID == ayid && m.SemesterId == semester && m.Pattern == pattern && m.ExamId != null)
+                .Select(m => m.ExamId!.Value);
+
+            return exams.Where(e => withRow.Contains(e.ExamId) || withStudents.Contains(e.ExamId));
+        }
+
+        /// <summary>The live DeclareResult row (if any) of each exam for one course/AY/semester/pattern.</summary>
+        internal static async Task<Dictionary<Guid, ExamAPI.Models.DeclareResult>> RowsByExam(
+            ApplicationDbContext context, Guid courseId, Guid ayid, string? semester, string? pattern, IEnumerable<Guid> examIds)
+        {
+            var ids = examIds.ToList();
+            var rows = await context.DeclareResults
+                .Where(dr => dr.AcademicYear == ayid && dr.CourseId == courseId && dr.Sem_id == semester
+                             && dr.Pattern == pattern && ids.Contains(dr.ExamId))
+                .OrderBy(dr => dr.CreatedAt)
+                .ToListAsync();
+            // Older databases may hold duplicate rows (the hall-ticket GET used to insert them); the first wins.
+            return rows.GroupBy(r => r.ExamId).ToDictionary(g => g.Key, g => g.First());
+        }
+
+        private static string DisplayName(ExamMaster e) =>
+            e.RevaluationForExamId != null ? e.Name + " (Revaluation)"
+            : ExamTypeKeys.IsAtkt(e.ExamType) ? e.Name + " (A.T.K.T)"
+            : e.Name;
+
         public async Task<List<DeclareResultDTO>> GetExam(GetDeclareExam dto)
         {
-            var exams = from em in _context.Exams
-                        join dr in _context.DeclareResults on em.ExamId equals dr.ExamId
-                        where em.IsActive == true
-                              && !em.IsDeleted
-                              && !em.IsLocked
-                              // ExamMaster.Semester is never written (Exam Master has no semester): filter on the DeclareResult row.
-                              && !dr.IsDeleted
-                              && dr.AcademicYear == em.AcademicYearAYID
-                              && em.AcademicYearAYID == dto.Ayid
-                              && dr.Sem_id == dto.Semester
-                              && em.CourseId == dto.CourseId
-                              && dr.Pattern == dto.Pattern
-                        select new DeclareResultDTO
-                        {
-                            ExamId = em.ExamId,
-                            CourseId = em.CourseId ?? Guid.Empty,
-                            Ayid = em.AcademicYearAYID ?? Guid.Empty,
-                            Semester = dto.Semester,
-                            Pattern = dto.Pattern,
-                            Examname = em.RevaluationForExamId != null
-                                ? em.Name + " (Revaluation)"
-                                : em.ExamType == "A.T.K.T"
-                                    ? em.Name + " (A.T.K.T)"
-                                    : em.Name
-                        };
+            var exams = await EligibleExams(_context, ExamPurposes.All, dto.CourseId, dto.Ayid, dto.Semester, dto.Pattern)
+                .OrderBy(e => e.Name)
+                .ToListAsync();
+            var rows = await RowsByExam(_context, dto.CourseId, dto.Ayid, dto.Semester, dto.Pattern, exams.Select(e => e.ExamId));
 
-            return await exams.ToListAsync();
+            return exams.Select(em => ToDto(em, rows.GetValueOrDefault(em.ExamId), dto.CourseId, dto.Ayid, dto.Semester, dto.Pattern)).ToList();
         }
 
         public async Task<List<DeclareResultDTO>> GetTableExam(DeclareExamTable dto)
         {
-            var exams = from e in _context.Exams
-                        join dr in _context.DeclareResults on e.ExamId equals dr.ExamId
-                        where e.CourseId == dto.CourseId && dr.Sem_id == dto.Semester && e.AcademicYearAYID == dto.Ayid && e.ExamId==dto.ExamId && !e.IsDeleted && !dr.IsDeleted && dr.Pattern==dto.Pattern && dr.ResDeclare>0
-                        select new DeclareResultDTO
-                        {
-                            ExamId = e.ExamId,
-                            CourseId = e.CourseId ?? Guid.Empty,
-                            Ayid = e.AcademicYearAYID ?? Guid.Empty,
-                            Semester = dto.Semester,
-                            DeclareDate=dr.DeclareDate,
-                            IsDeclare=dr.IsDeclare,
-                            Pattern=dto.Pattern,
-                            Examname = e.RevaluationForExamId != null ? e.Name + "(Revaluation)" : e.ExamType == "A.T.K.T" ? e.Name + "(A.T.K.T)" : e.Name
-                        };
+            var exams = await EligibleExams(_context, ExamPurposes.All, dto.CourseId, dto.Ayid, dto.Semester, dto.Pattern)
+                .Where(e => e.ExamId == dto.ExamId)
+                .ToListAsync();
+            var rows = await RowsByExam(_context, dto.CourseId, dto.Ayid, dto.Semester, dto.Pattern, exams.Select(e => e.ExamId));
 
-            return await exams.ToListAsync();
+            return exams.Select(em => ToDto(em, rows.GetValueOrDefault(em.ExamId), dto.CourseId, dto.Ayid, dto.Semester, dto.Pattern)).ToList();
         }
 
+        private static DeclareResultDTO ToDto(ExamMaster em, ExamAPI.Models.DeclareResult? dr, Guid courseId, Guid ayid, string semester, string pattern) =>
+            new()
+            {
+                ExamId = em.ExamId,
+                CourseId = courseId,
+                Ayid = ayid,
+                Semester = semester,
+                Pattern = pattern,
+                Examname = DisplayName(em),
+                // No row yet means "not declared".
+                IsDeclare = dr?.IsDeclare ?? false,
+                DeclareDate = dr?.DeclareDate,
+                HasRecord = dr != null,
+            };
 
-        public async Task<bool> ToggleDeclare (ToggleDeclareResultDTO dto)
+        public async Task<bool> ToggleDeclare(ToggleDeclareResultDTO dto)
         {
-            if (dto.IsDeclare && dto.DeclareDate == default)
+            if (dto.IsDeclare && (dto.DeclareDate == null || dto.DeclareDate == default(DateTime)))
                 throw new ArgumentException("Declare Date is required while declaring a result");
 
-            var existing = await _context.DeclareResults
-                .FirstOrDefaultAsync(dr => dr.ExamId == dto.ExamId && dr.CourseId == dto.CourseId && dr.AcademicYear == dto.Ayid && dr.Sem_id == dto.Semester && !dr.IsDeleted && dr.Pattern==dto.Pattern);
+            // The exam must be one this screen can list (same course, academic year, semester/pattern);
+            // the tenant filter keeps other colleges' exams out.
+            var exam = await EligibleExams(_context, ExamPurposes.All, dto.CourseId, dto.Ayid, dto.Semester, dto.Pattern)
+                .FirstOrDefaultAsync(e => e.ExamId == dto.ExamId);
+            if (exam == null) return false;
+
+            var existing = (await RowsByExam(_context, dto.CourseId, dto.Ayid, dto.Semester, dto.Pattern, new[] { dto.ExamId }))
+                .GetValueOrDefault(dto.ExamId);
 
             if (existing != null)
             {
                 existing.IsDeclare = dto.IsDeclare;
-                existing.DeclareDate = dto.IsDeclare ? dto.DeclareDate : (DateTime?)null; 
+                existing.DeclareDate = dto.IsDeclare ? dto.DeclareDate : null;
             }
             else
             {
-                var newRecord = new ExamAPI.Models.DeclareResult
+                _context.DeclareResults.Add(new ExamAPI.Models.DeclareResult
                 {
                     DeclareID = Guid.NewGuid(),
+                    CollegeId = exam.CollegeId,
                     ExamId = dto.ExamId,
                     CourseId = dto.CourseId,
                     AcademicYear = dto.Ayid,
                     Sem_id = dto.Semester,
                     Pattern = dto.Pattern,
                     IsDeclare = dto.IsDeclare,
-                    DeclareDate = dto.DeclareDate
-                };
-                _context.DeclareResults.Add(newRecord);
+                    DeclareDate = dto.IsDeclare ? dto.DeclareDate : null
+                });
             }
 
             await _context.SaveChangesAsync();

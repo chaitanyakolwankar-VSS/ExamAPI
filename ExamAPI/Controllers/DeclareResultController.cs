@@ -32,7 +32,7 @@ namespace ExamAPI.Controllers
         [HttpPut("toggle-declare-result")]
         public async Task<IActionResult> ToggleDeclare([FromBody] ToggleDeclareResultDTO request)
         {
-            if (request.IsDeclare && request.DeclareDate == default)
+            if (request.IsDeclare && (request.DeclareDate == null || request.DeclareDate == default(DateTime)))
                 return BadRequest(new { message = "Declare date is required to declare a result." });
 
             var success = await _DeclareResultService.ToggleDeclare(request);

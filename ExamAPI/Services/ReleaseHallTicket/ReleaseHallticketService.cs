@@ -1,7 +1,8 @@
-﻿using ExamAPI.Data;
+using ExamAPI.Data;
 using ExamAPI.DTOs;
 using ExamAPI.Services.Common;
 using ExamAPI.Services.DeclareResult;
+using ExamAPI.Services.Lookup;
 using Microsoft.EntityFrameworkCore;
 
 namespace ExamAPI.Services.ReleaseHallTicket
@@ -17,63 +18,76 @@ namespace ExamAPI.Services.ReleaseHallTicket
             _genericRepository = genericRepository;
         }
 
+        /// <summary>Exams that can have a hall ticket (active, not a revaluation) for the semester, with their release status.</summary>
+        public async Task<List<DeclareHallTicketDTO>> GetExam(GetDeclareExam dto)
+        {
+            var exams = await DResultService.EligibleExams(_context, ExamPurposes.HallTicket, dto.CourseId, dto.Ayid, dto.Semester, dto.Pattern)
+                .OrderBy(e => e.Name)
+                .ToListAsync();
+            var rows = await DResultService.RowsByExam(_context, dto.CourseId, dto.Ayid, dto.Semester, dto.Pattern, exams.Select(e => e.ExamId));
+
+            return exams.Select(em =>
+            {
+                var dr = rows.GetValueOrDefault(em.ExamId);
+                return new DeclareHallTicketDTO
+                {
+                    ExamId = em.ExamId,
+                    Examname = em.Name,
+                    CourseId = dto.CourseId,
+                    Ayid = dto.Ayid,
+                    Semester = dto.Semester,
+                    Pattern = dto.Pattern,
+                    // No row yet means "not released".
+                    ReleaseHallTicket = dr?.ReleaseHallTicket ?? false,
+                    HallTicketDeclareDate = dr?.HallTicketDeclareDate,
+                    HallTicketUpdatedAt = dr?.HallTicketUpdatedAt,
+                    HasRecord = dr != null,
+                };
+            }).ToList();
+        }
+
         public async Task<List<DeclareHallTicketDTO>> GetTableExam(DeclareExamTable dto)
         {
-            var exams = from em in _context.Exams
-                        join dr in _context.DeclareResults on em.ExamId equals dr.ExamId
-                        join ay in _context.AcademicYears on dr.AcademicYear equals ay.AYID
-                        where em.AcademicYearAYID == dr.AcademicYear
-                              // ExamMaster.Semester is never written (Exam Master has no semester): the DeclareResult row carries it.
-                              && !ay.IsDeleted
-                              && !dr.IsDeleted
-                              && !em.IsDeleted
-                              && em.ExamId == dto.ExamId
-                              && dr.Sem_id == dto.Semester
-                              && dr.AcademicYear == dto.Ayid
-                              && dr.Pattern == dto.Pattern
-                              && em.IsActive == true
-                        select new DeclareHallTicketDTO
-                        {
-                            ExamId = em.ExamId,
-                            Examname = em.Name,
-                            CourseId = em.CourseId ?? Guid.Empty,
-                            Ayid = em.AcademicYearAYID ?? Guid.Empty,
-                            HallTicketDeclareDate=dr.HallTicketDeclareDate,
-                            Semester = dr.Sem_id,
-                            ReleaseHallTicket = dr.ReleaseHallTicket,
-                            Pattern = dr.Pattern,
-                        };
-            return await exams.ToListAsync();
+            var all = await GetExam(new GetDeclareExam
+            {
+                CourseId = dto.CourseId, Ayid = dto.Ayid, Semester = dto.Semester, Pattern = dto.Pattern
+            });
+            return all.Where(e => e.ExamId == dto.ExamId).ToList();
         }
 
         public async Task<bool> ToggleReleaseHallTicket(ToggleReleaseHallTicketDTO dto)
         {
-            if (dto.ReleaseHallTicket && dto.HallTicketDeclareDate == default)
-                throw new ArgumentException("Declare Date is required while declaring a result");
+            if (dto.ReleaseHallTicket && (dto.HallTicketDeclareDate == null || dto.HallTicketDeclareDate == default(DateTime)))
+                throw new ArgumentException("A release date is required while releasing a hall ticket");
 
-            var existing = await _context.DeclareResults
-                .FirstOrDefaultAsync(dr => dr.ExamId == dto.ExamId && dr.CourseId == dto.CourseId && dr.AcademicYear == dto.Ayid && dr.Sem_id == dto.Semester && !dr.IsDeleted && dr.Pattern == dto.Pattern);
+            var exam = await DResultService.EligibleExams(_context, ExamPurposes.HallTicket, dto.CourseId, dto.Ayid, dto.Semester, dto.Pattern)
+                .FirstOrDefaultAsync(e => e.ExamId == dto.ExamId);
+            if (exam == null) return false;
+
+            var existing = (await DResultService.RowsByExam(_context, dto.CourseId, dto.Ayid, dto.Semester, dto.Pattern, new[] { dto.ExamId }))
+                .GetValueOrDefault(dto.ExamId);
 
             if (existing != null)
             {
                 existing.ReleaseHallTicket = dto.ReleaseHallTicket;
-                existing.HallTicketDeclareDate = dto.ReleaseHallTicket ? dto.HallTicketDeclareDate : (DateTime?)null;
+                existing.HallTicketDeclareDate = dto.ReleaseHallTicket ? dto.HallTicketDeclareDate : null;
                 existing.HallTicketUpdatedAt = DateTime.UtcNow;
             }
             else
             {
-                var newRecord = new ExamAPI.Models.DeclareResult
+                _context.DeclareResults.Add(new ExamAPI.Models.DeclareResult
                 {
                     DeclareID = Guid.NewGuid(),
+                    CollegeId = exam.CollegeId,
                     ExamId = dto.ExamId,
                     CourseId = dto.CourseId,
                     AcademicYear = dto.Ayid,
                     Sem_id = dto.Semester,
                     Pattern = dto.Pattern,
                     ReleaseHallTicket = dto.ReleaseHallTicket,
-                    HallTicketDeclareDate = dto.HallTicketDeclareDate
-                };
-                _context.DeclareResults.Add(newRecord);
+                    HallTicketDeclareDate = dto.ReleaseHallTicket ? dto.HallTicketDeclareDate : null,
+                    HallTicketUpdatedAt = DateTime.UtcNow
+                });
             }
 
             await _context.SaveChangesAsync();

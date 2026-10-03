@@ -143,34 +143,13 @@ namespace ExamAPI.Services.GenerateHallTicket
                         subjects = StudentSubjects.ToList()
                     });
                 }
-
-                if (studentsData.Count > 0)
-                {
-                    var existingRecord = await _context.DeclareResults.FirstOrDefaultAsync(x => x.AcademicYear == dto.Ayid && x.ExamId == dto.ExamId && x.Sem_id == dto.Semester && x.Pattern == dto.Pattern && x.CourseId==dto.CourseId);
-                    if (existingRecord != null)
-                    {
-                        //existingRecord.DeclareDate = DateTime.UtcNow;
-                        //_context.DeclareResults.Update(existingRecord);
-                    }
-                    else
-                    {
-                        var declareResult = new ExamAPI.Models.DeclareResult
-                        {
-                            AcademicYear = dto.Ayid,
-                            ExamId = dto.ExamId,
-                            Pattern = dto.Pattern,
-                            Sem_id = dto.Semester,
-                            CourseId=dto.CourseId,
-                        };
-                        await _context.DeclareResults.AddAsync(declareResult);
-                    }
-                    await _context.SaveChangesAsync();
-                }
+                // Read-only: Declare Result / Release Hall Ticket list exams straight from ExamMaster and create their
+                // DeclareResult row on save, so generating a hall ticket no longer writes anything.
                 return studentsData;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                throw new NotImplementedException();
+                throw;
             }
         }
 

@@ -10,6 +10,8 @@
         public bool IsDeclare { get; set; }
         public DateTime? DeclareDate { get; set; }
         public string Pattern { get; set; }
+        /// <summary>False when no DeclareResult row exists yet (the exam is shown as "not declared").</summary>
+        public bool HasRecord { get; set; }
     }
 
     public class DeclareHallTicketDTO
@@ -23,7 +25,8 @@
         public DateTime? HallTicketUpdatedAt { get; set; }
         public string Pattern { get; set; }
         public bool ReleaseHallTicket { get; set; }
-
+        /// <summary>False when no DeclareResult row exists yet (the hall ticket is shown as "not released").</summary>
+        public bool HasRecord { get; set; }
     }
 
     public class GetDeclareExam
@@ -61,7 +64,7 @@
         public Guid CourseId { get; set; }
         public Guid Ayid { get; set; }
         public string Semester { get; set; }
-        public DateTime DeclareDate { get; set; }
+        public DateTime? DeclareDate { get; set; }
         public bool IsDeclare { get; set; }
         public string Pattern { get; set; }
     }
