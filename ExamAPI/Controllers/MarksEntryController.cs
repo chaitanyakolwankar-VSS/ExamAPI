@@ -47,6 +47,37 @@ namespace ExamAPI.Controllers
             return Ok(result);
         }
 
+        /// <summary>
+        /// Resolution ('^') config for every subject of an exam context, with a preview computed from
+        /// the current raw marks. Same filters as the marks-entry screen.
+        /// </summary>
+        [HttpGet("ResolutionConfig")]
+        public async Task<IActionResult> GetResolutionConfig([FromQuery] ResolutionConfigRequest request)
+        {
+            var collegeIdClaim = User.FindFirstValue("CollegeId");
+            if (string.IsNullOrEmpty(collegeIdClaim) || !Guid.TryParse(collegeIdClaim, out var collegeId))
+            {
+                return Unauthorized(new ApiResponseDto<object> { Success = false, Message = "Invalid or missing CollegeId." });
+            }
+
+            var result = await _marksEntryService.GetResolutionConfigAsync(request, collegeId);
+            return Ok(result);
+        }
+
+        /// <summary>Stores the resolution limits in ResolutionMaster. Applied on the next Process Results.</summary>
+        [HttpPost("ResolutionConfig")]
+        public async Task<IActionResult> SaveResolutionConfig([FromBody] SaveResolutionConfigRequest request)
+        {
+            var collegeIdClaim = User.FindFirstValue("CollegeId");
+            if (string.IsNullOrEmpty(collegeIdClaim) || !Guid.TryParse(collegeIdClaim, out var collegeId))
+            {
+                return Unauthorized(new ApiResponseDto<object> { Success = false, Message = "Invalid or missing CollegeId." });
+            }
+
+            var result = await _marksEntryService.SaveResolutionConfigAsync(request, collegeId);
+            return Ok(result);
+        }
+
         [HttpPost("ExportTemplate")]
         public async Task<IActionResult> ExportTemplate([FromBody] MarksEntryFilterRequest request)
         {

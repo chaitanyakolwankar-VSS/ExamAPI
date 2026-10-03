@@ -1,6 +1,7 @@
 using ExamAPI.Data;
 using ExamAPI.DTOs;
 using ExamAPI.Models;
+using ExamAPI.Services.Common;
 using ExamAPI.Services.Result.Engine;
 using ExamAPI.Services.Report.Documents;
 using ExamAPI.Services.Result;
@@ -14,18 +15,33 @@ namespace ExamAPI.Services.Report
     {
         private readonly IResultService _resultService;
         private readonly ApplicationDbContext _context;
+        private readonly ExamAPI.Services.Files.IFileStorage? _storage;
 
-        public ReportService(IResultService resultService, ApplicationDbContext context)
+        public ReportService(IResultService resultService, ApplicationDbContext context, ExamAPI.Services.Files.IFileStorage? storage = null)
         {
             _resultService = resultService;
             _context = context;
+            _storage = storage;
         }
 
-        /// <summary>The tenant's name as printed on every report header.</summary>
-        private async Task<string> GetCollegeNameAsync(Guid collegeId)
+        /// <summary>
+        /// The tenant's name, address and logo as printed on every report header (DEC-14). Never the
+        /// literal "College Name Not Found": the name falls back to the college code, then to empty.
+        /// </summary>
+        private Task<CollegeBrandingInfo> GetBrandingAsync(Guid collegeId)
+            => CollegeBranding.LoadAsync(_context, _storage, collegeId);
+
+        /// <summary>Printed subjects in subject-code order, so every student's gazette columns / marksheet rows line up.</summary>
+        private static List<SubjectMarksDto> SortBySubjectCode(IEnumerable<SubjectMarksDto> subjects)
+            => subjects.OrderBy(s => s.SubjectCode, StringComparer.OrdinalIgnoreCase).ToList();
+
+        /// <summary>"Sem-6" / "6" print as "Semester 6"; anything else (e.g. "Semester 6", "Trimester 2") is left as typed, never "Semester Sem-6".</summary>
+        internal static string SemesterLabel(string? semId)
         {
-            var college = await _context.Colleges.FirstOrDefaultAsync(c => c.CollegeId == collegeId);
-            return college?.Name ?? "College Name Not Found";
+            var text = (semId ?? string.Empty).Trim();
+            if (text.Length == 0) return string.Empty;
+            var match = System.Text.RegularExpressions.Regex.Match(text, @"^(?:sem(?:ester)?[\s-]*)?(\d+)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            return match.Success ? $"Semester {match.Groups[1].Value}" : text;
         }
 
         /// <summary>The computed verdict for the subject these head rows belong to.</summary>
@@ -115,7 +131,7 @@ namespace ExamAPI.Services.Report
 
             var gradeMaster = ruleSet?.GradeMaster;
 
-            var collegeName = await GetCollegeNameAsync(collegeId);
+            var branding = await GetBrandingAsync(collegeId);
 
             var programName = exam?.Course?.Name ?? "N/A";
             if (programName == "CS & E(DS)") programName = "Computer Science & Engineering (Data Science)";
@@ -123,9 +139,11 @@ namespace ExamAPI.Services.Report
 
             var reportDto = new GazetteReportDto
             {
-                CollegeName = collegeName,
+                CollegeName = branding.Name,
+                CollegeLogo = branding.Logo,
+                CollegeBanner = branding.Banner,
                 ProgramName = programName,
-                Semester = $"Semester {request.SemId}",
+                Semester = SemesterLabel(request.SemId),
                 ExamName = exam?.Name ?? "Regular Exam",
                 ResultDate = DateTime.Now,
                 ShowCgpi = request.CgpiForFail,
@@ -260,6 +278,8 @@ namespace ExamAPI.Services.Report
                     if (subDto.GradePoint > 0) creditsEarned += subDto.Credits;
                 }
 
+                studentDto.Subjects = SortBySubjectCode(studentDto.Subjects);
+
                 studentDto.TotalObtained = totalObtained;
                 studentDto.TotalMax = totalMax;
                 studentDto.TotalCredits = totalCredits;
@@ -310,12 +330,11 @@ namespace ExamAPI.Services.Report
 
             int currentRow = 1;
 
-            // Header: College Name
-            worksheet.Cells[currentRow, 1, currentRow, totalColumns].Merge = true;
-            worksheet.Cells[currentRow, 1].Value = reportDto.CollegeName;
-            worksheet.Cells[currentRow, 1].Style.Font.Bold = true;
-            worksheet.Cells[currentRow, 1].Style.Font.Size = 18;
-            worksheet.Cells[currentRow, 1].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
+            // Header row 1: the College Details banner (added once the column widths are known, below)
+            // or, without one, the college name with the logo at its left. Row 1 in both cases, so
+            // every row index that follows is the same whichever header is printed.
+            int brandingRow = currentRow;
+            worksheet.Cells[brandingRow, 1, brandingRow, totalColumns].Merge = true;
             currentRow++;
 
             // Header: Program & Date
@@ -486,6 +505,8 @@ namespace ExamAPI.Services.Report
                 worksheet.Cells[currentRow, 1].Value = "Subjects: " + subjectText;
                 worksheet.Cells[currentRow, 1].Style.WrapText = true;
                 worksheet.Cells[currentRow, 1].Style.Font.Size = 8;
+                // Merged cells are not autofitted by Excel: size the row to the wrapped text (about 170 characters per line).
+                worksheet.Row(currentRow).Height = Math.Max(1, (int)Math.Ceiling(("Subjects: " + subjectText).Length / 170.0)) * 11 + 3;
                 currentRow++;
 
                 var abbrText = "C: Credits  |  G: Grade  |  GP: Grade Point  |  CG: Credits * Grade Point  |  CE: Credits Earned  |  SGPA: Semester Grade Point Average  |  CGPI: Cumulative Grade Point Index  |  --: Not Applicable  |  F: Fail  |  AB: Absent";
@@ -493,6 +514,7 @@ namespace ExamAPI.Services.Report
                 worksheet.Cells[currentRow, 1].Value = "Abbreviations: " + abbrText;
                 worksheet.Cells[currentRow, 1].Style.WrapText = true;
                 worksheet.Cells[currentRow, 1].Style.Font.Size = 8;
+                worksheet.Row(currentRow).Height = Math.Max(1, (int)Math.Ceiling(("Abbreviations: " + abbrText).Length / 170.0)) * 11 + 3;
                 currentRow++;
 
                 if (chunk != studentChunks.Last())
@@ -513,6 +535,19 @@ namespace ExamAPI.Services.Report
             worksheet.Column(c++).Width = 8; // SGPA
             if (reportDto.ShowCgpi) worksheet.Column(c++).Width = 8; // CGPI
             worksheet.Column(c).Width = 12; // Remark
+
+            // Banner (full-width header, replaces the name text) -> logo + name -> name only.
+            if (ExcelBranding.TryAddBanner(worksheet, reportDto.CollegeBanner, brandingRow, totalColumns, 1) == 0)
+            {
+                worksheet.Cells[brandingRow, 1].Value = reportDto.CollegeName;
+                worksheet.Cells[brandingRow, 1].Style.Font.Bold = true;
+                worksheet.Cells[brandingRow, 1].Style.Font.Size = 18;
+                worksheet.Cells[brandingRow, 1].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
+                worksheet.Cells[brandingRow, 1].Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Center;
+                // College logo (College Details) floats at the left of the name row; no cell moves.
+                // An explicit height: Excel does not autofit merged cells, so the 18pt name would be clipped in a default 15pt row.
+                worksheet.Row(brandingRow).Height = ExcelBranding.TryAddLogo(worksheet, reportDto.CollegeLogo, brandingRow, 1, 96, 40) ? 32 : 26;
+            }
 
             return await package.GetAsByteArrayAsync();
         }
@@ -560,13 +595,13 @@ namespace ExamAPI.Services.Report
 
             var student = marksMaster.Student;
 
-            var collegeName = await GetCollegeNameAsync(collegeId);
+            var branding = await GetBrandingAsync(collegeId);
             var programName = exam?.Course?.Name ?? "N/A";
             if (programName == "CS & E(DS)") programName = "Computer Science & Engineering (Data Science)";
             else if (programName == "CS & E") programName = "Computer Science & Engineering";
 
             var examName = exam?.Name ?? "Regular Exam";
-            if (marksMaster.Exam?.ExamType == "KT" || marksMaster.Exam?.ExamType == "ATKT" || exam?.ExamType == "KT" || exam?.ExamType == "ATKT")
+            if (ExamTypeKeys.IsAtkt(marksMaster.Exam?.ExamType) || ExamTypeKeys.IsAtkt(exam?.ExamType))
             {
                 if (!examName.Contains("(ATKT)")) examName += " (ATKT)";
             }
@@ -582,14 +617,16 @@ namespace ExamAPI.Services.Report
 
             var reportDto = new MarksheetReportDto
             {
-                CollegeName = collegeName,
+                CollegeName = branding.Name,
+                CollegeLogo = branding.Logo,
+                CollegeBanner = branding.Banner,
                 StudentName = student != null ? ((marksMaster.QuotaType == "LD" ? "~" : "") + $"{student.FirstName} {student.LastName}") : "N/A",
                 SeatNo = marksMaster.SeatNo ?? "N/A",
                 PRN = student?.StudentPRN ?? "N/A",
                 StudentId = marksMaster.StudentID ?? "N/A",
                 ProgramName = programName,
                 ExamName = examName,
-                Semester = $"Semester {semId}",
+                Semester = SemesterLabel(semId),
                 ResultDate = resultDate?.Date ?? DateTime.Today,
                 SGPI = (double)(marksMaster.SGPI ?? 0),
                 CGPI = marksMaster.CGPI.HasValue ? (double)marksMaster.CGPI.Value : null,
@@ -619,6 +656,8 @@ namespace ExamAPI.Services.Report
                 totalCredits += subDto.Credits;
                 if (subDto.GradePoint > 0) creditsEarned += subDto.Credits;
             }
+
+            reportDto.Subjects = SortBySubjectCode(reportDto.Subjects);
 
             reportDto.TotalObtained = totalObtained;
             reportDto.TotalMax = totalMax;
@@ -682,7 +721,7 @@ namespace ExamAPI.Services.Report
             if (!marksMasters.Any())
                 throw new Exception("No results found for the given criteria. Have you processed the results yet?");
 
-            var collegeName = await GetCollegeNameAsync(collegeId);
+            var branding = await GetBrandingAsync(collegeId);
             var reports = new List<MarksheetReportDto>();
 
             Dictionary<Guid, List<SemesterRecordDto>> bulkHistory = new();
@@ -703,7 +742,7 @@ namespace ExamAPI.Services.Report
                 else if (programName == "CS & E") programName = "Computer Science & Engineering";
 
                 var examName = exam?.Name ?? "Regular Exam";
-                if (marksMaster.Exam?.ExamType == "KT" || marksMaster.Exam?.ExamType == "ATKT" || exam?.ExamType == "KT" || exam?.ExamType == "ATKT")
+                if (ExamTypeKeys.IsAtkt(marksMaster.Exam?.ExamType) || ExamTypeKeys.IsAtkt(exam?.ExamType))
                 {
                     if (!examName.Contains("(ATKT)")) examName += " (ATKT)";
                 }
@@ -719,14 +758,16 @@ namespace ExamAPI.Services.Report
 
                 var reportDto = new MarksheetReportDto
                 {
-                    CollegeName = collegeName,
+                    CollegeName = branding.Name,
+                    CollegeLogo = branding.Logo,
+                    CollegeBanner = branding.Banner,
                     StudentName = student != null ? ((marksMaster.QuotaType == "LD" ? "~" : "") + $"{student.FirstName} {student.LastName}") : "N/A",
                     SeatNo = marksMaster.SeatNo ?? "N/A",
                     PRN = student?.StudentPRN ?? "N/A",
                     StudentId = marksMaster.StudentID ?? "N/A",
                     ProgramName = programName,
                     ExamName = examName,
-                    Semester = $"Semester {semId}",
+                    Semester = SemesterLabel(semId),
                     ResultDate = resultDate?.Date ?? DateTime.Today,
                     SGPI = (double)(marksMaster.SGPI ?? 0),
                     CGPI = marksMaster.CGPI.HasValue ? (double)marksMaster.CGPI.Value : null,
@@ -756,6 +797,8 @@ namespace ExamAPI.Services.Report
                     totalCredits += subDto.Credits;
                     if (subDto.GradePoint > 0) creditsEarned += subDto.Credits;
                 }
+
+                reportDto.Subjects = SortBySubjectCode(reportDto.Subjects);
 
                 reportDto.TotalObtained = totalObtained;
                 reportDto.TotalMax = totalMax;

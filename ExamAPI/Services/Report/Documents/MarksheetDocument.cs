@@ -38,7 +38,8 @@ namespace ExamAPI.Services.Report.Documents
         {
             container.Column(column =>
             {
-                column.Item().AlignCenter().Text(Model.CollegeName).FontSize(15).Bold().FontColor(Colors.Blue.Darken3);
+                column.Item().Element(c => BrandedHeader.Compose(c, Model.CollegeBanner, 72, Model.CollegeLogo, 44, title =>
+                    title.AlignCenter().Text(Model.CollegeName).FontSize(15).Bold().FontColor(Colors.Blue.Darken3)));
                 column.Item().AlignCenter().Text("STATEMENT OF MARKS").FontSize(12).Bold().FontColor(Colors.Grey.Darken4);
                 
                 column.Item().PaddingTop(10).Background(Colors.Grey.Lighten4).Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(8).Row(row =>
@@ -70,7 +71,7 @@ namespace ExamAPI.Services.Report.Documents
                 {
                     table.ColumnsDefinition(columns =>
                     {
-                        columns.ConstantColumn(50); // Course Code
+                        columns.ConstantColumn(64); // Course Code (wide enough for CSDLO6011 on one line)
                         columns.RelativeColumn(3);  // Course Name
                         columns.RelativeColumn(2.2f); // Configured heads
                         columns.RelativeColumn(1.2f); // Total

@@ -180,8 +180,15 @@ namespace ExamAPI.Controllers
                 return BadRequest(new ApiResponseDto<object> { Success = false, Message = "Invalid data.", Data = ModelState });
             }
 
-            var createdRuleDto = await _ordinanceService.CreateRuleAsync(ruleDto);
-            return Ok(new ApiResponseDto<RuleDto> { Success = true, Data = createdRuleDto, Message = "Rule created successfully." });
+            try
+            {
+                var createdRuleDto = await _ordinanceService.CreateRuleAsync(ruleDto);
+                return Ok(new ApiResponseDto<RuleDto> { Success = true, Data = createdRuleDto, Message = "Rule created successfully." });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new ApiResponseDto<object> { Success = false, Message = ex.Message });
+            }
         }
 
         [HttpPut("Rules/{id}")]
@@ -190,7 +197,15 @@ namespace ExamAPI.Controllers
             if (!ModelState.IsValid) return BadRequest(new ApiResponseDto<object> { Success = false, Message = "Invalid data.", Data = ModelState });
             if (id != ruleDto.RuleId) return BadRequest(new ApiResponseDto<object> { Success = false, Message = "Rule ID in URL and body do not match." });
 
-            var result = await _ordinanceService.UpdateRuleAsync(ruleDto);
+            bool result;
+            try
+            {
+                result = await _ordinanceService.UpdateRuleAsync(ruleDto);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new ApiResponseDto<object> { Success = false, Message = ex.Message });
+            }
             if (!result) return NotFound(new ApiResponseDto<object> { Success = false, Message = "Rule not found." });
 
             return Ok(new ApiResponseDto<object> { Success = true, Message = "Rule updated successfully." });

@@ -380,8 +380,37 @@ namespace ExamAPI.Services.Ordinance
             });
         }
 
+        /// <summary>
+        /// Save-time check for rule actions, so a rule that could never do anything is refused
+        /// with a message instead of silently no-oping at result time.
+        /// <para>
+        /// An AddGrace rule spends a grace pool of <c>MaxLimit ?? Param1Value</c> (see
+        /// AddGraceHandler). A grace-chart rule keeps its per-subject amount in the Expression and
+        /// Param1Value 0, so without a positive MaxLimit its pool is 0 and it never grants anything.
+        /// </para>
+        /// </summary>
+        /// <exception cref="InvalidOperationException">An action is not usable as configured.</exception>
+        public static void ValidateActions(IEnumerable<RuleActionCreateDto>? actions)
+        {
+            if (actions == null) return;
+
+            foreach (var action in actions)
+            {
+                if (!string.Equals(action.ActionType?.Trim(), "AddGrace", StringComparison.OrdinalIgnoreCase)) continue;
+
+                var pool = action.MaxLimit ?? action.Param1Value ?? 0;
+                if (pool <= 0)
+                {
+                    throw new InvalidOperationException(
+                        "An AddGrace action needs a positive Max Limit (the total grace marks a student can receive under this rule). " +
+                        "Without it the grace pool is 0 and the rule would never grant grace.");
+                }
+            }
+        }
+
         public async Task<RuleDto> CreateRuleAsync(RuleCreateDto ruleDto)
         {
+            ValidateActions(ruleDto.Actions);
             var rule = new Rule
             {
                 RuleId = Guid.NewGuid(),
@@ -455,6 +484,7 @@ namespace ExamAPI.Services.Ordinance
 
         public async Task<bool> UpdateRuleAsync(RuleUpdateDto ruleDto)
         {
+            ValidateActions(ruleDto.Actions);
             var existingRule = await _context.Rules
                 .Include(r => r.Conditions.Where(c => !c.IsDeleted))
                 .Include(r => r.Actions.Where(a => !a.IsDeleted))
@@ -562,6 +592,7 @@ namespace ExamAPI.Services.Ordinance
                     Param2Type = aDto.Param2Type,
                     Param2Value = aDto.Param2Value,
                     MaxLimit = aDto.MaxLimit,
+                    Expression = aDto.Expression,
                     MaxTargetCount = aDto.MaxTargetCount,
                     Target = aDto.Target,
                     CreatedAt = DateTime.UtcNow,
@@ -634,14 +665,35 @@ namespace ExamAPI.Services.Ordinance
         // === Metadata Methods ===
         public async Task<EngineMetadataDto> GetEngineMetadataAsync()
         {
+            // Result-engine handlers, plus the assignment action. AllowExamAssignment has no result
+            // handler by design (result processing skips unknown action types); it is interpreted
+            // only by AtktRevalExamService, so it must be added here to be authorable in Ordinance.
+            // The UI shows it only for KT/Reval rule sets.
+            var actions = _engineRegistry.GetRegisteredActions().ToList();
+            actions.Add(Services.AtktRevalExam.AtktRevalExamService.AllowExamAssignmentAction);
+
+            // The configured head labels this college actually uses, so a rule author picks a real
+            // head name from the Target multiselect instead of free-typing one that silently no-ops.
+            var headTypes = await _context.SubjectCredits
+                .Where(sc => !sc.IsDeleted && sc.HeadType != null && sc.HeadType != "")
+                .Select(sc => sc.HeadType!)
+                .Distinct()
+                .OrderBy(h => h)
+                .ToListAsync();
+
             var metadata = new EngineMetadataDto
             {
                 Facts = _engineRegistry.GetRegisteredFacts().ToList(),
-                Actions = _engineRegistry.GetRegisteredActions().ToList(),
-                Operators = new List<string> { "==", "!=", ">", ">=", "<", "<=" }
+                Actions = actions,
+                Operators = new List<string> { "==", "!=", ">", ">=", "<", "<=" },
+                SubjectScopes = new List<string>
+                {
+                    "AllSubjects", "FailingSubjects", "PassingSubjects", "AbsentSubjects", "NotAttempted"
+                },
+                HeadTypes = headTypes
             };
 
-            return await Task.FromResult(metadata);
+            return metadata;
         }
     }
 }

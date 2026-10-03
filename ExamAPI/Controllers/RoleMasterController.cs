@@ -1,6 +1,8 @@
 ﻿using ExamAPI.DTOs;
+using ExamAPI.Services.Auth;
 using ExamAPI.Services.Common;
 using ExamAPI.Services.RoleMaster;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
@@ -8,6 +10,7 @@ namespace ExamAPI.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize(Policy = AccessPolicies.CollegeAdmin)]
     public class RoleMasterController : ControllerBase
     {
         private readonly IRoleMasterService _service;
@@ -37,21 +40,21 @@ namespace ExamAPI.Controllers
         [HttpPost("SaveRole")]
         public async Task<IActionResult> SaveRole([FromBody] CreateRoleDto dto)
         {
-            var result = await _service.SaveRoleAsync(dto);
-            return Ok(result);
+            try { return Ok(await _service.SaveRoleAsync(dto)); }
+            catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
         }
          
         [HttpPost("UpdateRole")]
         public async Task<IActionResult> UpdateRole([FromBody] CreateRoleDto dto)
         {
-            var result = await _service.UpdateRoleAsync(dto);
-            return Ok(result);
+            try { return Ok(await _service.UpdateRoleAsync(dto)); }
+            catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
         }
         [HttpDelete("DeleteRole")]
         public async Task<IActionResult> DeleteRole(Guid roleId)
         {
-            var result = await _service.DeleteRoleAsync(roleId);
-            return Ok(result);
+            try { return Ok(await _service.DeleteRoleAsync(roleId)); }
+            catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
         }
 
     }

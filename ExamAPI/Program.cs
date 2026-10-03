@@ -1,6 +1,6 @@
-using CloudinaryDotNet;
 using ExamAPI.Data;
 using ExamAPI.Models;
+using ExamAPI.Services.Auth;
 using ExamAPI.Services.Email;
 using ExamAPI.Services.PasswordResetOTP;
 using ExamAPI.Services.RoleMaster;
@@ -29,14 +29,6 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ExamAPI.Services.Tenancy.ICurrentUser, ExamAPI.Services.Tenancy.CurrentUser>();
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
 
-var cloudConfig = builder.Configuration.GetSection("Cloudinary");
-var account = new Account(
-    cloudConfig["CloudName"],
-    cloudConfig["ApiKey"],
-    cloudConfig["ApiSecret"]
-);
-builder.Services.AddSingleton(new Cloudinary(account));
-
 //  connection string
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
@@ -45,6 +37,14 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 
 
 //--services and interface ------//
+// Uploaded student photos/signatures and college logos: persistent, non-public storage (DB-07 / DEC-12).
+// Root = Storage:UploadsRoot (absolute path recommended, outside the publish folder); default <ContentRoot>/App_Data/uploads.
+builder.Services.AddSingleton<ExamAPI.Services.Files.IFileStorage>(sp =>
+{
+    var env = sp.GetRequiredService<IWebHostEnvironment>();
+    var config = sp.GetRequiredService<IConfiguration>();
+    return new ExamAPI.Services.Files.FileStorage(env.ContentRootPath, env.WebRootPath, config["Storage:UploadsRoot"]);
+});
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<ExamAPI.Services.Auth.IAuthService, ExamAPI.Services.Auth.AuthService>();
 builder.Services.AddScoped<ExamAPI.Services.Common.IGenericRepository, ExamAPI.Services.Common.GenericRepository>();
@@ -60,11 +60,15 @@ builder.Services.AddScoped<ExamAPI.Services.RegularExam.IRegularExamService, Exa
 builder.Services.AddScoped<ExamAPI.Services.Eligibility.IEligibilityService,ExamAPI.Services.Eligibility.EligibilityService>();
 builder.Services.AddScoped<ExamAPI.Services.GenerateHallTicket.IGenerateHallTicketService, ExamAPI.Services.GenerateHallTicket.GenerateHallTicketService>();
 builder.Services.AddScoped<ExamAPI.Services.UsersMaster.IUserMasterService, ExamAPI.Services.UsersMaster.UserMasterService>();
+builder.Services.AddScoped<ExamAPI.Services.Platform.IProvisionCollegeService, ExamAPI.Services.Platform.ProvisionCollegeService>();
+builder.Services.AddScoped<ExamAPI.Services.Platform.IPlatformCollegeService, ExamAPI.Services.Platform.PlatformCollegeService>();
 builder.Services.AddScoped<IPasswordResetService, PasswordResetService>();
 builder.Services.AddScoped<ExamAPI.Services.AssignSeatNo.IAssignSeatNoService, ExamAPI.Services.AssignSeatNo.AssignSeatNoService>();
+builder.Services.AddScoped<ExamAPI.Services.AtktRevalExam.IAtktRevalExamService, ExamAPI.Services.AtktRevalExam.AtktRevalExamService>();
 builder.Services.AddScoped<ExamAPI.Services.Result.IResultService, ExamAPI.Services.Result.ResultService>();
 builder.Services.AddScoped<ExamAPI.Services.MarksEntry.IMarksEntryService, ExamAPI.Services.MarksEntry.MarksEntryService>();
 builder.Services.AddScoped<ExamAPI.Services.Report.IReportService, ExamAPI.Services.Report.ReportService>();
+builder.Services.AddScoped<ExamAPI.Services.StatisticalReport.IStatisticalReportService, ExamAPI.Services.StatisticalReport.StatisticalReportService>();
 builder.Services.AddOrdinanceEngine();
 
 // Configure QuestPDF
@@ -106,6 +110,9 @@ builder.Services.AddAuthorization(options =>
     options.FallbackPolicy = new AuthorizationPolicyBuilder()
         .RequireAuthenticatedUser()
         .Build();
+
+    // Access model (DEC-17 / DB-05): PlatformAdmin and CollegeAdmin policies.
+    options.AddAccessPolicies();
 });
 // Authorization end
 
@@ -133,7 +140,9 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
-app.UseStaticFiles();
+// No app.UseStaticFiles(): wwwroot held only uploaded personal data (student photos/signatures, college
+// logos), which must not be anonymously readable (DEC-12). They are served solely by the authorised
+// GET /api/Files endpoint. Re-add static files only with an explicit block for /uploads and /Clg_detail*.
 app.UseHttpsRedirection();
 
 app.UseCors("AllowReactApp");

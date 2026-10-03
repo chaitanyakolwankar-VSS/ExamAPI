@@ -1,6 +1,8 @@
 ﻿using ExamAPI.Data;
 using ExamAPI.DTOs;
 using ExamAPI.Models;
+using ExamAPI.Services.Auth;
+using ExamAPI.Services.Tenancy;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System;
@@ -13,26 +15,53 @@ namespace ExamAPI.Services.RoleMaster
     {
         private readonly ApplicationDbContext _context;
 
-        public RoleMasterService(ApplicationDbContext context)
+        private readonly ICurrentUser _currentUser;
+
+        public RoleMasterService(ApplicationDbContext context, ICurrentUser currentUser)
         {
             _context = context;
+            _currentUser = currentUser;
+        }
+
+        // The admin role is identified by name (no schema flag), so a college admin must not be able to
+        // mint, rename into, rename out of, or delete it: that would bypass the platform-admin-only,
+        // 2-admins-per-college rule (DEC-17) enforced when the role is assigned to a user.
+        private void EnsureAdminRoleNotTouched(string? newName, string? existingName)
+        {
+            if (_currentUser.IsPlatformAdmin) return;
+            var touchesAdmin = AccessPolicies.IsAdminRoleName(newName) != AccessPolicies.IsAdminRoleName(existingName);
+            if (touchesAdmin)
+                throw new InvalidOperationException("Only the platform administrator can create, rename or delete the Admin role");
         }
         public async Task<List<RoleMasterDto>> GetRoleAsync()
         {
-            var result =
-            (from rm in _context.RoleMasters
-             join rp in _context.RolePermissions on rm.RoleId equals rp.RoleId
-             join p in _context.Permissions on rp.PermissionId equals p.PermissionId
-             where !rm.IsDeleted && !rp.IsDeleted && !p.IsDeleted
-             group p by new { rm.RoleId, rm.Name, rm.Description } into g
-             select new RoleMasterDto
-             {
-                 RoleId = g.Key.RoleId,
-                 Name = g.Key.Name,
-                 Description = g.Key.Description,
-                 PermissionFormNames = string.Join(", ", g.Select(x => x.PermissionFormName))
-             }).ToList();
-            return result;
+            // Every non-deleted role of the caller's college (plus platform templates, via the query
+            // filter), INCLUDING roles with no permissions (e.g. Admin, which sees everything and needs none).
+            // The permission list is a left join: a role without rows gets an empty string.
+            var roles = await _context.RoleMasters
+                .Where(rm => !rm.IsDeleted)
+                .Select(rm => new
+                {
+                    rm.RoleId,
+                    rm.Name,
+                    rm.Description,
+                    Forms = rm.RolePermissions!
+                        .Where(rp => !rp.IsDeleted && !rp.Permission!.IsDeleted)
+                        .Select(rp => rp.Permission!.PermissionFormName)
+                        .ToList()
+                })
+                .ToListAsync();
+
+            return roles
+                .OrderBy(r => r.Name)
+                .Select(r => new RoleMasterDto
+                {
+                    RoleId = r.RoleId,
+                    Name = r.Name,
+                    Description = r.Description,
+                    PermissionFormNames = string.Join(", ", r.Forms.OrderBy(x => x))
+                })
+                .ToList();
         }
         public async Task<List<PermissionResponse>> GetPermissionsAsync()
         {
@@ -71,6 +100,8 @@ namespace ExamAPI.Services.RoleMaster
         {
             if (dto == null)
                 return "Invalid data";
+
+            EnsureAdminRoleNotTouched(dto.Name, existingName: null);
 
             var roleId = Guid.NewGuid();
 
@@ -112,6 +143,8 @@ namespace ExamAPI.Services.RoleMaster
             if (role == null)
                 return "Role not found";
 
+            EnsureAdminRoleNotTouched(dto.Name, role.Name);
+
             role.Name = dto.Name;
             role.Description = dto.Description;
             role.UpdatedAt = DateTime.UtcNow;
@@ -145,6 +178,8 @@ namespace ExamAPI.Services.RoleMaster
 
             if (role == null)
                 return "Role not found";
+
+            EnsureAdminRoleNotTouched(newName: null, existingName: role.Name);
 
             role.IsDeleted = true;
 

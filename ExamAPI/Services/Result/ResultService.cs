@@ -1,8 +1,10 @@
 using ExamAPI.Data;
 using ExamAPI.DTOs;
 using ExamAPI.Models;
+using ExamAPI.Services.Common;
 using ExamAPI.Services.Result.Engine;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
@@ -19,13 +21,14 @@ namespace ExamAPI.Services.Result
     {
         private readonly ApplicationDbContext _context;
         private readonly EngineRegistry _registry;
-        private const string RESOLUTION_SYMBOL = "^";
+        private readonly ILogger<ResultService>? _logger;
         private const string FAIL_GRADE = "F";
 
-        public ResultService(ApplicationDbContext context, EngineRegistry registry)
+        public ResultService(ApplicationDbContext context, EngineRegistry registry, ILogger<ResultService>? logger = null)
         {
             _context = context;
             _registry = registry;
+            _logger = logger;
         }
 
         public async Task<IEnumerable<ExamOptionDto>> GetExamsAsync(Guid branchId, string semId, string pattern, Guid collegeId, Guid? ayid = null)
@@ -59,12 +62,12 @@ namespace ExamAPI.Services.Result
                     .Include(mm => mm.Student)
                     .Include(mm => mm.StudentMarks)
                     .Include(mm => mm.Exam)
-                    .Where(mm => mm.Student != null 
-                        && mm.Student.CollegeId == collegeId 
-                        && mm.ExamId == request.ExamId 
-                        && mm.SemesterId == request.SemId 
-                        && mm.Pattern == request.Pattern 
-                        && mm.Exam != null 
+                    .Where(mm => mm.Student != null
+                        && mm.Student.CollegeId == collegeId
+                        && mm.ExamId == request.ExamId
+                        && mm.SemesterId == request.SemId
+                        && mm.Pattern == request.Pattern
+                        && mm.Exam != null
                         && mm.Exam.CourseId == request.BranchId
                         && !mm.IsDeleted);
 
@@ -92,7 +95,7 @@ namespace ExamAPI.Services.Result
                 {
                     return new ApiResponseDto<object> { Success = false, Message = "Selected exam does not belong to the requested branch." };
                 }
-                
+
                 if (exam.IsLocked)
                 {
                     return new ApiResponseDto<object> { Success = false, Message = "This exam is locked. Result processing is not allowed." };
@@ -105,10 +108,10 @@ namespace ExamAPI.Services.Result
                 if (incompleteRecords.Any())
                 {
                     var studentIds = string.Join(", ", incompleteRecords.Take(5).Select(mm => mm.StudentID));
-                    return new ApiResponseDto<object> 
-                    { 
-                        Success = false, 
-                        Message = $"Marks entry incomplete for some students (e.g., {studentIds}). Kindly complete marks entry first." 
+                    return new ApiResponseDto<object>
+                    {
+                        Success = false,
+                        Message = $"Marks entry incomplete for some students (e.g., {studentIds}). Kindly complete marks entry first."
                     };
                 }
 
@@ -124,8 +127,8 @@ namespace ExamAPI.Services.Result
                     .Where(rs => rs.Pattern!.PatternName == request.Pattern && rs.IsActive && !rs.IsDeleted)
                     .ToListAsync();
 
-                var ruleSet = ruleSets.FirstOrDefault(rs => 
-                    (rs.ExamType != null && NormalizeKey(rs.ExamType) == NormalizeKey(exam.ExamType)) || 
+                var ruleSet = ruleSets.FirstOrDefault(rs =>
+                    (rs.ExamType != null && ExamTypeKeys.Canonical(rs.ExamType) == ExamTypeKeys.Canonical(exam.ExamType)) ||
                     (rs.ExamType == null && IsRuleSetForExamType(rs.Name, exam.ExamType))
                 );
 
@@ -137,6 +140,14 @@ namespace ExamAPI.Services.Result
                         Message = $"No active rule set found for pattern '{request.Pattern}' and exam type '{exam.ExamType}'. Ensure a RuleSet is configured for this Exam Type."
                     };
                 }
+
+                // Resolution limits are loaded ONCE per exam. ResolutionMaster is the only source of
+                // truth for '^': every run re-derives it from these, so a lowered limit revokes on
+                // the next run and a first-time limit applies on the first.
+                var resolutionRows = await _context.Resolution
+                    .Where(r => r.ExamID == request.ExamId && !r.IsDeleted)
+                    .ToListAsync();
+                var resolutionLimits = ResolutionDerivation.ParseLimits(resolutionRows);
 
                 // 5. Process each student
                 foreach (var mm in marksRecords)
@@ -155,7 +166,7 @@ namespace ExamAPI.Services.Result
 
                     if (fullMm != null)
                     {
-                        await ProcessStudentResult(fullMm, request, ruleSet);
+                        await ProcessStudentResult(fullMm, request, ruleSet, resolutionLimits);
                     }
                 }
 
@@ -169,13 +180,22 @@ namespace ExamAPI.Services.Result
             }
         }
 
-        private async Task ProcessStudentResult(MarksMaster marksMaster, ProcessResultRequest request, RuleSet ruleSet)
+        private async Task ProcessStudentResult(MarksMaster marksMaster, ProcessResultRequest request, RuleSet ruleSet,
+            IReadOnlyDictionary<Guid, int> resolutionLimits)
         {
             if (marksMaster.StudentMarks == null) return;
 
+            // Back to what staff typed: marks = raw, no resolution, no grace symbol.
             foreach (var sm in marksMaster.StudentMarks)
             {
                 ResetAppliedGrace(sm);
+            }
+
+            // Resolution ('^') is derived from ResolutionMaster BEFORE the rule phases, so ordinance
+            // grace is computed from the post-resolution deficit and skips resolved heads/subjects.
+            foreach (var subjectHeads in marksMaster.StudentMarks.GroupBy(sm => sm.SubjectId))
+            {
+                ResolutionDerivation.Apply(subjectHeads, resolutionLimits);
             }
 
             // Ordinance symbols are re-derived from the rules on every run, so clear the
@@ -259,6 +279,18 @@ namespace ExamAPI.Services.Result
         {
             marksMaster.SubjectResults ??= new List<StudentSubjectResult>();
 
+            // A subject that no longer has any StudentMarks heads (removed from the exam or the
+            // assignment) must stop counting toward SGPI, credits and the backlog count.
+            var liveSubjectIds = marksMaster.StudentMarks!
+                .Where(sm => sm.SubjectId.HasValue)
+                .Select(sm => sm.SubjectId!.Value)
+                .ToHashSet();
+            foreach (var orphan in marksMaster.SubjectResults.Where(r => !liveSubjectIds.Contains(r.SubjectId)).ToList())
+            {
+                marksMaster.SubjectResults.Remove(orphan);
+                _context.StudentSubjectResults.Remove(orphan);
+            }
+
             foreach (var group in marksMaster.StudentMarks!.GroupBy(sm => sm.SubjectId))
             {
                 if (group.Key is not Guid subjectId) continue;
@@ -305,7 +337,12 @@ namespace ExamAPI.Services.Result
                     : verdict.IsPassed;
 
                 double percentage = verdict.OutOfTotal > 0 ? (obtainedTotal * 100.0 / verdict.OutOfTotal) : 0;
-                var (gp, gradeStr) = GetGradePointFromPercentage(percentage, ruleSet.GradeMaster);
+
+                // A failed subject is graded F / 0 without a grade-table lookup, so a hole in the
+                // table can never abort the batch on behalf of a subject that needs no grade.
+                var (gp, gradeStr) = subjectPassed
+                    ? GetGradePointFromPercentage(percentage, ruleSet.GradeMaster)
+                    : (0d, FAIL_GRADE);
 
                 subjectResult.ObtainedTotal = obtainedTotal;
                 subjectResult.RawObtainedTotal = verdict.RawObtainedTotal;
@@ -350,14 +387,23 @@ namespace ExamAPI.Services.Result
         {
             if (gradeMaster?.Thresholds != null && gradeMaster.Thresholds.Any())
             {
-                var threshold = gradeMaster.Thresholds
-                    .OrderByDescending(t => t.MinPercentage)
-                    .FirstOrDefault(t => (decimal)percentage >= t.MinPercentage && (decimal)percentage <= t.MaxPercentage);
-                
+                var value = (decimal)percentage;
+                var ordered = gradeMaster.Thresholds.OrderByDescending(t => t.MinPercentage).ToList();
+
+                var threshold = ordered.FirstOrDefault(t => value >= t.MinPercentage && value <= t.MaxPercentage);
                 if (threshold != null) return ((double)threshold.GradePoint, threshold.Grade ?? "P");
+
+                // The percentage fell in a gap between two bands (e.g. 39.995 between 39.99 and 40).
+                // That is a grade-table data problem, not a reason to abort every student: use the
+                // nearest band below it (or the lowest band when it is under all of them).
+                var nearest = ordered.FirstOrDefault(t => value >= t.MinPercentage) ?? ordered.Last();
+                _logger?.LogWarning(
+                    "Percentage {Percentage} matches no grade threshold in GradeMaster {GradeMasterId}; using the nearest lower band {Grade} ({Min}-{Max}). Check the grade table for gaps.",
+                    percentage, gradeMaster.GradeMasterId, nearest.Grade, nearest.MinPercentage, nearest.MaxPercentage);
+                return ((double)nearest.GradePoint, nearest.Grade ?? "P");
             }
 
-            throw new InvalidOperationException("GradeMaster is not configured or no matching threshold found for the given percentage. Ensure ordinances are correctly set up.");
+            throw new InvalidOperationException("GradeMaster is not configured or has no thresholds. Ensure ordinances are correctly set up.");
         }
 
         private async Task UpdateAcademicRecord(MarksMaster marksMaster)
@@ -382,14 +428,17 @@ namespace ExamAPI.Services.Result
             overallResult.Credits = marksMaster.SubjectResults
                 .Sum(r => double.TryParse(r.CreditMaster?.TotalCredits, out var val) ? val : 0)
                 .ToString();
-            
+
             double totalCreditsForSem = double.TryParse(overallResult.Credits, out var semCred) ? semCred : 0;
             overallResult.CreditGradePoint = ((double)(marksMaster.SGPI ?? 0) * totalCreditsForSem).ToString();
 
-            bool hasBacklog = await _context.StudentsOverallResults
-                .AnyAsync(r => r.StdMstId == marksMaster.StdMstId && 
-                               string.Compare(r.SemesterId, marksMaster.SemesterId) < 0 && 
-                               r.KtTheory != "0");
+            // Compared client-side: SemesterId is a string ("Sem-6"), and a SQL string compare
+            // orders "Sem-10" before "Sem-9". A student has only a handful of prior semesters.
+            var backlogSemesters = await _context.StudentsOverallResults
+                .Where(r => r.StdMstId == marksMaster.StdMstId && r.KtTheory != "0")
+                .Select(r => r.SemesterId)
+                .ToListAsync();
+            bool hasBacklog = backlogSemesters.Any(s => s != null && marksMaster.SemesterId != null && SemesterIds.Compare(s, marksMaster.SemesterId) < 0);
 
             if (hasBacklog)
             {
@@ -401,16 +450,16 @@ namespace ExamAPI.Services.Result
                 var allSems = await _context.StudentsOverallResults
                     .Where(r => r.StdMstId == marksMaster.StdMstId && r.SGPI.HasValue)
                     .ToListAsync();
-                
+
                 decimal totalEarnedGradePoints = 0;
                 decimal totalCreditsAllSems = 0;
-                
+
                 foreach (var sem in allSems)
                 {
                     if (decimal.TryParse(sem.CreditGradePoint, out var cgp)) totalEarnedGradePoints += cgp;
                     if (decimal.TryParse(sem.Credits, out var c)) totalCreditsAllSems += c;
                 }
-                
+
                 if (totalCreditsAllSems > 0)
                 {
                     marksMaster.CGPI = Math.Round(totalEarnedGradePoints / totalCreditsAllSems, 2);
@@ -419,7 +468,7 @@ namespace ExamAPI.Services.Result
                 {
                     marksMaster.CGPI = marksMaster.SGPI;
                 }
-                
+
                 overallResult.CGPI = marksMaster.CGPI;
             }
         }
@@ -450,7 +499,7 @@ namespace ExamAPI.Services.Result
             foreach (var condition in rule.Conditions)
             {
                 var provider = _registry.GetFactProvider(condition.FactName);
-                if (provider == null) 
+                if (provider == null)
                 {
                     throw new InvalidOperationException($"Fact provider for '{condition.FactName}' not found. Rule evaluation aborted.");
                 }
@@ -466,20 +515,10 @@ namespace ExamAPI.Services.Result
 
 
 
+        // Operator vocabulary is shared with exam-assignment eligibility screening --
+        // see RuleConditionEvaluator, which owns the comparison.
         private bool CompareValues(double factValue, string op, string targetValueStr)
-        {
-            if (!double.TryParse(targetValueStr, out double targetValue)) return false;
-            return op switch
-            {
-                "Equals" or "==" => factValue == targetValue,
-                "GreaterThan" or ">" => factValue > targetValue,
-                "LessThan" or "<" => factValue < targetValue,
-                "GreaterOrEqual" or "GreaterThanOrEqual" or ">=" => factValue >= targetValue,
-                "LessOrEqual" or "LessThanOrEqual" or "<=" => factValue <= targetValue,
-                "NotEquals" or "!=" => factValue != targetValue,
-                _ => false
-            };
-        }
+            => Engine.RuleConditionEvaluator.Compare(factValue, op, targetValueStr);
 
         public async Task<ApiResponseDto<IEnumerable<ResultDataDto>>> GetResultsAsync(ProcessResultRequest request, Guid collegeId)
         {
@@ -500,8 +539,8 @@ namespace ExamAPI.Services.Result
                         && mm.Student.CollegeId == collegeId
                         && mm.ExamId == request.ExamId
                         && mm.Pattern == request.Pattern
-                        && mm.SemesterId == request.SemId 
-                        && mm.Exam != null 
+                        && mm.SemesterId == request.SemId
+                        && mm.Exam != null
                         && mm.Exam.CourseId == request.BranchId
                         && !mm.IsDeleted);
 
@@ -556,7 +595,7 @@ namespace ExamAPI.Services.Result
             if (!resultsResponse.Success || resultsResponse.Data == null) return Array.Empty<byte>();
 
             var results = resultsResponse.Data.ToList();
-            
+
             // Gather all subject heads
             var keys = new HashSet<string>();
             foreach (var r in results)
@@ -615,7 +654,7 @@ namespace ExamAPI.Services.Result
                 {
                     int startCol = col;
                     int endCol = col + group.Heads.Count - 1;
-                    
+
                     if (startCol == endCol)
                     {
                         ws.Cells[1, startCol].Value = group.Subject;
@@ -636,7 +675,7 @@ namespace ExamAPI.Services.Result
                 // Footer headers
                 ws.Cells[1, col, 2, col].Merge = true;
                 ws.Cells[1, col].Value = "Total";
-                
+
                 ws.Cells[1, col + 1, 2, col + 1].Merge = true;
                 ws.Cells[1, col + 1].Value = "%";
 
@@ -659,7 +698,7 @@ namespace ExamAPI.Services.Result
                 headerRange.Style.Font.Bold = true;
                 headerRange.Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
                 headerRange.Style.VerticalAlignment = ExcelVerticalAlignment.Center;
-                
+
                 // Set borders for all header cells individually
                 for (int r = 1; r <= 2; r++)
                 {
@@ -736,10 +775,9 @@ namespace ExamAPI.Services.Result
                 sm.RawMarks = Math.Max(0, sm.Marks.Value - previousGrace - previousResolution);
             }
 
-            // Ordinance grace is re-derived from the rules on every run, but resolution is a
-            // marks-entry decision: it survives reprocessing and changes only when staff re-save.
-            sm.Marks = sm.RawMarks is int raw ? raw + (sm.Resolution ?? 0) : null;
-            sm.Grace = sm.Resolution.HasValue ? RESOLUTION_SYMBOL : null;
+            // Both ordinance grace and resolution are derived on every run: resolution from
+            // ResolutionMaster (see ResolutionDerivation), grace from the rules.
+            ResolutionDerivation.ResetToRaw(sm);
         }
 
         private static int ExtractGraceMarks(string? grace)
@@ -829,7 +867,7 @@ namespace ExamAPI.Services.Result
                                 .BorderColor(pdfBorderColor)
                                 .PaddingVertical(4)
                                 .PaddingHorizontal(3);
-                            
+
                             if (isHeader)
                             {
                                 cell = cell.Background(pdfHeaderBgColor);

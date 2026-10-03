@@ -39,29 +39,33 @@ namespace ExamAPI.Services.Report.Documents
                 });
         }
 
+        /// <summary>Banner height cap in points on the landscape gazette (about 19 mm).</summary>
+        const float BannerMaxHeight = 54;
+
         void ComposeHeader(IContainer container)
         {
+            // With a banner the header is kept short so the default 4 students x 6 subjects still fit
+            // on one landscape page: a lower banner and tighter spacing (student data is untouched).
+            var compact = Model.CollegeBanner is { Length: > 0 };
             container.Column(column =>
             {
-                // Spacious header, allows room for a potential logo on the left/center
-                column.Item().Row(row => 
-                {
-                    row.RelativeItem().AlignCenter().Text(Model.CollegeName).FontSize(14).SemiBold();
-                });
+                // College Details banner as the header when present, else logo left of the name, else the name alone.
+                column.Item().Element(c => BrandedHeader.Compose(c, Model.CollegeBanner, BannerMaxHeight, Model.CollegeLogo, 36, title =>
+                    title.AlignCenter().Text(Model.CollegeName).FontSize(14).SemiBold()));
                 
-                column.Item().PaddingTop(8).Row(row =>
+                column.Item().PaddingTop(compact ? 3 : 8).Row(row =>
                 {
                     row.RelativeItem().AlignLeft().Text($"Program Name: {Model.ProgramName}").FontSize(10).Bold();
                     row.RelativeItem().AlignRight().Text($"Result Date : {Model.ResultDate:dd/MM/yyyy}").FontSize(10).Bold();
                 });
                 
-                column.Item().PaddingTop(4).Row(row =>
+                column.Item().PaddingTop(compact ? 1 : 4).Row(row =>
                 {
                     row.RelativeItem().AlignLeft().Text($"{Model.Semester}").FontSize(10).Bold();
                     row.RelativeItem().AlignRight().Text($"Exam: {Model.ExamName}").FontSize(10).Bold();
                 });
                 
-                column.Item().PaddingTop(10).LineHorizontal(1).LineColor(Colors.Black);
+                column.Item().PaddingTop(compact ? 3 : 10).LineHorizontal(1).LineColor(Colors.Black);
             });
         }
 
@@ -71,7 +75,7 @@ namespace ExamAPI.Services.Report.Documents
             var subjectsPerRow = Math.Clamp(Request.SubjectsPerRow, 1, 6);
             var studentChunks = Model.Students.Chunk(studentsPerPage).ToList();
 
-            container.PaddingVertical(10).Column(column =>
+            container.PaddingVertical(4).Column(column =>
             {
                 for (int chunkIndex = 0; chunkIndex < studentChunks.Count; chunkIndex++)
                 {
@@ -154,7 +158,9 @@ namespace ExamAPI.Services.Report.Documents
                                         {
                                             text.Line($"{head.Head}: {head.Marks}{head.Grace}/{FormatNumber(head.Max)}");
                                         }
-                                        text.Line($"C: {sub.Credits} G: {sub.Grade}{sub.Grace} GP: {sub.GradePoint} CG: {sub.EarnedGradePoints}");
+                                        // One compact line (7pt, no inner padding): at 4 students x 6 subjects a wrapped "CG: 21" added a
+                                        // line to every cell and pushed the fourth student onto a second page (35 pages for 69 students).
+                                        text.Line($"C:{sub.Credits} G:{sub.Grade}{sub.Grace} GP:{sub.GradePoint} CG:{sub.EarnedGradePoints}").FontSize(7);
                                     });
                                 }
 

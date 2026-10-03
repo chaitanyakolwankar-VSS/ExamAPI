@@ -10,7 +10,11 @@ namespace ExamAPI.Services.Result.Engine.FactProviders
 
         public Task<double> GetValueAsync(StudentMaster? student, MarksMaster marksMaster)
         {
-            return Task.FromResult(string.Equals(marksMaster.QuotaType, "SPORTS", StringComparison.OrdinalIgnoreCase) ? 1.0 : 0.0);
+            // The seat-number screen stores the short code "SP"; "SPORTS" is the long form. Accept both.
+            var quota = marksMaster.QuotaType;
+            var isSports = string.Equals(quota, "SP", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(quota, "SPORTS", StringComparison.OrdinalIgnoreCase);
+            return Task.FromResult(isSports ? 1.0 : 0.0);
         }
     }
 }

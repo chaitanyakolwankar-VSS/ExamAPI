@@ -18,10 +18,15 @@ namespace ExamAPI.Services.PasswordResetOTP
 
         public async Task SendResetOtpAsync(Guid userId)
         {
+            // Anonymous flow: no tenant is established, so the global UserMaster tenant filter
+            // would hide every college user. IgnoreQueryFilters drops it (and the soft-delete
+            // filter), so soft-deleted users are excluded explicitly via IsDeleted == false --
+            // same approach as AuthService.LoginAsync. The lookup is by UserId (a GUID).
             var user = await _context.UserMasters
+                .IgnoreQueryFilters()
                 .FirstOrDefaultAsync(x =>
                     x.UserId == userId &&
-                    !x.IsDeleted);
+                    x.IsDeleted == false);
 
             if (user == null)
                 throw new Exception("User not found");
@@ -120,9 +125,10 @@ namespace ExamAPI.Services.PasswordResetOTP
                 throw new Exception($"Invalid OTP. {5 - otpRecord.AttemptCount} attempts remaining.");
             }
             var user = await _context.UserMasters
+                .IgnoreQueryFilters()
                 .FirstOrDefaultAsync(x =>
                     x.UserId == dto.UserID &&
-                    !x.IsDeleted);
+                    x.IsDeleted == false);
 
             if (user == null)
                 throw new Exception("User not found.");

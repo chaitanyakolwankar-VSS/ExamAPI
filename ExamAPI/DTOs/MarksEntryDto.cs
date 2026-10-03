@@ -55,10 +55,15 @@ namespace ExamAPI.DTOs
         /// <summary>Derived, never stored: whether this head clears its own passing marks.</summary>
         public bool IsPassed { get; set; }
 
-        /// <summary>Condonation limit configured for this head on this exam, if any.</summary>
-        public int? Resolution { get; set; }
 
         public bool IsEnabled { get; set; } // Based on HMCheck or other logic
+
+        /// <summary>
+        /// True when this head was carried forward from the source attempt by an ATKT/Revaluation
+        /// assignment: the student is not appearing for it, so the mark is fixed and the cell is
+        /// locked for entry. Always false for a normal (fresh) exam head.
+        /// </summary>
+        public bool IsCarryForward { get; set; }
     }
 
     public class SaveMarksRequest
@@ -66,13 +71,13 @@ namespace ExamAPI.DTOs
         public List<StudentMarksUpdateDto> Updates { get; set; } = new();
         public int Rank { get; set; }
 
-        /// <summary>The subject being entered. Needed to apply resolution across a subject's
-        /// heads even when only the resolution limits changed and no mark did.</summary>
+        /// <summary>The exam being entered; used for the locked-exam check.</summary>
         public Guid ExamId { get; set; }
-        public Guid SubjectId { get; set; }
 
-        /// <summary>Resolution limits set on the marks-entry screen; upserted into ResolutionMaster on save.</summary>
-        public List<HeadResolutionDto> Resolutions { get; set; } = new();
+        /// <summary>Informational. Saving marks never applies resolution any more -- it is
+        /// configured separately (see <see cref="SaveResolutionConfigRequest"/>) and derived when
+        /// results are processed.</summary>
+        public Guid SubjectId { get; set; }
     }
 
     public class StudentMarksUpdateDto
@@ -81,9 +86,104 @@ namespace ExamAPI.DTOs
         public string? Marks { get; set; }
     }
 
-    public class HeadResolutionDto
+    // ----------------------------------------------------------------------------------------
+    // Resolution ('^') configuration. ResolutionMaster is the only source of truth; the limits
+    // are applied by result processing, never by marks entry.
+    // ----------------------------------------------------------------------------------------
+
+    /// <summary>Same context filters the marks-entry screen uses to list an exam's students and subjects.</summary>
+    public class ResolutionConfigRequest
+    {
+        [Required]
+        public Guid BranchId { get; set; }
+        [Required]
+        public string SemId { get; set; } = string.Empty;
+        [Required]
+        public string Pattern { get; set; } = string.Empty;
+        [Required]
+        public Guid ExamId { get; set; }
+    }
+
+    public class ResolutionConfigDto
+    {
+        public Guid ExamId { get; set; }
+
+        /// <summary>A locked exam cannot be reprocessed, so its resolution config is read-only.</summary>
+        public bool IsLocked { get; set; }
+
+        public List<ResolutionConfigSubjectDto> Subjects { get; set; } = new();
+    }
+
+    public class ResolutionConfigSubjectDto
+    {
+        public Guid SubjectId { get; set; }
+        public string SubjectCode { get; set; } = string.Empty;
+        public string SubjectName { get; set; } = string.Empty;
+
+        /// <summary>"HeadWise" or "Combined".</summary>
+        public string PassingStrategy { get; set; } = PassingStrategies.HeadWise;
+        public int? PassPercentage { get; set; }
+
+        /// <summary>Sum of the heads' out-of marks (the combined total).</summary>
+        public int OutOfTotal { get; set; }
+
+        /// <summary>Combined pass mark: PassPercentage of OutOfTotal, or the sum of head passing marks.</summary>
+        public int RequiredToPass { get; set; }
+
+        public List<ResolutionConfigHeadDto> Heads { get; set; } = new();
+
+        /// <summary>Combined only: the head currently carrying the limit (the first with a limit above 0), if any.</summary>
+        public Guid? SelectedHeadSubjectCreditId { get; set; }
+
+        /// <summary>Students entered in this subject for the exam.</summary>
+        public int StudentCount { get; set; }
+
+        /// <summary>Students who fail the subject on their RAW marks (fully entered, not absent in every head).</summary>
+        public int FailingCount { get; set; }
+
+        /// <summary>Failing students who would be condoned by the SAVED limits ("would be condoned").</summary>
+        public int WithinLimitCount { get; set; }
+
+        /// <summary>Students holding a resolution bump (Resolution &gt; 0) after the last processing.</summary>
+        public int AppliedCount { get; set; }
+
+        /// <summary>Combined only: the subject deficit of every failing student that has no absent head
+        /// (the only students resolution can help). Lets the UI preview a typed limit without a round trip.</summary>
+        public List<int> Deficits { get; set; } = new();
+    }
+
+    public class ResolutionConfigHeadDto
     {
         public Guid SubjectCreditId { get; set; }
-        public int? Resolution { get; set; }
+
+        /// <summary>Positional key, "H1"/"H2".</summary>
+        public string Head { get; set; } = string.Empty;
+
+        /// <summary>Display label, e.g. "ESE".</summary>
+        public string HeadType { get; set; } = string.Empty;
+        public int OutOf { get; set; }
+        public int Passing { get; set; }
+
+        /// <summary>Saved limit for this head; 0 = off (also when nothing has been saved).</summary>
+        public int Limit { get; set; }
+
+        /// <summary>Head-wise only: the shortfall of every student who fails this head on raw marks
+        /// (not absent, marks entered), for previewing a typed limit.</summary>
+        public List<int> Deficits { get; set; } = new();
+    }
+
+    public class SaveResolutionConfigRequest
+    {
+        public Guid ExamId { get; set; }
+        public List<ResolutionLimitDto> Limits { get; set; } = new();
+    }
+
+    public class ResolutionLimitDto
+    {
+        public Guid SubjectCreditId { get; set; }
+
+        /// <summary>Whole number &gt;= 0, no upper bound. Null or 0 switches resolution off for the head.
+        /// Typed as decimal only so a fractional value can be rejected with a clear message.</summary>
+        public decimal? Limit { get; set; }
     }
 }

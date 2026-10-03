@@ -188,5 +188,11 @@ namespace ExamAPI.DTOs
         public List<string> Facts { get; set; } = new List<string>();
         public List<string> Actions { get; set; } = new List<string>();
         public List<string> Operators { get; set; } = new List<string> { "==", "!=", ">", ">=", "<", "<=" };
+
+        /// <summary>Subject-scope tokens a rule action's Target may use (RuleAction.Target).</summary>
+        public List<string> SubjectScopes { get; set; } = new List<string>();
+
+        /// <summary>Configured head labels (SubjectCredits.HeadType), for the Target multiselect.</summary>
+        public List<string> HeadTypes { get; set; } = new List<string>();
     }
 }

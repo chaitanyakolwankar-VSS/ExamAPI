@@ -10,6 +10,12 @@ namespace ExamAPI.Services.Result.Engine.ActionHandlers
     {
         public string ActionType => "AddGrace";
 
+        /// <summary>Resolution symbol written by marks entry (see ResultService.RESOLUTION_SYMBOL).</summary>
+        private const string ResolutionSymbol = "^";
+
+        /// <summary>StudentSubjectResult.GraceSymbol is [MaxLength(10)].</summary>
+        private const int GraceSymbolMaxLength = 10;
+
         /// <summary>
         /// One thing grace can be spent on: a single failing head (head-wise subject) or a whole
         /// failing subject (combined), where the award lands on the subject result instead.
@@ -24,6 +30,8 @@ namespace ExamAPI.Services.Result.Engine.ActionHandlers
                 .OrderBy(target => target.Required)
                 .ToList();
 
+            // The pool comes from MaxLimit; Param1Value is the legacy fallback. OrdinanceService
+            // refuses to save an AddGrace rule whose pool would be zero.
             decimal totalGraceAvailable = action.MaxLimit ?? action.Param1Value ?? 0;
             var maxTargetCount = action.MaxTargetCount.GetValueOrDefault();
             var appliedTargetCount = 0;
@@ -42,7 +50,8 @@ namespace ExamAPI.Services.Result.Engine.ActionHandlers
 
                 if (target.Required <= allowedForThisSubject)
                 {
-                    ApplyGrace(target, symbol);
+                    // The pool and the target count are spent only when the grace actually landed.
+                    if (!ApplyGrace(target, symbol)) continue;
                     totalGraceAvailable -= target.Required;
                     appliedTargetCount++;
                 }
@@ -53,12 +62,14 @@ namespace ExamAPI.Services.Result.Engine.ActionHandlers
 
         private static IEnumerable<GraceTarget> BuildGraceTargets(MarksMaster marksMaster, RuleAction action)
         {
-            var isAllHeads = IsAllFailingHeadsTarget(action.Target);
-            var headTargets = isAllHeads
-                ? null
-                : action.Target.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
-                               .Select(t => t.Trim().ToUpperInvariant())
-                               .ToList();
+            // The same parser assignment uses, so a head-named target ("ESE") matches the printed
+            // HeadType label as well as the positional key. Keyword targets keep their meaning:
+            // FailingHeads / FailingSubjects / All / empty select every failing head.
+            var spec = HeadTargetSpec.Parse(action.Target);
+
+            // Grace only ever lands on failing work, so a scope that excludes failing subjects
+            // (e.g. "PassingSubjects") selects nothing.
+            if (!spec.MatchesStatus("FAILED")) yield break;
 
             foreach (var group in marksMaster.StudentMarks!.GroupBy(sm => sm.SubjectId))
             {
@@ -68,20 +79,33 @@ namespace ExamAPI.Services.Result.Engine.ActionHandlers
                 {
                     // The deficit is a property of the subject, so head-specific targeting has
                     // nothing to select; only an all-heads rule can grace a combined subject.
+                    if (spec.RestrictsHeads || verdict.IsPassed) continue;
+
                     var subjectResult = marksMaster.SubjectResults?.FirstOrDefault(r => r.SubjectId == group.Key);
-                    if (isAllHeads && !verdict.IsPassed && subjectResult != null)
-                    {
-                        yield return new GraceTarget(verdict.Deficit, verdict.OutOfTotal, null, subjectResult);
-                    }
+                    if (subjectResult == null) continue;
+
+                    // Absence (all or partial) is the result for that subject; grace must not pass it.
+                    if (group.Any(sm => sm.IsAbsent)) continue;
+
+                    // Resolution (^) is the remedy for the heads it touched: one resolved head
+                    // takes the whole combined subject out of ordinance grace.
+                    if (group.Any(IsResolved)) continue;
+
+                    // The verdict reads StudentMarks only, so grace an earlier action already
+                    // awarded is not in it. Only the deficit still standing is up for grace.
+                    var remaining = verdict.Deficit - subjectResult.GraceApplied;
+                    if (remaining <= 0) continue;
+
+                    yield return new GraceTarget(remaining, verdict.OutOfTotal, null, subjectResult);
                     continue;
                 }
 
                 foreach (var sm in group.Where(sm => sm.Marks.HasValue && !SubjectPassEvaluator.IsHeadPassed(sm)))
                 {
-                    if (headTargets != null && (sm.Head == null || !headTargets.Contains(sm.Head.ToUpperInvariant())))
-                    {
-                        continue;
-                    }
+                    if (!spec.MatchesHead(sm)) continue;
+
+                    // A resolved head is skipped; the subject's other heads stay eligible.
+                    if (IsResolved(sm)) continue;
 
                     var required = SubjectPassEvaluator.GetHeadPass(sm) - (sm.Marks ?? 0);
                     yield return new GraceTarget(required, SubjectPassEvaluator.GetHeadOutOf(sm), sm, null);
@@ -89,17 +113,38 @@ namespace ExamAPI.Services.Result.Engine.ActionHandlers
             }
         }
 
-        private static void ApplyGrace(GraceTarget target, string? symbol)
+        /// <summary>True when marks entry resolved (^) this head, by amount or by the symbol.</summary>
+        private static bool IsResolved(StudentMarks sm) =>
+            (sm.Resolution ?? 0) > 0 || (sm.Grace?.Contains(ResolutionSymbol) ?? false);
+
+        /// <summary>Returns false, changing nothing, when the target must not take grace.</summary>
+        private static bool ApplyGrace(GraceTarget target, string? symbol)
         {
             if (target.Head is StudentMarks sm)
             {
+                // Never overwrite a resolution (^): the symbol would vanish from every report.
+                if (IsResolved(sm)) return false;
+
                 sm.Marks = (sm.RawMarks ?? 0) + (sm.Resolution ?? 0) + target.Required;
                 sm.Grace = target.Required.ToString() + (symbol ?? string.Empty);
-                return;
+                return true;
             }
 
-            target.SubjectResult!.GraceApplied = target.Required;
-            target.SubjectResult.GraceSymbol = symbol;
+            // Combined: accumulate, so a second rule that legitimately adds more keeps the first award.
+            var result = target.SubjectResult!;
+            result.GraceApplied += target.Required;
+            result.GraceSymbol = MergeSymbols(result.GraceSymbol, symbol);
+            return true;
+        }
+
+        private static string? MergeSymbols(string? existing, string? added)
+        {
+            if (string.IsNullOrEmpty(added)) return existing;
+            if (string.IsNullOrEmpty(existing)) return added;
+            if (existing.Contains(added)) return existing;
+
+            var merged = existing + added;
+            return merged.Length <= GraceSymbolMaxLength ? merged : merged[..GraceSymbolMaxLength];
         }
 
         /// <summary>
@@ -107,12 +152,17 @@ namespace ExamAPI.Services.Result.Engine.ActionHandlers
         /// whatever is being graced -- the head for a head-wise subject, the whole subject for a
         /// combined one.
         /// </summary>
-        private static decimal CalculateActionLimit(string? paramType, decimal? value, int aggregateOutOf, int unitOutOf, bool noneMeansUnlimited, string? expressionStr = null)
+        private static decimal CalculateActionLimit(string? paramType, decimal? value, int aggregateOutOf, int unitOutOf, bool blankMeansUnlimited, string? expressionStr = null)
         {
             var normalizedType = NormalizeKey(paramType);
-            if (string.IsNullOrEmpty(normalizedType) || normalizedType == "NONE")
+
+            // An explicit "None" means "no cap from this parameter" in either slot. A blank type
+            // is read that way only for the second parameter; a blank first parameter still
+            // yields 0 so a half-configured rule grants nothing.
+            if (normalizedType == "NONE") return decimal.MaxValue;
+            if (string.IsNullOrEmpty(normalizedType))
             {
-                return noneMeansUnlimited ? decimal.MaxValue : 0;
+                return blankMeansUnlimited ? decimal.MaxValue : 0;
             }
 
             if (!string.IsNullOrEmpty(expressionStr))
@@ -153,13 +203,6 @@ namespace ExamAPI.Services.Result.Engine.ActionHandlers
                 "PERCENTOFSUBJECT" or "PERCENTOFAGGREGATE" => limit1,
                 _ => limit1
             };
-        }
-
-        private static bool IsAllFailingHeadsTarget(string? target)
-        {
-            var key = NormalizeKey(target);
-            return string.IsNullOrEmpty(key)
-                || key is "ALL" or "FAILINGHEADS" or "FAILINGHEAD" or "FAILINGSUBJECTS" or "FAILINGSUBJECT" or "SUBJECT";
         }
 
         private static string NormalizeKey(string? value)

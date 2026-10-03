@@ -25,9 +25,12 @@ namespace ExamAPI.DTOs
 
         public Guid? RoleId { get; set; }
 
-        // CollegeId is deliberately NOT accepted from the client. It is taken from the
-        // caller's token, otherwise any authenticated user could create a user inside
-        // another college.
+        // For an ordinary caller CollegeId is deliberately NOT accepted from the client: it is
+        // taken from the caller's token, otherwise any authenticated user could create a user
+        // inside another college. This field is honoured ONLY when the caller is a platform
+        // admin (who has no college of their own) creating a college admin; the controller
+        // ignores it for everyone else.
+        public Guid? CollegeId { get; set; }
     }
     public class UserMasterDTO
     {
