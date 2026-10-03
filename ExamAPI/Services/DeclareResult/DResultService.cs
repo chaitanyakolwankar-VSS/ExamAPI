@@ -26,11 +26,11 @@ namespace ExamAPI.Services.DeclareResult
                         where em.IsActive == true
                               && !em.IsDeleted
                               && !em.IsLocked
-                              && em.Semester == dr.Sem_id
+                              // ExamMaster.Semester is never written (Exam Master has no semester): filter on the DeclareResult row.
                               && !dr.IsDeleted
                               && dr.AcademicYear == em.AcademicYearAYID
                               && em.AcademicYearAYID == dto.Ayid
-                              && em.Semester == dto.Semester
+                              && dr.Sem_id == dto.Semester
                               && em.CourseId == dto.CourseId
                               && dr.Pattern == dto.Pattern
                         select new DeclareResultDTO
@@ -54,7 +54,7 @@ namespace ExamAPI.Services.DeclareResult
         {
             var exams = from e in _context.Exams
                         join dr in _context.DeclareResults on e.ExamId equals dr.ExamId
-                        where e.CourseId == dto.CourseId && e.Semester == dto.Semester && e.AcademicYearAYID == dto.Ayid && e.ExamId==dto.ExamId && !e.IsDeleted && !dr.IsDeleted && dr.Pattern==dto.Pattern && dr.ResDeclare>0
+                        where e.CourseId == dto.CourseId && dr.Sem_id == dto.Semester && e.AcademicYearAYID == dto.Ayid && e.ExamId==dto.ExamId && !e.IsDeleted && !dr.IsDeleted && dr.Pattern==dto.Pattern && dr.ResDeclare>0
                         select new DeclareResultDTO
                         {
                             ExamId = e.ExamId,

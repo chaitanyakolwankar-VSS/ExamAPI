@@ -23,12 +23,12 @@ namespace ExamAPI.Services.ReleaseHallTicket
                         join dr in _context.DeclareResults on em.ExamId equals dr.ExamId
                         join ay in _context.AcademicYears on dr.AcademicYear equals ay.AYID
                         where em.AcademicYearAYID == dr.AcademicYear
-                              && dr.Sem_id == em.Semester
+                              // ExamMaster.Semester is never written (Exam Master has no semester): the DeclareResult row carries it.
                               && !ay.IsDeleted
                               && !dr.IsDeleted
                               && !em.IsDeleted
                               && em.ExamId == dto.ExamId
-                              && em.Semester == dto.Semester
+                              && dr.Sem_id == dto.Semester
                               && dr.AcademicYear == dto.Ayid
                               && dr.Pattern == dto.Pattern
                               && em.IsActive == true
@@ -39,7 +39,7 @@ namespace ExamAPI.Services.ReleaseHallTicket
                             CourseId = em.CourseId ?? Guid.Empty,
                             Ayid = em.AcademicYearAYID ?? Guid.Empty,
                             HallTicketDeclareDate=dr.HallTicketDeclareDate,
-                            Semester = em.Semester,
+                            Semester = dr.Sem_id,
                             ReleaseHallTicket = dr.ReleaseHallTicket,
                             Pattern = dr.Pattern,
                         };
