@@ -385,4 +385,29 @@ public sealed class LookupServiceTests
         Assert.Equal((await _service.GetSubjectsAsync(_course, "NEP", "Sem-6")).Select(s => s.SubjectId), rows.Select(s => s.SubjectId));
         Assert.Equal(new[] { "First" }, rows.Select(s => s.SubjectName));
     }
+    [Fact]
+    public async Task Hall_ticket_lists_end_semester_subjects_for_both_ESE_and_ESA_head_names()
+    {
+        // Engineering names its end-semester head "ESE", pharmacy "ESA"; internal heads stay off the hall ticket.
+        Guid Subject(string code, params string[] heads)
+        {
+            var subject = new SubjectMaster { SubjectId = Guid.NewGuid(), SubjectCode = code, Name = code, CourseId = _course, Pattern = "NEP", SemId = "Sem-6", CollegeId = _college };
+            var credit = new SubjectCreditMaster { CreditsId = Guid.NewGuid(), SubjectId = subject.SubjectId, AYID = _ay.ToString(), CollegeId = _college };
+            _context.SubjectMasters.Add(subject);
+            _context.SubjectCreditMasters.Add(credit);
+            foreach (var head in heads)
+                _context.SubjectCredits.Add(new SubjectCredits { Id = Guid.NewGuid(), CreditsId = credit.CreditsId, HeadType = head });
+            return subject.SubjectId;
+        }
+        Subject("ENG601", "ESE", "IA");
+        Subject("PHM601", "ESA", "TW");
+        Subject("TW-ONLY", "TW");
+        await _context.SaveChangesAsync();
+
+        var hall = new ExamAPI.Services.GenerateHallTicket.GenerateHallTicketService(_context);
+        var rows = await hall.GetHallTicketSubject(new ExamAPI.DTOs.HallTicketSubjectsRequest
+            { Ayid = _ay.ToString(), CourseId = _course, Semester = "Sem-6", Pattern = "NEP", ExamId = Guid.NewGuid() });
+
+        Assert.Equal(new[] { "ENG601", "PHM601" }, rows.Select(r => r.SubjectCode).OrderBy(c => c));
+    }
 }

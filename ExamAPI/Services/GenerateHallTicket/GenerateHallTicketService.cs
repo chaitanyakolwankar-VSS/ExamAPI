@@ -60,7 +60,8 @@ namespace ExamAPI.Services.GenerateHallTicket
             a.s.Pattern == dto.Pattern &&
             a.s.CourseId == dto.CourseId &&
             a.cm.AYID == dto.Ayid &&
-            a.c.HeadType.Contains("ESE")
+            // The end-semester exam head: "ESE" (engineering) or "ESA" (pharmacy, End Semester Assessment).
+            (a.c.HeadType.Contains("ESE") || a.c.HeadType.Contains("ESA"))
         )
 
         .Select(se => new HallTicketSubjects
