@@ -90,9 +90,13 @@ namespace ExamAPI.Services.DeclareResult
             : ExamTypeKeys.IsAtkt(e.ExamType) ? e.Name + " (A.T.K.T)"
             : e.Name;
 
+        /// <summary>The exams Declare Result lists and saves: locked exams stay hidden (owner, 2026-10-04).</summary>
+        private IQueryable<ExamMaster> DeclarableExams(Guid courseId, Guid ayid, string semester, string pattern) =>
+            EligibleExams(_context, ExamPurposes.All, courseId, ayid, semester, pattern).Where(e => !e.IsLocked);
+
         public async Task<List<DeclareResultDTO>> GetExam(GetDeclareExam dto)
         {
-            var exams = await EligibleExams(_context, ExamPurposes.All, dto.CourseId, dto.Ayid, dto.Semester, dto.Pattern)
+            var exams = await DeclarableExams(dto.CourseId, dto.Ayid, dto.Semester, dto.Pattern)
                 .OrderBy(e => e.Name)
                 .ToListAsync();
             var rows = await RowsByExam(_context, dto.CourseId, dto.Ayid, dto.Semester, dto.Pattern, exams.Select(e => e.ExamId));
@@ -102,7 +106,7 @@ namespace ExamAPI.Services.DeclareResult
 
         public async Task<List<DeclareResultDTO>> GetTableExam(DeclareExamTable dto)
         {
-            var exams = await EligibleExams(_context, ExamPurposes.All, dto.CourseId, dto.Ayid, dto.Semester, dto.Pattern)
+            var exams = await DeclarableExams(dto.CourseId, dto.Ayid, dto.Semester, dto.Pattern)
                 .Where(e => e.ExamId == dto.ExamId)
                 .ToListAsync();
             var rows = await RowsByExam(_context, dto.CourseId, dto.Ayid, dto.Semester, dto.Pattern, exams.Select(e => e.ExamId));
@@ -134,7 +138,7 @@ namespace ExamAPI.Services.DeclareResult
 
             // The exam must be one this screen can list (same course, academic year, semester/pattern);
             // the tenant filter keeps other colleges' exams out.
-            var exam = await EligibleExams(_context, ExamPurposes.All, dto.CourseId, dto.Ayid, dto.Semester, dto.Pattern)
+            var exam = await DeclarableExams(dto.CourseId, dto.Ayid, dto.Semester, dto.Pattern)
                 .FirstOrDefaultAsync(e => e.ExamId == dto.ExamId);
             if (exam == null) return false;
 

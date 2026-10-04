@@ -204,6 +204,23 @@ public sealed class DeclareResultTests
     }
 
     [Fact]
+    public async Task Locked_exams_stay_hidden_on_Declare_Result_but_not_on_Release()
+    {
+        var open = Exam("Open"); Student(open);
+        var locked = Exam("Locked"); locked.IsLocked = true; Student(locked);
+        await _context.SaveChangesAsync();
+        await MarksheetsGenerated(locked);
+
+        Assert.Equal("Open", Assert.Single(await _declare.GetExam(ListRequest())).Examname);
+        Assert.Empty(await _declare.GetTableExam(new DeclareExamTable
+            { CourseId = _course, Ayid = _ay, Semester = Sem, Pattern = Pattern, ExamId = locked.ExamId }));
+        Assert.False(await _declare.ToggleDeclare(DeclareRequest(locked.ExamId, true, DateTime.Today)));
+        Assert.False(Assert.Single(_context.DeclareResults).IsDeclare);
+
+        Assert.Equal(2, (await _release.GetExam(ListRequest())).Count);
+    }
+
+    [Fact]
     public async Task Declare_is_refused_until_the_marksheets_are_generated()
     {
         var exam = Exam("Regular"); Student(exam);

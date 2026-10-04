@@ -1,4 +1,5 @@
-﻿using ExamAPI.Services.Dashboard;
+﻿using System.Security.Claims;
+using ExamAPI.Services.Dashboard;
 using Microsoft.AspNetCore.Mvc;
 
 namespace ExamAPI.Controllers
@@ -13,12 +14,16 @@ namespace ExamAPI.Controllers
             _dashboardService = dashboardService;
         }
 
+        /// <summary>The caller's college from the token; a college is never taken from the query string.</summary>
+        private Guid CurrentCollegeId =>
+            Guid.TryParse(User.FindFirstValue("CollegeId"), out var id) ? id : Guid.Empty;
+
         [HttpGet("stats")]
-        public async Task<IActionResult> GetDashboardStats([FromQuery] Guid collegeId, [FromQuery] Guid ayId)
+        public async Task<IActionResult> GetDashboardStats([FromQuery] Guid ayId)
         {
             try
             {
-                var stats = await _dashboardService.GetDashboardStatsAsync(collegeId, ayId);
+                var stats = await _dashboardService.GetDashboardStatsAsync(CurrentCollegeId, ayId);
                 return Ok(new { success = true, data = stats });
             }
             catch (Exception ex)
@@ -29,11 +34,11 @@ namespace ExamAPI.Controllers
 
 
         [HttpGet("total-students")]
-        public async Task<IActionResult> GetTotalStudents([FromQuery] Guid collegeId, [FromQuery] Guid ayId)
+        public async Task<IActionResult> GetTotalStudents([FromQuery] Guid ayId)
         {
             try
             {
-                var count = await _dashboardService.GetTotalStudentsAsync(collegeId, ayId);
+                var count = await _dashboardService.GetTotalStudentsAsync(CurrentCollegeId, ayId);
                 return Ok(new { success = true, data = count });
             }
             catch (Exception ex)
@@ -43,11 +48,11 @@ namespace ExamAPI.Controllers
         }
 
         [HttpGet("pass-percentage")]
-        public async Task<IActionResult> GetPassPercentage([FromQuery] Guid collegeId, [FromQuery] Guid ayId)
+        public async Task<IActionResult> GetPassPercentage([FromQuery] Guid ayId)
         {
             try
             {
-                var count = await _dashboardService.GetPassPercentageAsync(collegeId, ayId);
+                var count = await _dashboardService.GetPassPercentageAsync(CurrentCollegeId, ayId);
                 return Ok(new { success = true, data = count });
             }
             catch (Exception ex)
@@ -58,11 +63,11 @@ namespace ExamAPI.Controllers
 
 
         [HttpGet("total-exam")]
-        public async Task<IActionResult> GetTotalExamsConducted([FromQuery] Guid collegeId, [FromQuery] Guid ayId)
+        public async Task<IActionResult> GetTotalExamsConducted([FromQuery] Guid ayId)
         {
             try
             {
-                var count = await _dashboardService.GetTotalExamsConductedAsync(collegeId, ayId);
+                var count = await _dashboardService.GetTotalExamsConductedAsync(CurrentCollegeId, ayId);
                 return Ok(new { success = true, data = count });
             }
             catch (Exception ex)
@@ -72,11 +77,11 @@ namespace ExamAPI.Controllers
         }
 
         [HttpGet("atkt-count")]
-        public async Task<IActionResult> GetATKTStudentCount([FromQuery] Guid collegeId, [FromQuery] Guid ayId)
+        public async Task<IActionResult> GetATKTStudentCount([FromQuery] Guid ayId)
         {
             try
             {
-                var count = await _dashboardService.GetATKTStudentCountAsync(collegeId, ayId);
+                var count = await _dashboardService.GetATKTStudentCountAsync(CurrentCollegeId, ayId);
                 return Ok(new { success = true, data = count });
             }
             catch (Exception ex)
@@ -86,11 +91,11 @@ namespace ExamAPI.Controllers
         }
 
         [HttpGet("exam-lifecycle")]
-        public async Task<IActionResult> GetExamLifecycle([FromQuery] Guid collegeId, [FromQuery] Guid ayId)
+        public async Task<IActionResult> GetExamLifecycle([FromQuery] Guid ayId)
         {
             try
             {
-                var data = await _dashboardService.GetExamLifecycleAsync(collegeId, ayId);
+                var data = await _dashboardService.GetExamLifecycleAsync(CurrentCollegeId, ayId);
                 return Ok(new { success = true, data });
             }
             catch (Exception ex)
