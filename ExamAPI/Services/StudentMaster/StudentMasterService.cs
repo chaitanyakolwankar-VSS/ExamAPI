@@ -102,7 +102,9 @@ namespace ExamAPI.Services.StudentMasters
                     StudentName = sm.FirstName + " " + (sm.MiddleName ?? "") + " " + sm.LastName,
                     SemesterId = se.SemesterId,
                     StudentPRN = sm.StudentPRN,
-                    Dyslexia = sm.Dyslexia
+                    Dyslexia = sm.Dyslexia,
+                    PhotoUrl = sm.PhotoUrl,
+                    SignUrl = sm.SignUrl
                 }
             ).ToListAsync();
 
@@ -145,7 +147,9 @@ namespace ExamAPI.Services.StudentMasters
                     SemesterId = x.se.SemesterId,
                     Pattern = x.se.Pattern,
                     StudentPRN = x.sm.StudentPRN,
-                    AYID = x.se.AYID ?? Guid.Empty
+                    AYID = x.se.AYID ?? Guid.Empty,
+                    PhotoUrl = x.sm.PhotoUrl,
+                    SignUrl = x.sm.SignUrl
                 })
                 .ToListAsync();
 
@@ -331,6 +335,36 @@ namespace ExamAPI.Services.StudentMasters
         /// (Storage:UploadsRoot). Returns the stored path to persist in PhotoUrl / SignUrl; the
         /// file is read back only through the authorised GET /api/Files endpoint.
         /// </summary>
+        private const int MaxStudentImageBytes = 2 * 1024 * 1024;
+
+        /// <summary>
+        /// Sets the photo and/or signature of an existing student without touching any other field
+        /// (UpdateStudent rewrites the whole record and its eligibility row). Old files are deleted.
+        /// </summary>
+        public async Task<(string? PhotoUrl, string? SignUrl)> UpdateImagesAsync(StudentImagesDto dto)
+        {
+            // Tenant-filtered: a student of another college is "not found".
+            var student = await _context.StudentMasters
+                .FirstOrDefaultAsync(x => x.StudentId == dto.StudentId && !x.IsDeleted)
+                ?? throw new KeyNotFoundException("Student not found.");
+
+            if (!string.IsNullOrWhiteSpace(dto.Photo))
+            {
+                var saved = await SaveBase64ImageAsync(dto.Photo, $"{Guid.NewGuid()}_photo.png");
+                _storage.Delete(student.PhotoUrl);
+                student.PhotoUrl = saved;
+            }
+            if (!string.IsNullOrWhiteSpace(dto.Sign))
+            {
+                var saved = await SaveBase64ImageAsync(dto.Sign, $"{Guid.NewGuid()}_sign.png");
+                _storage.Delete(student.SignUrl);
+                student.SignUrl = saved;
+            }
+
+            await _context.SaveChangesAsync();
+            return (student.PhotoUrl, student.SignUrl);
+        }
+
         private async Task<string?> SaveBase64ImageAsync(string? base64Data, string fileName)
         {
             if (string.IsNullOrEmpty(base64Data))
@@ -340,7 +374,15 @@ namespace ExamAPI.Services.StudentMasters
             if (commaIndex >= 0)
                 base64Data = base64Data.Substring(commaIndex + 1);
 
-            byte[] imageBytes = Convert.FromBase64String(base64Data);
+            byte[] imageBytes;
+            try { imageBytes = Convert.FromBase64String(base64Data); }
+            catch (FormatException) { throw new ArgumentException("The image could not be read."); }
+
+            // Same limits as the college images: real, decodable images under 2 MB only.
+            if (imageBytes.Length > MaxStudentImageBytes)
+                throw new ArgumentException("The image must be less than 2 MB.");
+            if (!ExamAPI.Services.Report.CollegeBranding.IsDecodableImage(imageBytes))
+                throw new ArgumentException("The file is not a supported image.");
 
             return await _storage.SaveAsync(imageBytes, ExamAPI.Services.Files.FileStorage.StudentsFolder, fileName);
         }

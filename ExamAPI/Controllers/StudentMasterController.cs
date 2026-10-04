@@ -81,6 +81,25 @@ namespace ExamAPI.Controllers
            
         }
 
+        /// <summary>Uploads a student's photo and/or signature (data: URLs); other fields are untouched.</summary>
+        [HttpPut("UpdateImages")]
+        public async Task<IActionResult> UpdateImages([FromBody] StudentImagesDto dto)
+        {
+            try
+            {
+                var (photoUrl, signUrl) = await _service.UpdateImagesAsync(dto);
+                return Ok(new { photoUrl, signUrl });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
         [HttpDelete("DeleteStudent")]
         [Authorize(Policy = AccessPolicies.CollegeAdmin)]
         public async Task<IActionResult> DeleteStudent(string studentId)

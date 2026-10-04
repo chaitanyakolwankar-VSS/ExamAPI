@@ -16,6 +16,7 @@ namespace ExamAPI.Services.StudentMasters
 
         Task<Savedata> GetStudentByIdAsync(string studentId, Guid ayid);
         Task<string> UpdateStudentAsync(Savedata dto);
+        Task<(string? PhotoUrl, string? SignUrl)> UpdateImagesAsync(StudentImagesDto dto);
         Task<string> DeleteStudentAsync(string studentId);
         Task<(byte[] FileBytes, string FileName)> GenerateExcelTemplateAsync( StudExcelDto dto);
 

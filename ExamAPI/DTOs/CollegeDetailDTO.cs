@@ -11,6 +11,8 @@
         public string ContactPhone { get; set; }
         public string LogoUrl { get; set; }
         public string BannerUrl { get; set; }
+        public string? ControllerSignUrl { get; set; }
+        public string? PrincipalSignUrl { get; set; }
         public bool IsDeleted { get; set; }
 
     }
@@ -28,5 +30,9 @@
 
         public IFormFile? Logo { get; set; }
         public IFormFile? Banner { get; set; }
+        /// <summary>Signature image of the Controller of Examinations (marksheets).</summary>
+        public IFormFile? ControllerSignature { get; set; }
+        /// <summary>Signature image of the Principal (marksheets, hall tickets).</summary>
+        public IFormFile? PrincipalSignature { get; set; }
     }
 }

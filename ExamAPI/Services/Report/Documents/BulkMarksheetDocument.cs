@@ -159,11 +159,7 @@ namespace ExamAPI.Services.Report.Documents
 
         void ComposeFooter(IContainer container, MarksheetReportDto model)
         {
-            container.PaddingTop(30).Row(row =>
-            {
-                row.RelativeItem().AlignLeft().Text($"Date: {model.ResultDate:dd/MM/yyyy}").FontSize(10);
-                row.RelativeItem().AlignRight().Text("Principal / Exam Controller").FontSize(10).Bold();
-            });
+            SignatureFooter.Compose(container, model.ResultDate, model.ControllerSignature, model.PrincipalSignature);
         }
     }
 }

@@ -33,6 +33,8 @@ namespace ExamAPI.Services.CollegeDetail
                     ContactPhone = x.ContactPhone,
                     LogoUrl = x.LogoUrl,
                     BannerUrl = x.LogoBannerUrl,
+                    ControllerSignUrl = x.ControllerSignUrl,
+                    PrincipalSignUrl = x.PrincipalSignUrl,
                     IsDeleted = x.IsDeleted
                 })
                 .FirstOrDefaultAsync();
@@ -55,6 +57,19 @@ namespace ExamAPI.Services.CollegeDetail
                 bannerUrl = await SaveImageToServerAsync(dto.Banner, ExamAPI.Services.Files.FileStorage.CollegeBannersFolder);
             }
 
+            string? controllerSignUrl = null;
+            string? principalSignUrl = null;
+            if (dto.ControllerSignature != null)
+            {
+                ValidateImage(dto.ControllerSignature, "Controller signature");
+                controllerSignUrl = await SaveImageToServerAsync(dto.ControllerSignature, ExamAPI.Services.Files.FileStorage.CollegeSignaturesFolder);
+            }
+            if (dto.PrincipalSignature != null)
+            {
+                ValidateImage(dto.PrincipalSignature, "Principal signature");
+                principalSignUrl = await SaveImageToServerAsync(dto.PrincipalSignature, ExamAPI.Services.Files.FileStorage.CollegeSignaturesFolder);
+            }
+
             var college = new College
             {
                 CollegeId = Guid.NewGuid(),
@@ -64,6 +79,8 @@ namespace ExamAPI.Services.CollegeDetail
                 Address = dto.Address,
                 LogoUrl = logoUrl,
                 LogoBannerUrl = bannerUrl,
+                ControllerSignUrl = controllerSignUrl,
+                PrincipalSignUrl = principalSignUrl,
                 ContactEmail = dto.ContactEmail,
                 ContactPhone = dto.ContactPhone,
                 CreatedAt = DateTime.UtcNow,
@@ -97,6 +114,20 @@ namespace ExamAPI.Services.CollegeDetail
                 ValidateImage(dto.Banner, "Banner");
                 DeleteImageFromServer(college.LogoBannerUrl);
                 college.LogoBannerUrl = await SaveImageToServerAsync(dto.Banner, ExamAPI.Services.Files.FileStorage.CollegeBannersFolder);
+            }
+
+            if (dto.ControllerSignature != null)
+            {
+                ValidateImage(dto.ControllerSignature, "Controller signature");
+                DeleteImageFromServer(college.ControllerSignUrl);
+                college.ControllerSignUrl = await SaveImageToServerAsync(dto.ControllerSignature, ExamAPI.Services.Files.FileStorage.CollegeSignaturesFolder);
+            }
+
+            if (dto.PrincipalSignature != null)
+            {
+                ValidateImage(dto.PrincipalSignature, "Principal signature");
+                DeleteImageFromServer(college.PrincipalSignUrl);
+                college.PrincipalSignUrl = await SaveImageToServerAsync(dto.PrincipalSignature, ExamAPI.Services.Files.FileStorage.CollegeSignaturesFolder);
             }
 
             college.Name = dto.Name;

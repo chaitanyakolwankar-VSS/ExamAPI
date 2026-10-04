@@ -43,7 +43,19 @@ namespace ExamAPI.DTOs
         public string? StudentName { get; set; }
         public string? Pattern { get; set; }
         public bool Dyslexia { get; set; }
+        /// <summary>Stored paths (load via GET /api/Files); null when not uploaded.</summary>
+        public string? PhotoUrl { get; set; }
+        public string? SignUrl { get; set; }
     }
+
+    /// <summary>Photo and/or signature for one existing student, as data: URLs; a null field is left unchanged.</summary>
+    public class StudentImagesDto
+    {
+        public required string StudentId { get; set; }
+        public string? Photo { get; set; }
+        public string? Sign { get; set; }
+    }
+
     public class Searchbyname
     {
         public  string? FirstName { get; set; }

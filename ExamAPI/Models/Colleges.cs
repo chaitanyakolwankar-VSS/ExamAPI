@@ -28,6 +28,14 @@ namespace ExamAPI.Models
         [MaxLength(500)]
         public string? LogoBannerUrl { get; set; }
 
+        /// <summary>Signature image of the Controller of Examinations, printed on marksheets.</summary>
+        [MaxLength(500)]
+        public string? ControllerSignUrl { get; set; }
+
+        /// <summary>Signature image of the Principal, printed on marksheets and hall tickets.</summary>
+        [MaxLength(500)]
+        public string? PrincipalSignUrl { get; set; }
+
         [Required]
         [MaxLength(255)]
         [EmailAddress]

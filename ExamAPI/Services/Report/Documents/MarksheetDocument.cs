@@ -156,11 +156,7 @@ namespace ExamAPI.Services.Report.Documents
 
         void ComposeFooter(IContainer container)
         {
-            container.PaddingTop(30).Row(row =>
-            {
-                row.RelativeItem().AlignLeft().Text($"Date: {Model.ResultDate:dd/MM/yyyy}").FontSize(10);
-                row.RelativeItem().AlignRight().Text("Principal / Exam Controller").FontSize(10).Bold();
-            });
+            SignatureFooter.Compose(container, Model.ResultDate, Model.ControllerSignature, Model.PrincipalSignature);
         }
     }
 }

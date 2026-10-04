@@ -116,7 +116,8 @@ namespace ExamAPI.Services.GenerateHallTicket
                     Center = "",
                     Seat = a.mm.SeatNo,
                     StudentId = a.sm.StudentId,
-                    Photo = a.sm.PhotoUrl
+                    Photo = a.sm.PhotoUrl,
+                    Sign = a.sm.SignUrl
                 });
                 foreach (var Student in HallTicketStudents)
                 {
@@ -135,6 +136,7 @@ namespace ExamAPI.Services.GenerateHallTicket
                         seat = Student.Seat,
                         Studentid=Student.StudentId,
                         photo = Student.Photo,
+                        sign = Student.Sign,
                         subjects = StudentSubjects.ToList()
                     });
                 }
@@ -161,6 +163,7 @@ namespace ExamAPI.Services.GenerateHallTicket
                 {
                     Logo = collegedata?.LogoBannerUrl ?? collegedata?.LogoUrl ?? "",
                     Center = collegedata?.CollegeCenter ?? "",
+                    PrincipalSign = collegedata?.PrincipalSignUrl ?? "",
                     CollegeName = ExamAPI.Services.Report.CollegeBranding.DisplayName(collegedata?.Name, collegedata?.CollegeCode)
                 };
                 return result;

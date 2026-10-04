@@ -109,6 +109,27 @@ public sealed class CollegeBrandingTests : IDisposable
     }
 
     [Fact]
+    public async Task Load_returns_the_controller_and_principal_signatures_and_the_marksheet_prints_them()
+    {
+        AddCollege("Viva College", null);
+        var college = _context.Colleges.Single();
+        college.ControllerSignUrl = await _storage.SaveAsync(UploadsTests.Png, FileStorage.CollegeSignaturesFolder, "coe.png");
+        college.PrincipalSignUrl = await _storage.SaveAsync(UploadsTests.Png, FileStorage.CollegeSignaturesFolder, "principal.png");
+        _context.SaveChanges();
+
+        var branding = await CollegeBranding.LoadAsync(_context, _storage, _collegeId);
+        Assert.Equal(UploadsTests.Png, branding.ControllerSignature);
+        Assert.Equal(UploadsTests.Png, branding.PrincipalSignature);
+
+        // Both marksheet layouts render with the images, and with none (blank lines to sign by hand).
+        QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
+        var signed = new MarksheetReportDto { CollegeName = "Viva College", ControllerSignature = branding.ControllerSignature, PrincipalSignature = branding.PrincipalSignature };
+        var unsigned = new MarksheetReportDto { CollegeName = "Viva College" };
+        Assert.NotEmpty(new MarksheetDocument(signed).GeneratePdf());
+        Assert.NotEmpty(new BulkMarksheetDocument(new[] { signed, unsigned }).GeneratePdf());
+    }
+
+    [Fact]
     public async Task A_college_without_a_banner_has_none_and_keeps_its_logo()
     {
         var logo = await _storage.SaveAsync(UploadsTests.Png, FileStorage.CollegeLogosFolder, "logo.png");

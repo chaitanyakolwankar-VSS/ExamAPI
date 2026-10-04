@@ -59,6 +59,12 @@ namespace ExamAPI.DTOs
         [System.Text.Json.Serialization.JsonIgnore]
         public byte[]? CollegeBanner { get; set; }
 
+        /// <summary>Signature images from College Details; null prints a blank line to sign by hand.</summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public byte[]? ControllerSignature { get; set; }
+        [System.Text.Json.Serialization.JsonIgnore]
+        public byte[]? PrincipalSignature { get; set; }
+
         public string StudentName { get; set; } = string.Empty;
         public string SeatNo { get; set; } = string.Empty;
         public string PRN { get; set; } = string.Empty;

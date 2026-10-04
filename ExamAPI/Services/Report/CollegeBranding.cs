@@ -24,6 +24,10 @@ namespace ExamAPI.Services.Report
         /// </summary>
         public byte[]? Banner { get; init; }
 
+        /// <summary>Signature images (Controller of Examinations, Principal) printed above the marksheet footer lines.</summary>
+        public byte[]? ControllerSignature { get; init; }
+        public byte[]? PrincipalSignature { get; init; }
+
         public bool HasLogo => Logo is { Length: > 0 };
         public bool HasBanner => Banner is { Length: > 0 };
 
@@ -57,7 +61,7 @@ namespace ExamAPI.Services.Report
         {
             var college = await context.Colleges.AsNoTracking()
                 .Where(c => c.CollegeId == collegeId && !c.IsDeleted)
-                .Select(c => new { c.Name, c.CollegeCode, c.Address, c.LogoUrl, c.LogoBannerUrl })
+                .Select(c => new { c.Name, c.CollegeCode, c.Address, c.LogoUrl, c.LogoBannerUrl, c.ControllerSignUrl, c.PrincipalSignUrl })
                 .FirstOrDefaultAsync(ct);
 
             if (college == null) return CollegeBrandingInfo.Empty;
@@ -67,7 +71,9 @@ namespace ExamAPI.Services.Report
                 Name = DisplayName(college.Name, college.CollegeCode),
                 Address = string.IsNullOrWhiteSpace(college.Address) ? null : college.Address.Trim(),
                 Logo = await ReadLogoAsync(storage, college.LogoUrl, ct),
-                Banner = await ReadLogoAsync(storage, college.LogoBannerUrl, ct)
+                Banner = await ReadLogoAsync(storage, college.LogoBannerUrl, ct),
+                ControllerSignature = await ReadLogoAsync(storage, college.ControllerSignUrl, ct),
+                PrincipalSignature = await ReadLogoAsync(storage, college.PrincipalSignUrl, ct)
             };
         }
 

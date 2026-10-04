@@ -45,6 +45,7 @@ namespace ExamAPI.Services.Files
         public const string StudentsFolder = "students";
         public const string CollegeLogosFolder = "college/logos";
         public const string CollegeBannersFolder = "college/banners";
+        public const string CollegeSignaturesFolder = "college/signatures";
 
         /// <summary>Only images are ever served; anything else is refused.</summary>
         private static readonly FileExtensionContentTypeProvider ContentTypes = new();

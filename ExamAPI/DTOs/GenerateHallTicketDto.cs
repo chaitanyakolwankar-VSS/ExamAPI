@@ -41,6 +41,8 @@
         public string Studentid { get; set; }
         /// <summary>Stored path of the student photo; load it via GET /api/Files?path=... (null when none).</summary>
         public string? photo { get; set; }
+        /// <summary>Stored path of the student signature (same /api/Files access); null when none.</summary>
+        public string? sign { get; set; }
         public List<StudentsHallTicketSubjects> subjects { get; set; }
     }
     public class StudentHallTicketDataRequest
@@ -59,5 +61,7 @@
         public string Center { get; set; }
         /// <summary>College name for the hall-ticket header when there is no logo (empty when unknown).</summary>
         public string CollegeName { get; set; } = string.Empty;
+        /// <summary>Stored path of the Principal's signature image; empty when College Details has none.</summary>
+        public string PrincipalSign { get; set; } = string.Empty;
     }
 }
