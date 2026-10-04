@@ -86,6 +86,13 @@ public sealed class DeclareResultTests
         return mm;
     }
 
+    /// <summary>What a bulk-marksheet run records; Declare Result requires it first.</summary>
+    private async Task MarksheetsGenerated(ExamMaster exam, string semester = Sem)
+    {
+        await DResultService.RecordGenerationAsync(_context, exam, semester, Pattern, dr => dr.ResDeclare += 1);
+        await _context.SaveChangesAsync();
+    }
+
     private GetDeclareExam ListRequest(string semester = Sem) =>
         new() { CourseId = _course, Ayid = _ay, Semester = semester, Pattern = Pattern };
 
@@ -157,6 +164,7 @@ public sealed class DeclareResultTests
     {
         var exam = Exam("Regular"); Student(exam);
         await _context.SaveChangesAsync();
+        await MarksheetsGenerated(exam);
         var date = new DateTime(2026, 10, 3);
 
         Assert.True(await _declare.ToggleDeclare(DeclareRequest(exam.ExamId, true, date)));
@@ -195,6 +203,77 @@ public sealed class DeclareResultTests
         Assert.Empty(_context.DeclareResults);
     }
 
+    [Fact]
+    public async Task Declare_is_refused_until_the_marksheets_are_generated()
+    {
+        var exam = Exam("Regular"); Student(exam);
+        await _context.SaveChangesAsync();
+
+        var before = Assert.Single(await _declare.GetExam(ListRequest()));
+        Assert.False(before.MarksheetGenerated);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _declare.ToggleDeclare(DeclareRequest(exam.ExamId, true, DateTime.Today)));
+        Assert.Empty(_context.DeclareResults);
+
+        await MarksheetsGenerated(exam);
+        var row = Assert.Single(_context.DeclareResults);
+        Assert.Equal(_college, row.CollegeId);
+        Assert.False(row.IsDeclare);
+        Assert.True(Assert.Single(await _declare.GetExam(ListRequest())).MarksheetGenerated);
+
+        Assert.True(await _declare.ToggleDeclare(DeclareRequest(exam.ExamId, true, DateTime.Today)));
+        Assert.True(await _declare.ToggleDeclare(DeclareRequest(exam.ExamId, false)));
+        Assert.Equal(row.DeclareID, Assert.Single(_context.DeclareResults).DeclareID);
+    }
+
+    [Fact]
+    public async Task Marksheets_generated_for_one_semester_do_not_open_another()
+    {
+        var exam = Exam("Regular");
+        Student(exam, semester: "Sem-5");
+        Student(exam, semester: "Sem-6");
+        await _context.SaveChangesAsync();
+        await MarksheetsGenerated(exam, "Sem-5");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _declare.ToggleDeclare(DeclareRequest(exam.ExamId, true, DateTime.Today, semester: "Sem-6")));
+        Assert.True(await _declare.ToggleDeclare(DeclareRequest(exam.ExamId, true, DateTime.Today, semester: "Sem-5")));
+    }
+
+    [Fact]
+    public async Task Generation_counts_reuse_the_hall_ticket_row()
+    {
+        var exam = Exam("Regular"); Student(exam);
+        await _context.SaveChangesAsync();
+
+        await _release.ToggleReleaseHallTicket(ReleaseRequest(exam.ExamId, true, DateTime.Today));
+        await MarksheetsGenerated(exam);
+        await DResultService.RecordGenerationAsync(_context, exam, Sem, Pattern, dr => dr.GazetteGnrt += 1);
+        await _context.SaveChangesAsync();
+
+        var row = Assert.Single(_context.DeclareResults);
+        Assert.True(row.ReleaseHallTicket);
+        Assert.Equal(1, row.ResDeclare);
+        Assert.Equal(1, row.GazetteGnrt);
+        Assert.True(Assert.Single(await _declare.GetExam(ListRequest())).GazetteGenerated);
+    }
+
+    [Fact]
+    public async Task Generating_the_gazette_records_it_for_the_dashboard()
+    {
+        _context.CourseMasters.Add(new CourseMaster { CourseId = _course, Name = "B.Pharm", CourseCode = "BPH", CollegeId = _college });
+        var exam = Exam("Regular"); Student(exam);
+        await _context.SaveChangesAsync();
+        var reports = new ExamAPI.Services.Report.ReportService(new Mock<ExamAPI.Services.Result.IResultService>().Object, _context);
+
+        await reports.GenerateGazetteExcelAsync(new GazetteRequestDto { ExamId = exam.ExamId, SemId = Sem, Pattern = Pattern }, _college);
+
+        var row = Assert.Single(_context.DeclareResults);
+        Assert.Equal(1, row.GazetteGnrt);
+        Assert.NotNull(row.GazetteDate);
+        Assert.Equal(0, row.ResDeclare);
+        Assert.Equal(1, Assert.Single(await _dashboard.GetExamLifecycleAsync(_college, _ay)).GazetteGnrt);
+    }
+
     // ---------------------------------------------------------------- semester filter
 
     [Fact]
@@ -222,6 +301,7 @@ public sealed class DeclareResultTests
         Student(exam, semester: "Sem-5");
         Student(exam, semester: "Sem-6");
         await _context.SaveChangesAsync();
+        await MarksheetsGenerated(exam, "Sem-5");
 
         await _declare.ToggleDeclare(DeclareRequest(exam.ExamId, true, DateTime.Today, semester: "Sem-5"));
 
@@ -282,6 +362,7 @@ public sealed class DeclareResultTests
         await _context.SaveChangesAsync();
 
         await _release.ToggleReleaseHallTicket(ReleaseRequest(exam.ExamId, true, DateTime.Today));
+        await MarksheetsGenerated(exam);
         await _declare.ToggleDeclare(DeclareRequest(exam.ExamId, true, DateTime.Today));
 
         var row = Assert.Single(_context.DeclareResults);
@@ -342,9 +423,10 @@ public sealed class DeclareResultTests
         Assert.False(before.IsDeclare);
 
         await _release.ToggleReleaseHallTicket(ReleaseRequest(exam.ExamId, true, DateTime.Today));
+        await MarksheetsGenerated(exam);
         await _declare.ToggleDeclare(DeclareRequest(exam.ExamId, true, DateTime.Today));
 
-        var after = Assert.Single(await _dashboard.GetExamLifecycleAsync(_college, _ay));
+        var after =Assert.Single(await _dashboard.GetExamLifecycleAsync(_college, _ay));
         Assert.True(after.ReleaseHallTicket);
         Assert.True(after.IsDeclare);
 

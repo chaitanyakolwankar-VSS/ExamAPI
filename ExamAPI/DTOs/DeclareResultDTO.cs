@@ -12,6 +12,10 @@
         public string Pattern { get; set; }
         /// <summary>False when no DeclareResult row exists yet (the exam is shown as "not declared").</summary>
         public bool HasRecord { get; set; }
+        /// <summary>Bulk marksheets were generated at least once; required before declaring.</summary>
+        public bool MarksheetGenerated { get; set; }
+        /// <summary>The gazette (PDF or Excel) was generated at least once.</summary>
+        public bool GazetteGenerated { get; set; }
     }
 
     public class DeclareHallTicketDTO

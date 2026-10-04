@@ -57,6 +57,34 @@ namespace ExamAPI.Services.DeclareResult
             return rows.GroupBy(r => r.ExamId).ToDictionary(g => g.Key, g => g.First());
         }
 
+        /// <summary>
+        /// Records a report run (bulk marksheet, gazette) on the exam's DeclareResult row, creating the row when
+        /// none exists yet. Course and academic year come from the exam itself. The caller saves.
+        /// </summary>
+        public static async Task RecordGenerationAsync(
+            ApplicationDbContext context, ExamMaster exam, string semester, string pattern, Action<ExamAPI.Models.DeclareResult> apply)
+        {
+            if (exam.CourseId is not Guid courseId || exam.AcademicYearAYID is not Guid ayid) return;
+
+            var row = (await RowsByExam(context, courseId, ayid, semester, pattern, new[] { exam.ExamId }))
+                .GetValueOrDefault(exam.ExamId);
+            if (row == null)
+            {
+                row = new ExamAPI.Models.DeclareResult
+                {
+                    DeclareID = Guid.NewGuid(),
+                    CollegeId = exam.CollegeId,
+                    ExamId = exam.ExamId,
+                    CourseId = courseId,
+                    AcademicYear = ayid,
+                    Sem_id = semester,
+                    Pattern = pattern,
+                };
+                context.DeclareResults.Add(row);
+            }
+            apply(row);
+        }
+
         private static string DisplayName(ExamMaster e) =>
             e.RevaluationForExamId != null ? e.Name + " (Revaluation)"
             : ExamTypeKeys.IsAtkt(e.ExamType) ? e.Name + " (A.T.K.T)"
@@ -95,6 +123,8 @@ namespace ExamAPI.Services.DeclareResult
                 IsDeclare = dr?.IsDeclare ?? false,
                 DeclareDate = dr?.DeclareDate,
                 HasRecord = dr != null,
+                MarksheetGenerated = (dr?.ResDeclare ?? 0) > 0,
+                GazetteGenerated = (dr?.GazetteGnrt ?? 0) > 0,
             };
 
         public async Task<bool> ToggleDeclare(ToggleDeclareResultDTO dto)
@@ -110,6 +140,11 @@ namespace ExamAPI.Services.DeclareResult
 
             var existing = (await RowsByExam(_context, dto.CourseId, dto.Ayid, dto.Semester, dto.Pattern, new[] { dto.ExamId }))
                 .GetValueOrDefault(dto.ExamId);
+
+            // A result is declared only after its marksheets have been generated (owner, 2026-10-04).
+            // Withdrawing a declaration is always allowed.
+            if (dto.IsDeclare && (existing?.ResDeclare ?? 0) == 0)
+                throw new InvalidOperationException("Generate the marksheets for this exam before declaring the result.");
 
             if (existing != null)
             {

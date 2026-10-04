@@ -293,9 +293,25 @@ namespace ExamAPI.Services.Report
             return reportDto;
         }
 
+        /// <summary>Marks the gazette as generated on the exam's DeclareResult row (dashboard "Gazette" stage).</summary>
+        private async Task RecordGazetteAsync(GazetteRequestDto request, Guid collegeId)
+        {
+            var exam = await _context.Exams.FirstOrDefaultAsync(e => e.ExamId == request.ExamId
+                && e.Course != null && e.Course.CollegeId == collegeId && !e.IsDeleted);
+            if (exam == null) return;
+
+            await ExamAPI.Services.DeclareResult.DResultService.RecordGenerationAsync(_context, exam, request.SemId, request.Pattern, dr =>
+            {
+                dr.GazetteGnrt += 1;
+                dr.GazetteDate = DateTime.UtcNow;
+            });
+            await _context.SaveChangesAsync();
+        }
+
         public async Task<byte[]> GenerateGazettePdfAsync(GazetteRequestDto request, Guid collegeId)
         {
             var reportDto = await GetGazetteDataAsync(request, collegeId);
+            await RecordGazetteAsync(request, collegeId);
             var document = new GazetteDocument(reportDto, request);
             return document.GeneratePdf();
         }
@@ -303,6 +319,7 @@ namespace ExamAPI.Services.Report
         public async Task<byte[]> GenerateGazetteExcelAsync(GazetteRequestDto request, Guid collegeId)
         {
             var reportDto = await GetGazetteDataAsync(request, collegeId);
+            await RecordGazetteAsync(request, collegeId);
 
             ExcelPackage.License.SetNonCommercialPersonal("ReactApi Project");
             using var package = new ExcelPackage();
@@ -735,17 +752,14 @@ namespace ExamAPI.Services.Report
                 }
             }
 
-            if (marksMasters.Count > 0)
+            // Declare Result requires a marksheet run first: count it on the exam's DeclareResult row.
+            if (exam != null)
             {
-                var existingRecord = await _context.DeclareResults.FirstOrDefaultAsync(x => x.AcademicYear == ayid && x.ExamId == examId && x.Sem_id == semId && x.Pattern == pattern && x.CourseId == courseId);
-                if (existingRecord != null)
+                await ExamAPI.Services.DeclareResult.DResultService.RecordGenerationAsync(_context, exam, semId, pattern, dr =>
                 {
-                    existingRecord.ResDeclare = existingRecord.ResDeclare + 1;
-                    existingRecord.ResDeclareDateTime = DateTime.UtcNow;
-                    _context.DeclareResults.Update(existingRecord);
-                    //existingRecord.DeclareDate = DateTime.UtcNow;
-                    //_context.DeclareResults.Update(existingRecord);
-                }
+                    dr.ResDeclare += 1;
+                    dr.ResDeclareDateTime = DateTime.UtcNow;
+                });
                 await _context.SaveChangesAsync();
             }
 

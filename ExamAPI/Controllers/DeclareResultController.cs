@@ -35,7 +35,15 @@ namespace ExamAPI.Controllers
             if (request.IsDeclare && (request.DeclareDate == null || request.DeclareDate == default(DateTime)))
                 return BadRequest(new { message = "Declare date is required to declare a result." });
 
-            var success = await _DeclareResultService.ToggleDeclare(request);
+            bool success;
+            try
+            {
+                success = await _DeclareResultService.ToggleDeclare(request);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
             if (!success)
                 return NotFound(new { message = "Exam not found for the given course/year/semester." });
 
