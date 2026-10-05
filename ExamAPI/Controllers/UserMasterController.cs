@@ -129,7 +129,7 @@ namespace ExamAPI.Controllers
             }
             catch(Exception ex)
             {
-                return BadRequest(new { message = ex.Message });
+                return BadRequest(new { message = ExamAPI.Services.Common.SafeError.Message(ex) });
             }
         }
     }

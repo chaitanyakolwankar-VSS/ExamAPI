@@ -155,7 +155,7 @@ namespace ExamAPI.Services.StudentPromotion
                 return new ApiResponseDto<object>
                 {
                     Success = false,
-                    Message = ex.Message
+                    Message = ExamAPI.Services.Common.SafeError.Message(ex)
                 };
             }
         }
@@ -199,7 +199,7 @@ namespace ExamAPI.Services.StudentPromotion
                 return new ApiResponseDto<object>
                 {
                     Success = false,
-                    Message = ex.Message
+                    Message = ExamAPI.Services.Common.SafeError.Message(ex)
                 };
             }
         }

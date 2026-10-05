@@ -69,7 +69,7 @@ namespace ExamAPI.Services.Subject
                 {
                     Success = false,
                     Message = "Error while saving subject",
-                    Data = ex.Message
+                    Data = ExamAPI.Services.Common.SafeError.Message(ex)
                 };
             }
         }
@@ -164,7 +164,7 @@ namespace ExamAPI.Services.Subject
                 {
                     Success = false,
                     Message = "Error while saving subject",
-                    Data = ex.Message
+                    Data = ExamAPI.Services.Common.SafeError.Message(ex)
                 };
             }
         }
@@ -383,7 +383,7 @@ namespace ExamAPI.Services.Subject
                 {
                     Success = false,
                     Message = "Error while saving subject",
-                    Data = ex.Message
+                    Data = ExamAPI.Services.Common.SafeError.Message(ex)
                 };
             }
         }
@@ -432,7 +432,7 @@ namespace ExamAPI.Services.Subject
                 {
                     Success = false,
                     Message = "Error while saving subject",
-                    Data = ex.Message
+                    Data = ExamAPI.Services.Common.SafeError.Message(ex)
                 };
             }
         }
@@ -486,7 +486,7 @@ namespace ExamAPI.Services.Subject
                 {
                     Success = false,
                     Message = "Error while deleting subject",
-                    Data = ex.Message
+                    Data = ExamAPI.Services.Common.SafeError.Message(ex)
                 };
             }
         }
@@ -567,7 +567,7 @@ namespace ExamAPI.Services.Subject
                 {
                     Success = false,
                     Message = "Error while copying previous credits",
-                    Data = ex.Message
+                    Data = ExamAPI.Services.Common.SafeError.Message(ex)
                 };
             }
         }
@@ -609,7 +609,7 @@ namespace ExamAPI.Services.Subject
                 {
                     Success = false,
                     Message = "Error while getting previous credits",
-                    Data = ex.Message
+                    Data = ExamAPI.Services.Common.SafeError.Message(ex)
                 };
             }
         }
@@ -641,7 +641,7 @@ namespace ExamAPI.Services.Subject
                 {
                     Success = false,
                     Message = "Error while getting credits",
-                    Data = ex.Message
+                    Data = ExamAPI.Services.Common.SafeError.Message(ex)
                 };
             }
         }

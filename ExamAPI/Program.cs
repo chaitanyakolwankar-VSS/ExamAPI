@@ -14,7 +14,8 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using OfficeOpenXml;
 using System.Text;
-using System.Text; 
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
@@ -122,21 +123,45 @@ builder.Services.AddAuthorization(options =>
 
 
 //CORS config
+// Only needed when the site and the API are on different origins (e.g. the Vite dev server). On IIS both
+// are under one host, so production lists nothing or just that host. Cors:AllowedOrigins in appsettings.
+var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+    ?? new[] { "http://localhost:5173", "http://localhost:5174" };
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReactApp",
         policy => policy
-            .WithOrigins("http://localhost:5173", "http://localhost:5174") //  local React URL  
+            .WithOrigins(corsOrigins)
             .AllowAnyMethod()
             .AllowAnyHeader());
 
 });
 //CORS config
 
+// Unhandled exceptions: logged, and answered with a ProblemDetails body without internals (T-13).
+builder.Services.AddProblemDetails();
+
+// Rate limits per client IP (T-14): sign-in and OTP checks, and a tighter one for sending reset mails.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy(ExamAPI.Services.Auth.RateLimits.SignIn, ctx => RateLimitPartition.GetFixedWindowLimiter(
+        ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+    options.AddPolicy(ExamAPI.Services.Auth.RateLimits.SendOtp, ctx => RateLimitPartition.GetFixedWindowLimiter(
+        ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = 5, Window = TimeSpan.FromMinutes(15), QueueLimit = 0 }));
+    options.OnRejected = async (context, ct) =>
+        await context.HttpContext.Response.WriteAsJsonAsync(
+            new { message = "Too many attempts. Please wait a few minutes and try again." }, ct);
+});
+
 
 //---mainbuild
 var app = builder.Build();
 //---mainbuild end
+
+ExamAPI.Services.Common.SafeError.Logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Errors");
 
 // First start on an empty database: platform admin (from Bootstrap:* settings) and the screen catalog.
 // Only ever adds; a failure is logged and does not stop the app.
@@ -160,12 +185,26 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+else
+{
+    app.UseExceptionHandler();
+}
+
+// Basic response hardening; the Content-Security-Policy comes with T-18.
+app.Use(async (context, next) =>
+{
+    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    context.Response.Headers["X-Frame-Options"] = "DENY";
+    context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+    await next();
+});
 // No app.UseStaticFiles(): wwwroot held only uploaded personal data (student photos/signatures, college
 // logos), which must not be anonymously readable (DEC-12). They are served solely by the authorised
 // GET /api/Files endpoint. Re-add static files only with an explicit block for /uploads and /Clg_detail*.
 app.UseHttpsRedirection();
 
 app.UseCors("AllowReactApp");
+app.UseRateLimiter();
 // Authentication & Authorization(ORDER MATTERS: Authentication (Who are you?) -> Authorization (Are you allowed?))
 app.UseAuthentication();
 app.UseAuthorization();

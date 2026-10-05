@@ -775,7 +775,7 @@ namespace ExamAPI.Services.AtktRevalExam
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                return Fail($"Failed to save assignments: {ex.Message}");
+                return Fail($"Failed to save assignments: {ExamAPI.Services.Common.SafeError.Message(ex)}");
             }
         }
 
@@ -813,7 +813,7 @@ namespace ExamAPI.Services.AtktRevalExam
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                return Fail($"Failed to assign students: {ex.Message}");
+                return Fail($"Failed to assign students: {ExamAPI.Services.Common.SafeError.Message(ex)}");
             }
         }
 
@@ -1148,7 +1148,7 @@ namespace ExamAPI.Services.AtktRevalExam
                 return new ApiResponseDto<object>
                 {
                     Success = false,
-                    Message = $"Failed to remove student: {ex.Message}"
+                    Message = $"Failed to remove student: {ExamAPI.Services.Common.SafeError.Message(ex)}"
                 };
             }
         }

@@ -3,12 +3,14 @@ using ExamAPI.Services.Auth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace ExamAPI.Controllers
 {
     // Exempt from the global fallback authorization policy: you cannot present a token
     // until you have logged in.
     [AllowAnonymous]
+    [EnableRateLimiting(RateLimits.SignIn)]
     [Route("api/[controller]")]
     [ApiController]
     public class AuthController : ControllerBase

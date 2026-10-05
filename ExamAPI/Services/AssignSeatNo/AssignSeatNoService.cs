@@ -37,7 +37,7 @@ namespace ExamAPI.Services.AssignSeatNo
             }
             catch (Exception ex)
             {
-                throw new Exception(ex.Message);
+                throw;
             }
         }
 

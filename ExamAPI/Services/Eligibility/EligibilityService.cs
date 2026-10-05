@@ -146,7 +146,7 @@ namespace ExamAPI.Services.Eligibility
                 return new ApiResponseDto<object>
                 {
                     Success = false,
-                    Message = ex.Message
+                    Message = ExamAPI.Services.Common.SafeError.Message(ex)
                 };
             }
         }

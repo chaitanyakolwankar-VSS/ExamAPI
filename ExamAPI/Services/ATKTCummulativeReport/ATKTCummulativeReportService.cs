@@ -25,7 +25,7 @@ namespace ExamAPI.Services.ATKTCummulativeReport
             }
             catch (Exception ex)
             {
-                throw new Exception(ex.Message);
+                throw;
             }
         }
 
@@ -38,7 +38,7 @@ namespace ExamAPI.Services.ATKTCummulativeReport
             }
             catch (Exception ex)
             {
-                throw new Exception(ex.Message);
+                throw;
             }
         }
 

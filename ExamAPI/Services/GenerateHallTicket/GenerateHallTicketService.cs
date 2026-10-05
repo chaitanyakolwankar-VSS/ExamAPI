@@ -81,7 +81,7 @@ namespace ExamAPI.Services.GenerateHallTicket
             }
             catch (Exception ex)
             {
-                throw new Exception(ex.Message);
+                throw;
             }
         }
 

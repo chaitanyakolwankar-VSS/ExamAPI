@@ -62,7 +62,7 @@ namespace ExamAPI.Controllers
             }
             catch(Exception ex)
             {
-              return BadRequest(ex.Message);
+              return BadRequest(ExamAPI.Services.Common.SafeError.Message(ex));
             }
         }
         [HttpPut("UpdateStudent")]
@@ -76,7 +76,7 @@ namespace ExamAPI.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest(ex.Message);
+                return BadRequest(ExamAPI.Services.Common.SafeError.Message(ex));
             }
            
         }
@@ -92,11 +92,11 @@ namespace ExamAPI.Controllers
             }
             catch (KeyNotFoundException ex)
             {
-                return NotFound(new { message = ex.Message });
+                return NotFound(new { message = ExamAPI.Services.Common.SafeError.Message(ex) });
             }
             catch (ArgumentException ex)
             {
-                return BadRequest(new { message = ex.Message });
+                return BadRequest(new { message = ExamAPI.Services.Common.SafeError.Message(ex) });
             }
         }
 

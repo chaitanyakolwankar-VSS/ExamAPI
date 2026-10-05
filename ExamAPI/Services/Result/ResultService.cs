@@ -183,7 +183,7 @@ namespace ExamAPI.Services.Result
             }
             catch (Exception ex)
             {
-                return new ApiResponseDto<object> { Success = false, Message = $"Error processing results: {ex.Message}" };
+                return new ApiResponseDto<object> { Success = false, Message = $"Error processing results: {ExamAPI.Services.Common.SafeError.Message(ex)}" };
             }
         }
 
@@ -592,7 +592,7 @@ namespace ExamAPI.Services.Result
             }
             catch (Exception ex)
             {
-                return new ApiResponseDto<IEnumerable<ResultDataDto>> { Success = false, Message = $"Error fetching results: {ex.Message}" };
+                return new ApiResponseDto<IEnumerable<ResultDataDto>> { Success = false, Message = $"Error fetching results: {ExamAPI.Services.Common.SafeError.Message(ex)}" };
             }
         }
 

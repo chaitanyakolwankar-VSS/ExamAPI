@@ -99,7 +99,7 @@ namespace ExamAPI.Services.MarksEntry
             }
             catch (Exception ex)
             {
-                return new ApiResponseDto<IEnumerable<MarksEntryDataDto>> { Success = false, Message = $"Error: {ex.Message}" };
+                return new ApiResponseDto<IEnumerable<MarksEntryDataDto>> { Success = false, Message = $"Error: {ExamAPI.Services.Common.SafeError.Message(ex)}" };
             }
         }
 
@@ -207,7 +207,7 @@ namespace ExamAPI.Services.MarksEntry
             }
             catch (Exception ex)
             {
-                return new ApiResponseDto<object> { Success = false, Message = $"Error: {ex.Message}" };
+                return new ApiResponseDto<object> { Success = false, Message = $"Error: {ExamAPI.Services.Common.SafeError.Message(ex)}" };
             }
         }
 
@@ -412,7 +412,7 @@ namespace ExamAPI.Services.MarksEntry
             }
             catch (Exception ex)
             {
-                return new ApiResponseDto<ResolutionConfigDto> { Success = false, Message = $"Error: {ex.Message}" };
+                return new ApiResponseDto<ResolutionConfigDto> { Success = false, Message = $"Error: {ExamAPI.Services.Common.SafeError.Message(ex)}" };
             }
         }
 
@@ -592,7 +592,7 @@ namespace ExamAPI.Services.MarksEntry
             }
             catch (Exception ex)
             {
-                return new ApiResponseDto<object> { Success = false, Message = $"Error: {ex.Message}" };
+                return new ApiResponseDto<object> { Success = false, Message = $"Error: {ExamAPI.Services.Common.SafeError.Message(ex)}" };
             }
         }
 
@@ -814,7 +814,7 @@ namespace ExamAPI.Services.MarksEntry
             }
             catch (Exception ex)
             {
-                return new ApiResponseDto<object> { Success = false, Message = $"Import failed: {ex.Message}" };
+                return new ApiResponseDto<object> { Success = false, Message = $"Import failed: {ExamAPI.Services.Common.SafeError.Message(ex)}" };
             }
         }
     }

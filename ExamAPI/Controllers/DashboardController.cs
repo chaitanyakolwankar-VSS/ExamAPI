@@ -28,7 +28,7 @@ namespace ExamAPI.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { success = false, message = ex.Message });
+                return StatusCode(500, new { success = false, message = ExamAPI.Services.Common.SafeError.Message(ex) });
             }
         }
 
@@ -43,7 +43,7 @@ namespace ExamAPI.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { success = false, message = ex.Message });
+                return StatusCode(500, new { success = false, message = ExamAPI.Services.Common.SafeError.Message(ex) });
             }
         }
 
@@ -57,7 +57,7 @@ namespace ExamAPI.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { success = false, message = ex.Message });
+                return StatusCode(500, new { success = false, message = ExamAPI.Services.Common.SafeError.Message(ex) });
             }
         }
 
@@ -72,7 +72,7 @@ namespace ExamAPI.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { success = false, message = ex.Message });
+                return StatusCode(500, new { success = false, message = ExamAPI.Services.Common.SafeError.Message(ex) });
             }
         }
 
@@ -86,7 +86,7 @@ namespace ExamAPI.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { success = false, message = ex.Message });
+                return StatusCode(500, new { success = false, message = ExamAPI.Services.Common.SafeError.Message(ex) });
             }
         }
 
@@ -100,7 +100,7 @@ namespace ExamAPI.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { success = false, message = ex.Message });
+                return StatusCode(500, new { success = false, message = ExamAPI.Services.Common.SafeError.Message(ex) });
             }
         }
 
@@ -114,7 +114,7 @@ namespace ExamAPI.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { success = false, message = ex.Message });
+                return StatusCode(500, new { success = false, message = ExamAPI.Services.Common.SafeError.Message(ex) });
             }
         }
 

@@ -3,6 +3,8 @@ using ExamAPI.Services.PasswordResetOTP;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using ExamAPI.Services.Auth;
 using System.Linq.Expressions;
 
 namespace ExamAPI.Controllers
@@ -10,6 +12,7 @@ namespace ExamAPI.Controllers
     // Exempt from the global fallback authorization policy: password reset is by
     // definition reached by users who cannot authenticate.
     [AllowAnonymous]
+    [EnableRateLimiting(RateLimits.SignIn)]
     [Route("api/[controller]")]
     [ApiController]
     public class SendResetOtpController : ControllerBase
@@ -22,6 +25,7 @@ namespace ExamAPI.Controllers
 
 
         [HttpPost("send-reset-otp")]
+        [EnableRateLimiting(RateLimits.SendOtp)]
         public async Task<IActionResult> SendResetOtp(
 SendResetOtpDTO dto)
         {
@@ -42,7 +46,7 @@ SendResetOtpDTO dto)
             }
             catch (Exception ex)
             {
-                return BadRequest(new { message = ex.Message });
+                return BadRequest(new { message = ExamAPI.Services.Common.SafeError.Message(ex) });
             }
         }
 
@@ -56,7 +60,7 @@ SendResetOtpDTO dto)
             }
             catch(Exception ex)
             {
-                return BadRequest(new { message = ex.Message });
+                return BadRequest(new { message = ExamAPI.Services.Common.SafeError.Message(ex) });
             }
         }
 
