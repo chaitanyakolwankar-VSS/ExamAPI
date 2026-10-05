@@ -84,6 +84,13 @@ QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
 
 
 // JWT Authentication
+// A missing or short signing key must stop the start, not produce tokens anyone could forge.
+var jwtKey = builder.Configuration["Jwt:Key"];
+if (string.IsNullOrWhiteSpace(jwtKey) || Encoding.UTF8.GetByteCount(jwtKey) < 32)
+    throw new InvalidOperationException("Jwt:Key must be set to a random value of at least 32 characters.");
+if (string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("DefaultConnection")))
+    throw new InvalidOperationException("ConnectionStrings:DefaultConnection is not set.");
+
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -99,7 +106,7 @@ builder.Services.AddAuthentication(options =>
         ValidateIssuerSigningKey = true,
         ValidIssuer = builder.Configuration["Jwt:Issuer"],
         ValidAudience = builder.Configuration["Jwt:Audience"],
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
     };
 });
 // JWT Authentication end
@@ -126,7 +133,7 @@ builder.Services.AddAuthorization(options =>
 // Only needed when the site and the API are on different origins (e.g. the Vite dev server). On IIS both
 // are under one host, so production lists nothing or just that host. Cors:AllowedOrigins in appsettings.
 var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
-    ?? new[] { "http://localhost:5173", "http://localhost:5174" };
+    ?? (builder.Environment.IsDevelopment() ? new[] { "http://localhost:5173", "http://localhost:5174" } : Array.Empty<string>());
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReactApp",

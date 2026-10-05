@@ -12,10 +12,6 @@ namespace ExamAPI.Services.Email
         {
             _emailSettings = options.Value;
 
-            Console.WriteLine($"SMTP: {_emailSettings.SmtpServer}");
-            Console.WriteLine($"Port: {_emailSettings.Port}");
-            Console.WriteLine($"Email: {_emailSettings.SenderEmail}");
-            Console.WriteLine($"Password empty? {string.IsNullOrEmpty(_emailSettings.Password)}");
         }
         public async Task SendEmailAsync(string toEmail, string subject, string body)
         {
@@ -25,7 +21,7 @@ namespace ExamAPI.Services.Email
                 client.EnableSsl = true;
                 var mailMessage = new MailMessage
                 {
-                    From = new MailAddress(_emailSettings.SenderEmail, "No Reply - Exam Portal"),
+                    From = new MailAddress(_emailSettings.SenderEmail, string.IsNullOrWhiteSpace(_emailSettings.SenderName) ? "GradeSphere" : _emailSettings.SenderName),
                     Subject = subject,
                     Body = body,
                     IsBodyHtml = true
