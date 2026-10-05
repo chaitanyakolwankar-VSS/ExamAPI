@@ -11,6 +11,7 @@
 -- Run AFTER the schema (deploy.sql) and after the API has started once.
 -- =======================================================================================
 SET NOCOUNT ON;
+SET QUOTED_IDENTIFIER ON;
 SET XACT_ABORT ON;
 DECLARE @Now datetime2 = SYSUTCDATETIME();
 
