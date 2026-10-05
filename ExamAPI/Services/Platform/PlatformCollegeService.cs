@@ -60,6 +60,7 @@ namespace ExamAPI.Services.Platform
                     CollegeCode = c.CollegeCode,
                     HasLogo = c.LogoUrl != null && c.LogoUrl != "",
                     HasBanner = c.LogoBannerUrl != null && c.LogoBannerUrl != "",
+                    IsTemplate = c.IsTemplate,
                 })
                 .ToListAsync(ct);
 
@@ -147,6 +148,8 @@ namespace ExamAPI.Services.Platform
         public async Task<PlatformAdminDto> AddAdminAsync(Guid collegeId, AdminInput input, CancellationToken ct = default)
         {
             await RequireCollegeAsync(collegeId, ct);
+            if (await _context.Colleges.IgnoreQueryFilters().AnyAsync(c => c.CollegeId == collegeId && c.IsTemplate, ct))
+                throw new ArgumentException("A starter template is not a college and cannot have admins.");
             var (role, _) = await PlatformValidation.EnsureAdminRoleAsync(_context, collegeId, ct);
             var dto = PlatformValidation.Admin(input, role.RoleId, collegeId);
 

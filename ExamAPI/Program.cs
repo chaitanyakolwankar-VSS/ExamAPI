@@ -138,6 +138,22 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 //---mainbuild end
 
+// First start on an empty database: platform admin (from Bootstrap:* settings) and the screen catalog.
+// Only ever adds; a failure is logged and does not stop the app.
+using (var scope = app.Services.CreateScope())
+{
+    var seedLogger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("StartupSeeder");
+    try
+    {
+        await ExamAPI.Services.Platform.StartupSeeder.SeedAsync(
+            scope.ServiceProvider.GetRequiredService<ApplicationDbContext>(), app.Configuration, seedLogger);
+    }
+    catch (Exception ex)
+    {
+        seedLogger.LogError(ex, "Startup: seeding failed.");
+    }
+}
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {

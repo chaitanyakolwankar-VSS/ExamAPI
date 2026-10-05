@@ -153,6 +153,9 @@ namespace ExamAPI.Migrations
                         .HasColumnType("bit")
                         .HasDefaultValue(false);
 
+                    b.Property<bool>("IsTemplate")
+                        .HasColumnType("bit");
+
                     b.Property<string>("LogoBannerUrl")
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");

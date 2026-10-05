@@ -135,6 +135,9 @@ namespace ExamAPI.Services.Platform
             var college = await _context.Colleges.IgnoreQueryFilters()
                 .FirstOrDefaultAsync(c => !c.IsDeleted && c.CollegeCode.ToLower() == codeLower, ct);
 
+            if (college?.IsTemplate == true)
+                throw new ArgumentException("This college code belongs to a starter template; choose another code.");
+
             summary.AlreadyExisted = college != null;
             if (college == null)
             {

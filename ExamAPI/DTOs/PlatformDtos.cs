@@ -97,6 +97,8 @@ namespace ExamAPI.DTOs
         public string? CurrentAcademicYear { get; set; }
         public bool HasLogo { get; set; }
         public bool HasBanner { get; set; }
+        /// <summary>A starter template: offered as "Copy from" when adding a college, not listed as a college.</summary>
+        public bool IsTemplate { get; set; }
     }
 
     public class PlatformCollegeDetail

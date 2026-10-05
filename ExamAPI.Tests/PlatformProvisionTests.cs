@@ -500,6 +500,29 @@ public sealed class PlatformProvisionTests
     }
 
     [Fact]
+    public async Task A_starter_template_is_flagged_in_the_list_takes_no_admins_and_its_code_cannot_be_provisioned()
+    {
+        var rig = NewRig();
+        var tpl = await rig.Context.Colleges.IgnoreQueryFilters().SingleAsync(c => c.CollegeId == rig.TemplateId);
+        tpl.IsTemplate = true;
+        await rig.Context.SaveChangesAsync();
+
+        var list = await rig.Colleges.ListAsync();
+        Assert.True(list.Single(c => c.CollegeId == rig.TemplateId).IsTemplate);
+
+        var addAdmin = await Assert.ThrowsAsync<ArgumentException>(() => rig.Colleges.AddAdminAsync(rig.TemplateId, Admin("tpladmin")));
+        Assert.Contains("template", addAdmin.Message);
+        Assert.False(await rig.Context.UserMasters.IgnoreQueryFilters().AnyAsync(u => u.CollegeId == rig.TemplateId));
+
+        var reprovision = await Assert.ThrowsAsync<ArgumentException>(() => rig.Provision.ProvisionAsync(Request(rig, r => { r.CollegeCode = "tpl"; r.TemplateCollegeId = null; })));
+        Assert.Contains("template", reprovision.Message);
+
+        // Copying FROM the template still works.
+        var summary = await rig.Provision.ProvisionAsync(Request(rig));
+        Assert.Equal(1, Created(summary, "Rule sets"));
+    }
+
+    [Fact]
     public async Task Every_platform_controller_action_carries_the_PlatformAdmin_policy()
     {
         var actions = typeof(PlatformController)

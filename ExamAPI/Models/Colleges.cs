@@ -46,6 +46,12 @@ namespace ExamAPI.Models
         [Phone]
         public required string ContactPhone { get; set; }
 
+        /// <summary>
+        /// A starter template (deploy/SeedStarterTemplates.sql): holds a grade scale and rule sets for the
+        /// Platform page to copy into new colleges. Not a real college: hidden from the college list, no admins.
+        /// </summary>
+        public bool IsTemplate { get; set; }
+
 
         // Navigation Properties
         public ICollection<AcademicYear>? AcademicYears { get; set; }

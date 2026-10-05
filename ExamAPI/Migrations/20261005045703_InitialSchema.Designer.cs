@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace ExamAPI.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261005045359_InitialSchema")]
+    [Migration("20261005045703_InitialSchema")]
     partial class InitialSchema
     {
         /// <inheritdoc />
@@ -155,6 +155,9 @@ namespace ExamAPI.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bit")
                         .HasDefaultValue(false);
+
+                    b.Property<bool>("IsTemplate")
+                        .HasColumnType("bit");
 
                     b.Property<string>("LogoBannerUrl")
                         .HasMaxLength(500)
