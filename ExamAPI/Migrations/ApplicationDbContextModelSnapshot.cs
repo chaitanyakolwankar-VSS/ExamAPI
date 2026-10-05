@@ -1412,8 +1412,8 @@ namespace ExamAPI.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("AYID")
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
 
                     b.Property<Guid?>("AcademicYearAYID")
                         .HasColumnType("uniqueidentifier");

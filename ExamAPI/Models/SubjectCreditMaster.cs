@@ -23,7 +23,8 @@ namespace ExamAPI.Models
         [MaxLength(20)]
         public string? TotalCredits { get; set; }
 
-        [MaxLength(20)]
+        // Holds the academic year's GUID as text (36 chars); the live column is nvarchar(50).
+        [MaxLength(50)]
         public string? AYID { get; set; }
 
         /// <summary>How this subject decides pass/fail: "HeadWise" (every head clears its own
