@@ -145,7 +145,7 @@ namespace ExamAPI.Services.Report
         /// added) so callers can start their text below it.
         /// </summary>
         public static int TryAddBanner(
-            OfficeOpenXml.ExcelWorksheet sheet, byte[]? banner, int firstRow, int lastColumn,
+            ClosedXML.Excel.IXLWorksheet sheet, byte[]? banner, int firstRow, int lastColumn,
             int rowCount = 4, int maxWidthPx = 640, int maxHeightPx = 120)
         {
             if (banner == null || banner.Length == 0 || rowCount < 1 || lastColumn < 1) return 0;
@@ -158,7 +158,7 @@ namespace ExamAPI.Services.Report
                 double sheetPx = 0;
                 for (var c = 1; c <= lastColumn; c++)
                 {
-                    var w = sheet.Column(c).Width;
+                    var w = ExcelStyles.StoredWidth(sheet.Column(c));
                     sheetPx += (w <= 0 ? 8.43 : w) * 7 + 5;
                 }
 
@@ -174,14 +174,15 @@ namespace ExamAPI.Services.Report
 
                 var leftOffset = Math.Max(0, (int)((sheetPx - width) / 2));
                 using var stream = new MemoryStream(banner);
-                var picture = sheet.Drawings.AddPicture($"CollegeBanner_{Guid.NewGuid():N}", stream);
-                picture.SetPosition(firstRow - 1, 3, 0, leftOffset);
-                picture.SetSize(width, height);
+                sheet.AddPicture(stream, "CollegeBanner")
+                    .MoveTo(sheet.Cell(firstRow, 1), leftOffset, 3)
+                    .WithSize(width, height)
+                    .WithPlacement(ClosedXML.Excel.Drawings.XLPicturePlacement.Move);
                 return rowCount;
             }
             catch
             {
-                // A banner EPPlus cannot embed must not fail the export; the text header remains.
+                // A banner that cannot be embedded must not fail the export; the text header remains.
                 return 0;
             }
         }
@@ -193,14 +194,13 @@ namespace ExamAPI.Services.Report
         /// nothing) when there is no logo or the picture cannot be embedded.
         /// </summary>
         public static bool TryAddLogo(
-            OfficeOpenXml.ExcelWorksheet sheet, byte[]? logo, int row = 1, int column = 1,
+            ClosedXML.Excel.IXLWorksheet sheet, byte[]? logo, int row = 1, int column = 1,
             int maxWidthPx = 96, int maxHeightPx = 48)
         {
             if (logo == null || logo.Length == 0) return false;
 
             try
             {
-
                 if (!ImageSize.TryRead(logo, out var imageWidth, out var imageHeight))
                     return false;
                 var scale = Math.Min((double)maxWidthPx / imageWidth, (double)maxHeightPx / imageHeight);
@@ -208,15 +208,15 @@ namespace ExamAPI.Services.Report
                 var height = Math.Max(1, (int)Math.Round(imageHeight * scale));
 
                 using var stream = new MemoryStream(logo);
-                var name = $"CollegeLogo_{Guid.NewGuid():N}";
-                var picture = sheet.Drawings.AddPicture(name, stream);
-                picture.SetPosition(row - 1, 2, column - 1, 2);
-                picture.SetSize(width, height);
+                sheet.AddPicture(stream, "CollegeLogo")
+                    .MoveTo(sheet.Cell(row, column), 2, 2)
+                    .WithSize(width, height)
+                    .WithPlacement(ClosedXML.Excel.Drawings.XLPicturePlacement.Move);
                 return true;
             }
             catch
             {
-                // A logo EPPlus cannot embed must not fail the export; the text header remains.
+                // A logo that cannot be embedded must not fail the export; the text header remains.
                 return false;
             }
         }

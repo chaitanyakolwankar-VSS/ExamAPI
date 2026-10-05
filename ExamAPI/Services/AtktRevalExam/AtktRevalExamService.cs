@@ -4,8 +4,7 @@ using ExamAPI.Models;
 using ExamAPI.Services.Common;
 using ExamAPI.Services.Result.Engine;
 using Microsoft.EntityFrameworkCore;
-using OfficeOpenXml;
-using OfficeOpenXml.Style;
+using ClosedXML.Excel;
 using System.Drawing;
 
 namespace ExamAPI.Services.AtktRevalExam
@@ -1178,14 +1177,14 @@ namespace ExamAPI.Services.AtktRevalExam
             var columns = build.Response.Columns;
             var students = build.Response.Students;
 
-            var headerFill = Color.FromArgb(0xE5, 0xE7, 0xEB); // light grey
-            var zebraFill = Color.FromArgb(0xF7, 0xF8, 0xFA);  // near-white
-            var appliedFill = Color.FromArgb(0xDC, 0xFC, 0xE7); // light green
-            var titleColor = Color.FromArgb(0x11, 0x18, 0x27);
+            var headerFill = XLColor.FromArgb(0xE5, 0xE7, 0xEB); // light grey
+            var zebraFill = XLColor.FromArgb(0xF7, 0xF8, 0xFA);  // near-white
+            var appliedFill = XLColor.FromArgb(0xDC, 0xFC, 0xE7); // light green
+            var titleColor = XLColor.FromArgb(0x11, 0x18, 0x27);
 
-            ExcelPackage.License.SetNonCommercialPersonal("ReactApi Project");
-            using var package = new ExcelPackage();
-            var sheet = package.Workbook.Worksheets.Add(Sanitize(examName));
+            using var workbook = ExamAPI.Services.Report.ExcelStyles.NewWorkbook();
+            var sheet = workbook.Worksheets.Add(Sanitize(examName));
+            ExamAPI.Services.Report.ExcelStyles.NormalMargins(sheet);
 
             // The heads a student re-sits for a subject: the head labels for combined/head-wise,
             // "Yes" when the subject has no distinct heads.
@@ -1211,22 +1210,22 @@ namespace ExamAPI.Services.AtktRevalExam
                         .Where(s => s.Cells.FirstOrDefault(c => c.SubjectId == columns[i].SubjectId)?.Selected == true)
                         .Select(s => s.SeatNo ?? s.StudentId)
                         .ToList();
-                    sheet.Cells[headerRow, i + 1].Value = $"{columns[i].SubjectCode}\n{columns[i].SubjectName}\n({seats.Count})";
+                    sheet.Cell(headerRow, i + 1).Value = $"{columns[i].SubjectCode}\n{columns[i].SubjectName}\n({seats.Count})";
                     var r = headerRow + 1;
-                    foreach (var seat in seats) sheet.Cells[r++, i + 1].Value = seat;
+                    foreach (var seat in seats) sheet.Cell(r++, i + 1).Value = seat;
                     maxRows = Math.Max(maxRows, seats.Count);
                 }
 
-                StyleHeader(sheet.Cells[headerRow, 1, headerRow, totalCols], headerFill);
+                StyleHeader(sheet.Range(headerRow, 1, headerRow, totalCols), headerFill);
                 sheet.Row(headerRow).Height = 80;
 
                 var lastRow = headerRow + Math.Max(maxRows, 1);
-                var body = sheet.Cells[headerRow, 1, lastRow, totalCols];
+                var body = sheet.Range(headerRow, 1, lastRow, totalCols);
                 Grid(body);
-                body.Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
-                body.Style.VerticalAlignment = ExcelVerticalAlignment.Center;
-                sheet.View.FreezePanes(headerRow + 1, 1);
-                for (var c = 1; c <= totalCols; c++) sheet.Column(c).Width = 20;
+                body.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                body.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+                sheet.SheetView.FreezeRows(headerRow);
+                for (var c = 1; c <= totalCols; c++) ExamAPI.Services.Report.ExcelStyles.SetWidth(sheet.Column(c), 20);
                 AddBanner(sheet, totalCols, titleColor, branding);
                 ApplyPrintSetup(sheet, headerRow);
             }
@@ -1236,83 +1235,76 @@ namespace ExamAPI.Services.AtktRevalExam
                 var totalCols = leading + columns.Count + 1; // + Applied
                 WriteTitle(sheet, totalCols, course, $"{filter.Semester} — {examName}", titleColor, branding, textStartCol: 3);
 
-                sheet.Cells[headerRow, 1].Value = "Sr.";
-                sheet.Cells[headerRow, 2].Value = "Student ID";
-                sheet.Cells[headerRow, 3].Value = "Seat No.";
-                sheet.Cells[headerRow, 4].Value = "Student Name";
+                sheet.Cell(headerRow, 1).Value = "Sr.";
+                sheet.Cell(headerRow, 2).Value = "Student ID";
+                sheet.Cell(headerRow, 3).Value = "Seat No.";
+                sheet.Cell(headerRow, 4).Value = "Student Name";
                 for (var i = 0; i < columns.Count; i++)
-                    sheet.Cells[headerRow, leading + 1 + i].Value = $"{columns[i].SubjectCode}\n{columns[i].SubjectName}";
-                sheet.Cells[headerRow, totalCols].Value = "Applied";
+                    sheet.Cell(headerRow, leading + 1 + i).Value = $"{columns[i].SubjectCode}\n{columns[i].SubjectName}";
+                sheet.Cell(headerRow, totalCols).Value = "Applied";
 
-                StyleHeader(sheet.Cells[headerRow, 1, headerRow, totalCols], headerFill);
+                StyleHeader(sheet.Range(headerRow, 1, headerRow, totalCols), headerFill);
                 sheet.Row(headerRow).Height = 80;
 
                 var row = headerRow + 1;
                 var sr = 1;
                 foreach (var s in students)
                 {
-                    sheet.Cells[row, 1].Value = sr++;
-                    sheet.Cells[row, 2].Value = s.StudentId;
-                    sheet.Cells[row, 3].Value = s.SeatNo;
-                    sheet.Cells[row, 4].Value = s.StudentName;
+                    sheet.Cell(row, 1).Value = sr++;
+                    sheet.Cell(row, 2).Value = s.StudentId;
+                    sheet.Cell(row, 3).Value = s.SeatNo;
+                    sheet.Cell(row, 4).Value = s.StudentName;
 
                     if ((row - headerRow) % 2 == 0)
-                    {
-                        var lead = sheet.Cells[row, 1, row, leading];
-                        lead.Style.Fill.PatternType = ExcelFillStyle.Solid;
-                        lead.Style.Fill.BackgroundColor.SetColor(zebraFill);
-                    }
+                        sheet.Range(row, 1, row, leading).Style.Fill.BackgroundColor = zebraFill;
 
                     var applied = 0;
                     for (var i = 0; i < columns.Count; i++)
                     {
                         var cell = s.Cells.FirstOrDefault(c => c.SubjectId == columns[i].SubjectId);
                         var text = AppliedHeads(cell);
-                        var target = sheet.Cells[row, leading + 1 + i];
+                        var target = sheet.Cell(row, leading + 1 + i);
                         target.Value = text;
                         if (text.Length > 0)
                         {
                             applied++;
-                            target.Style.Fill.PatternType = ExcelFillStyle.Solid;
-                            target.Style.Fill.BackgroundColor.SetColor(appliedFill);
+                            target.Style.Fill.BackgroundColor = appliedFill;
                         }
                     }
-                    sheet.Cells[row, totalCols].Value = applied;
+                    sheet.Cell(row, totalCols).Value = applied;
                     row++;
                 }
 
                 var lastRow = Math.Max(row - 1, headerRow);
-                var body = sheet.Cells[headerRow, 1, lastRow, totalCols];
+                var body = sheet.Range(headerRow, 1, lastRow, totalCols);
                 Grid(body);
-                body.Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
-                body.Style.VerticalAlignment = ExcelVerticalAlignment.Center;
+                body.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                body.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
                 if (row - 1 >= headerRow + 1)
-                    sheet.Cells[headerRow + 1, 4, lastRow, 4].Style.HorizontalAlignment = ExcelHorizontalAlignment.Left;
+                    sheet.Range(headerRow + 1, 4, lastRow, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
 
-                sheet.View.FreezePanes(headerRow + 1, leading + 1);
-                sheet.Column(1).Width = 5;
-                sheet.Column(2).Width = 12;
-                sheet.Column(3).Width = 10;
-                sheet.Column(4).Width = 38;
-                for (var i = 0; i < columns.Count; i++) sheet.Column(leading + 1 + i).Width = 20;
-                sheet.Column(totalCols).Width = 9;
+                sheet.SheetView.Freeze(headerRow, leading);
+                ExamAPI.Services.Report.ExcelStyles.SetWidth(sheet.Column(1), 5);
+                ExamAPI.Services.Report.ExcelStyles.SetWidth(sheet.Column(2), 12);
+                ExamAPI.Services.Report.ExcelStyles.SetWidth(sheet.Column(3), 10);
+                ExamAPI.Services.Report.ExcelStyles.SetWidth(sheet.Column(4), 38);
+                for (var i = 0; i < columns.Count; i++) ExamAPI.Services.Report.ExcelStyles.SetWidth(sheet.Column(leading + 1 + i), 20);
+                ExamAPI.Services.Report.ExcelStyles.SetWidth(sheet.Column(totalCols), 9);
                 AddBanner(sheet, totalCols, titleColor, branding);
                 ApplyPrintSetup(sheet, headerRow);
             }
 
             var fileName = $"{Sanitize(examName)} {(seatNoOnly ? "Seat No" : "ALL")}.xlsx";
-            return (package.GetAsByteArray(), fileName);
+            return (ExamAPI.Services.Report.ExcelStyles.ToBytes(workbook), fileName);
         }
 
-        private static void ApplyPrintSetup(ExcelWorksheet sheet, int headerRow)
+        private static void ApplyPrintSetup(IXLWorksheet sheet, int headerRow)
         {
-            var ps = sheet.PrinterSettings;
-            ps.Orientation = eOrientation.Landscape;
-            ps.PaperSize = ePaperSize.A4;
-            ps.FitToPage = true;
-            ps.FitToWidth = 1;
-            ps.FitToHeight = 0;
-            ps.RepeatRows = sheet.Cells[$"{headerRow}:{headerRow}"];
+            var ps = sheet.PageSetup;
+            ps.PageOrientation = XLPageOrientation.Landscape;
+            ps.PaperSize = XLPaperSize.A4Paper;
+            ps.FitToPages(1, 0);
+            ps.SetRowsToRepeatAtTop(headerRow, headerRow);
         }
 
         // Rows 1-3 carry the title block: row 1 is the college banner (or, without one, the college
@@ -1320,7 +1312,7 @@ namespace ExamAPI.Services.AtktRevalExam
         // row 4. With a banner the picture is added by AddBanner once the column widths are known
         // and the name text is not printed; otherwise the logo floats top-left and the text is
         // merged from textStartCol onward to keep clear of it.
-        private static void WriteTitle(ExcelWorksheet sheet, int totalCols, string course, string subtitle, Color titleColor, ExamAPI.Services.Report.CollegeBrandingInfo? branding = null, int textStartCol = 1)
+        private static void WriteTitle(IXLWorksheet sheet, int totalCols, string course, string subtitle, XLColor titleColor, ExamAPI.Services.Report.CollegeBrandingInfo? branding = null, int textStartCol = 1)
         {
             var hasBanner = branding?.HasBanner == true;
             var hasLogo = !hasBanner && branding?.Logo is { Length: > 0 };
@@ -1336,14 +1328,14 @@ namespace ExamAPI.Services.AtktRevalExam
             {
                 var row = i + 1;
                 var rowStartCol = hasBanner && i == 0 ? 1 : startCol;
-                sheet.Cells[row, rowStartCol, row, totalCols].Merge = true;
-                var cell = sheet.Cells[row, rowStartCol];
-                cell.Value = lines[i].Text.Length == 0 ? null : lines[i].Text;
+                sheet.Range(row, rowStartCol, row, totalCols).Merge();
+                var cell = sheet.Cell(row, rowStartCol);
+                cell.Value = lines[i].Text.Length == 0 ? Blank.Value : lines[i].Text;
                 cell.Style.Font.Bold = true;
-                cell.Style.Font.Size = lines[i].Size;
-                cell.Style.Font.Color.SetColor(titleColor);
-                cell.Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
-                cell.Style.VerticalAlignment = ExcelVerticalAlignment.Center;
+                cell.Style.Font.FontSize = lines[i].Size;
+                cell.Style.Font.FontColor = titleColor;
+                cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                cell.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
                 sheet.Row(row).Height = lines[i].Height;
             }
 
@@ -1355,35 +1347,33 @@ namespace ExamAPI.Services.AtktRevalExam
         /// Draws the banner over row 1 of the title block once the column widths are final. If the
         /// picture cannot be embedded the college name is printed there instead, so row 1 is never empty.
         /// </summary>
-        private static void AddBanner(ExcelWorksheet sheet, int totalCols, Color titleColor, ExamAPI.Services.Report.CollegeBrandingInfo? branding)
+        private static void AddBanner(IXLWorksheet sheet, int totalCols, XLColor titleColor, ExamAPI.Services.Report.CollegeBrandingInfo? branding)
         {
             if (branding?.HasBanner != true) return;
             if (ExamAPI.Services.Report.ExcelBranding.TryAddBanner(sheet, branding.Banner, 1, totalCols, 1) > 0) return;
 
-            var cell = sheet.Cells[1, 1];
+            var cell = sheet.Cell(1, 1);
             cell.Value = branding.Name;
             cell.Style.Font.Bold = true;
-            cell.Style.Font.Size = 14;
-            cell.Style.Font.Color.SetColor(titleColor);
-            cell.Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
-            cell.Style.VerticalAlignment = ExcelVerticalAlignment.Center;
+            cell.Style.Font.FontSize = 14;
+            cell.Style.Font.FontColor = titleColor;
+            cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            cell.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
             sheet.Row(1).Height = 22;
         }
 
-        private static void StyleHeader(ExcelRange range, Color fill)
+        private static void StyleHeader(IXLRange range, XLColor fill)
         {
             range.Style.Font.Bold = true;
-            range.Style.WrapText = true;
-            range.Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
-            range.Style.VerticalAlignment = ExcelVerticalAlignment.Center;
-            range.Style.Fill.PatternType = ExcelFillStyle.Solid;
-            range.Style.Fill.BackgroundColor.SetColor(fill);
+            range.Style.Alignment.WrapText = true;
+            range.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            range.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+            range.Style.Fill.BackgroundColor = fill;
         }
 
-        private static void Grid(ExcelRange range)
+        private static void Grid(IXLRange range)
         {
-            var b = range.Style.Border;
-            b.Top.Style = b.Bottom.Style = b.Left.Style = b.Right.Style = ExcelBorderStyle.Thin;
+            ExamAPI.Services.Report.ExcelStyles.ThinBorders(range.Style);
         }
 
         private static string Sanitize(string name)

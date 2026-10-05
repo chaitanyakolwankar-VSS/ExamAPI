@@ -7,7 +7,7 @@ using ExamAPI.Services.Report.Documents;
 using ExamAPI.Services.Result;
 using Humanizer;
 using Microsoft.EntityFrameworkCore;
-using OfficeOpenXml;
+using ClosedXML.Excel;
 using QuestPDF.Fluent;
 
 namespace ExamAPI.Services.Report
@@ -321,11 +321,10 @@ namespace ExamAPI.Services.Report
             var reportDto = await GetGazetteDataAsync(request, collegeId);
             await RecordGazetteAsync(request, collegeId);
 
-            ExcelPackage.License.SetNonCommercialPersonal("ReactApi Project");
-            using var package = new ExcelPackage();
-            var worksheet = package.Workbook.Worksheets.Add("Gazette");
-            worksheet.Cells.Style.Font.Name = "Arial";
-            worksheet.Cells.Style.Font.Size = 8;
+            using var workbook = ExcelStyles.NewWorkbook();
+            var worksheet = workbook.Worksheets.Add("Gazette");
+            worksheet.Style.Font.FontName = "Arial";
+            worksheet.Style.Font.FontSize = 8;
 
             var studentsPerPage = Math.Clamp(request.StudentsPerPage, 1, 4);
             var subjectsPerRow = Math.Clamp(request.SubjectsPerRow, 1, 6);
@@ -333,18 +332,17 @@ namespace ExamAPI.Services.Report
 
             int totalColumns = 1 + subjectsPerRow + 3 + (reportDto.ShowCgpi ? 1 : 0) + 1;
 
-            worksheet.PrinterSettings.Orientation = eOrientation.Landscape;
-            worksheet.PrinterSettings.PaperSize = ePaperSize.A4; // Match PDF A4 Landscape
-            worksheet.PrinterSettings.LeftMargin = 0.2;
-            worksheet.PrinterSettings.RightMargin = 0.2;
-            worksheet.PrinterSettings.TopMargin = 0.2;
-            worksheet.PrinterSettings.BottomMargin = 0.2;
-            worksheet.PrinterSettings.HeaderMargin = 0.0;
-            worksheet.PrinterSettings.FooterMargin = 0.0;
-            worksheet.PrinterSettings.FitToPage = true;
-            worksheet.PrinterSettings.FitToWidth = 1;
-            worksheet.PrinterSettings.FitToHeight = 0;
-            worksheet.PrinterSettings.RepeatRows = new ExcelAddress("1:5"); // Rows 1 to 5 repeat on every printed page
+            var page = worksheet.PageSetup;
+            page.PageOrientation = XLPageOrientation.Landscape;
+            page.PaperSize = XLPaperSize.A4Paper; // Match PDF A4 Landscape
+            page.Margins.Left = 0.2;
+            page.Margins.Right = 0.2;
+            page.Margins.Top = 0.2;
+            page.Margins.Bottom = 0.2;
+            page.Margins.Header = 0.0;
+            page.Margins.Footer = 0.0;
+            page.FitToPages(1, 0);
+            page.SetRowsToRepeatAtTop(1, 5); // Rows 1 to 5 repeat on every printed page
 
             int currentRow = 1;
 
@@ -352,70 +350,64 @@ namespace ExamAPI.Services.Report
             // or, without one, the college name with the logo at its left. Row 1 in both cases, so
             // every row index that follows is the same whichever header is printed.
             int brandingRow = currentRow;
-            worksheet.Cells[brandingRow, 1, brandingRow, totalColumns].Merge = true;
+            worksheet.Range(brandingRow, 1, brandingRow, totalColumns).Merge();
             currentRow++;
 
             // Header: Program & Date
             int halfCols = Math.Max(totalColumns / 2, 1);
-            worksheet.Cells[currentRow, 1, currentRow, halfCols].Merge = true;
-            worksheet.Cells[currentRow, 1].Value = $"Program Name: {reportDto.ProgramName}";
-            worksheet.Cells[currentRow, 1].Style.Font.Bold = true;
-            worksheet.Cells[currentRow, 1].Style.Font.Size = 12;
+            worksheet.Range(currentRow, 1, currentRow, halfCols).Merge();
+            worksheet.Cell(currentRow, 1).Value = $"Program Name: {reportDto.ProgramName}";
+            worksheet.Cell(currentRow, 1).Style.Font.Bold = true;
+            worksheet.Cell(currentRow, 1).Style.Font.FontSize = 12;
 
-            worksheet.Cells[currentRow, halfCols + 1, currentRow, totalColumns].Merge = true;
-            worksheet.Cells[currentRow, halfCols + 1].Value = $"Result Date : {reportDto.ResultDate:dd/MM/yyyy}";
-            worksheet.Cells[currentRow, halfCols + 1].Style.Font.Bold = true;
-            worksheet.Cells[currentRow, halfCols + 1].Style.Font.Size = 12;
-            worksheet.Cells[currentRow, halfCols + 1].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Right;
+            worksheet.Range(currentRow, halfCols + 1, currentRow, totalColumns).Merge();
+            worksheet.Cell(currentRow, halfCols + 1).Value = $"Result Date : {reportDto.ResultDate:dd/MM/yyyy}";
+            worksheet.Cell(currentRow, halfCols + 1).Style.Font.Bold = true;
+            worksheet.Cell(currentRow, halfCols + 1).Style.Font.FontSize = 12;
+            worksheet.Cell(currentRow, halfCols + 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
             currentRow++;
 
             // Header: Semester & Exam
-            worksheet.Cells[currentRow, 1, currentRow, halfCols].Merge = true;
-            worksheet.Cells[currentRow, 1].Value = $"{reportDto.Semester}";
-            worksheet.Cells[currentRow, 1].Style.Font.Bold = true;
-            worksheet.Cells[currentRow, 1].Style.Font.Size = 12;
+            worksheet.Range(currentRow, 1, currentRow, halfCols).Merge();
+            worksheet.Cell(currentRow, 1).Value = $"{reportDto.Semester}";
+            worksheet.Cell(currentRow, 1).Style.Font.Bold = true;
+            worksheet.Cell(currentRow, 1).Style.Font.FontSize = 12;
 
-            worksheet.Cells[currentRow, halfCols + 1, currentRow, totalColumns].Merge = true;
-            worksheet.Cells[currentRow, halfCols + 1].Value = $"Exam: {reportDto.ExamName}";
-            worksheet.Cells[currentRow, halfCols + 1].Style.Font.Bold = true;
-            worksheet.Cells[currentRow, halfCols + 1].Style.Font.Size = 12;
-            worksheet.Cells[currentRow, halfCols + 1].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Right;
+            worksheet.Range(currentRow, halfCols + 1, currentRow, totalColumns).Merge();
+            worksheet.Cell(currentRow, halfCols + 1).Value = $"Exam: {reportDto.ExamName}";
+            worksheet.Cell(currentRow, halfCols + 1).Style.Font.Bold = true;
+            worksheet.Cell(currentRow, halfCols + 1).Style.Font.FontSize = 12;
+            worksheet.Cell(currentRow, halfCols + 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
             currentRow++;
 
             currentRow++; // Empty row
 
             int headerRow = currentRow;
             // Add Table Headers
-            worksheet.Cells[headerRow, 1].Value = "Student Details";
+            worksheet.Cell(headerRow, 1).Value = "Student Details";
             for (int i = 0; i < subjectsPerRow; i++)
             {
-                worksheet.Cells[headerRow, 2 + i].Value = "SubCode\nHead types\nMin/Max";
+                worksheet.Cell(headerRow, 2 + i).Value = "SubCode\nHead types\nMin/Max";
             }
             int col = 2 + subjectsPerRow;
-            worksheet.Cells[headerRow, col++].Value = "Obt/Tot";
-            worksheet.Cells[headerRow, col++].Value = "CG\nCE";
-            worksheet.Cells[headerRow, col++].Value = "SGPA";
+            worksheet.Cell(headerRow, col++).Value = "Obt/Tot";
+            worksheet.Cell(headerRow, col++).Value = "CG\nCE";
+            worksheet.Cell(headerRow, col++).Value = "SGPA";
             if (reportDto.ShowCgpi)
             {
-                worksheet.Cells[headerRow, col++].Value = "CGPI";
+                worksheet.Cell(headerRow, col++).Value = "CGPI";
             }
-            worksheet.Cells[headerRow, col].Value = "Remark";
+            worksheet.Cell(headerRow, col).Value = "Remark";
 
             worksheet.Row(headerRow).Height = 45;
 
-            using (var range = worksheet.Cells[headerRow, 1, headerRow, totalColumns])
-            {
-                range.Style.Font.Bold = true;
-                range.Style.WrapText = true;
-                range.Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Center;
-                range.Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
-                range.Style.Border.Top.Style = OfficeOpenXml.Style.ExcelBorderStyle.Thin;
-                range.Style.Border.Bottom.Style = OfficeOpenXml.Style.ExcelBorderStyle.Thin;
-                range.Style.Border.Left.Style = OfficeOpenXml.Style.ExcelBorderStyle.Thin;
-                range.Style.Border.Right.Style = OfficeOpenXml.Style.ExcelBorderStyle.Thin;
-                range.Style.Fill.PatternType = OfficeOpenXml.Style.ExcelFillStyle.Solid;
-                range.Style.Fill.BackgroundColor.SetColor(System.Drawing.Color.LightGray);
-            }
+            var header = worksheet.Range(headerRow, 1, headerRow, totalColumns).Style;
+            header.Font.Bold = true;
+            header.Alignment.WrapText = true;
+            header.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+            header.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ExcelStyles.ThinBorders(header);
+            header.Fill.BackgroundColor = XLColor.FromColor(System.Drawing.Color.LightGray);
 
             string FormatNumber(double value)
             {
@@ -459,14 +451,14 @@ namespace ExamAPI.Services.Report
 
                         if (isFirstRow)
                         {
-                            worksheet.Cells[startRow, 1].Value = $"{student.StudentName}\nSeat No: {student.SeatNo}\nPRN: {student.PRN}";
+                            worksheet.Cell(startRow, 1).Value = $"{student.StudentName}\nSeat No: {student.SeatNo}\nPRN: {student.PRN}";
 
                             int trailingCol = 2 + subjectsPerRow;
-                            worksheet.Cells[startRow, trailingCol++].Value = $"{FormatNumber(student.TotalObtained)}/{FormatNumber(student.TotalMax)}";
-                            worksheet.Cells[startRow, trailingCol++].Value = $"{FormatNumber(student.CumulativeGrade ?? 0)} / {FormatNumber(student.CreditsEarned)}";
-                            worksheet.Cells[startRow, trailingCol++].Value = sgpi;
-                            if (reportDto.ShowCgpi) worksheet.Cells[startRow, trailingCol++].Value = cgpi;
-                            worksheet.Cells[startRow, trailingCol].Value = displayRemark;
+                            worksheet.Cell(startRow, trailingCol++).Value = $"{FormatNumber(student.TotalObtained)}/{FormatNumber(student.TotalMax)}";
+                            worksheet.Cell(startRow, trailingCol++).Value = $"{FormatNumber(student.CumulativeGrade ?? 0)} / {FormatNumber(student.CreditsEarned)}";
+                            worksheet.Cell(startRow, trailingCol++).Value = sgpi;
+                            if (reportDto.ShowCgpi) worksheet.Cell(startRow, trailingCol++).Value = cgpi;
+                            worksheet.Cell(startRow, trailingCol).Value = displayRemark;
                         }
 
                         for (int i = 0; i < subjectRow.Length; i++)
@@ -481,7 +473,7 @@ namespace ExamAPI.Services.Report
                             subLines.Add($"C: {FormatNumber(sub.Credits)}  G: {sub.Grade}{sub.Grace}");
                             subLines.Add($"GP: {FormatNumber(sub.GradePoint)}  CG: {FormatNumber(sub.EarnedGradePoints)}");
 
-                            worksheet.Cells[currentRow, 2 + i].Value = string.Join("\n", subLines);
+                            worksheet.Cell(currentRow, 2 + i).Value = string.Join("\n", subLines);
                         }
 
                         currentRow++;
@@ -489,85 +481,80 @@ namespace ExamAPI.Services.Report
 
                     if (rowSpan > 1)
                     {
-                        worksheet.Cells[startRow, 1, startRow + rowSpan - 1, 1].Merge = true;
+                        worksheet.Range(startRow, 1, startRow + rowSpan - 1, 1).Merge();
 
                         int trailingCol = 2 + subjectsPerRow;
                         for (int i = 0; i < (totalColumns - 1 - subjectsPerRow); i++)
                         {
-                            worksheet.Cells[startRow, trailingCol + i, startRow + rowSpan - 1, trailingCol + i].Merge = true;
+                            worksheet.Range(startRow, trailingCol + i, startRow + rowSpan - 1, trailingCol + i).Merge();
                         }
                     }
 
-                    using (var range = worksheet.Cells[startRow, 1, startRow + rowSpan - 1, totalColumns])
-                    {
-                        range.Style.WrapText = true;
-                        range.Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Top;
-                        range.Style.Border.Top.Style = OfficeOpenXml.Style.ExcelBorderStyle.Thin;
-                        range.Style.Border.Bottom.Style = OfficeOpenXml.Style.ExcelBorderStyle.Thin;
-                        range.Style.Border.Left.Style = OfficeOpenXml.Style.ExcelBorderStyle.Thin;
-                        range.Style.Border.Right.Style = OfficeOpenXml.Style.ExcelBorderStyle.Thin;
+                    var block = worksheet.Range(startRow, 1, startRow + rowSpan - 1, totalColumns).Style;
+                    block.Alignment.WrapText = true;
+                    block.Alignment.Vertical = XLAlignmentVerticalValues.Top;
+                    ExcelStyles.ThinBorders(block);
 
-                        // Center align horizontally for subject columns and trailing columns
-                        worksheet.Cells[startRow, 2, startRow + rowSpan - 1, totalColumns].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
-                    }
+                    // Center align horizontally for subject columns and trailing columns
+                    worksheet.Range(startRow, 2, startRow + rowSpan - 1, totalColumns).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
                     // Keep Student Details and the Trailing summary columns vertically centered
-                    worksheet.Cells[startRow, 1, startRow + rowSpan - 1, 1].Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Center;
-                    worksheet.Cells[startRow, 2 + subjectsPerRow, startRow + rowSpan - 1, totalColumns].Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Center;
+                    worksheet.Range(startRow, 1, startRow + rowSpan - 1, 1).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+                    worksheet.Range(startRow, 2 + subjectsPerRow, startRow + rowSpan - 1, totalColumns).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
                 }
 
                 // Add legends at the end of each page chunk
                 currentRow++;
                 var subjectText = string.Join("  |  ", distinctSubjects.Select(s => $"{s.SubjectCode}: {s.SubjectName ?? "-"}"));
-                worksheet.Cells[currentRow, 1, currentRow, totalColumns].Merge = true;
-                worksheet.Cells[currentRow, 1].Value = "Subjects: " + subjectText;
-                worksheet.Cells[currentRow, 1].Style.WrapText = true;
-                worksheet.Cells[currentRow, 1].Style.Font.Size = 8;
+                worksheet.Range(currentRow, 1, currentRow, totalColumns).Merge();
+                worksheet.Cell(currentRow, 1).Value = "Subjects: " + subjectText;
+                worksheet.Cell(currentRow, 1).Style.Alignment.WrapText = true;
+                worksheet.Cell(currentRow, 1).Style.Font.FontSize = 8;
                 // Merged cells are not autofitted by Excel: size the row to the wrapped text (about 170 characters per line).
                 worksheet.Row(currentRow).Height = Math.Max(1, (int)Math.Ceiling(("Subjects: " + subjectText).Length / 170.0)) * 11 + 3;
                 currentRow++;
 
                 var abbrText = "C: Credits  |  G: Grade  |  GP: Grade Point  |  CG: Credits * Grade Point  |  CE: Credits Earned  |  SGPA: Semester Grade Point Average  |  CGPI: Cumulative Grade Point Index  |  --: Not Applicable  |  F: Fail  |  AB: Absent";
-                worksheet.Cells[currentRow, 1, currentRow, totalColumns].Merge = true;
-                worksheet.Cells[currentRow, 1].Value = "Abbreviations: " + abbrText;
-                worksheet.Cells[currentRow, 1].Style.WrapText = true;
-                worksheet.Cells[currentRow, 1].Style.Font.Size = 8;
+                worksheet.Range(currentRow, 1, currentRow, totalColumns).Merge();
+                worksheet.Cell(currentRow, 1).Value = "Abbreviations: " + abbrText;
+                worksheet.Cell(currentRow, 1).Style.Alignment.WrapText = true;
+                worksheet.Cell(currentRow, 1).Style.Font.FontSize = 8;
                 worksheet.Row(currentRow).Height = Math.Max(1, (int)Math.Ceiling(("Abbreviations: " + abbrText).Length / 170.0)) * 11 + 3;
                 currentRow++;
 
                 if (chunk != studentChunks.Last())
                 {
-                    worksheet.Row(currentRow - 1).PageBreak = true;
+                    page.AddHorizontalPageBreak(currentRow - 1);
                 }
             }
 
             // Adjust column widths explicitly
-            worksheet.Column(1).Width = 24; // Student Details
+            ExcelStyles.SetWidth(worksheet.Column(1), 24); // Student Details
             for (int i = 0; i < subjectsPerRow; i++)
             {
-                worksheet.Column(2 + i).Width = 14; // Subjects
+                ExcelStyles.SetWidth(worksheet.Column(2 + i), 14); // Subjects
             }
             int c = 2 + subjectsPerRow;
-            worksheet.Column(c++).Width = 9; // Obt/Tot
-            worksheet.Column(c++).Width = 9; // CG/CE
-            worksheet.Column(c++).Width = 8; // SGPA
-            if (reportDto.ShowCgpi) worksheet.Column(c++).Width = 8; // CGPI
-            worksheet.Column(c).Width = 12; // Remark
+            ExcelStyles.SetWidth(worksheet.Column(c++), 9); // Obt/Tot
+            ExcelStyles.SetWidth(worksheet.Column(c++), 9); // CG/CE
+            ExcelStyles.SetWidth(worksheet.Column(c++), 8); // SGPA
+            if (reportDto.ShowCgpi) ExcelStyles.SetWidth(worksheet.Column(c++), 8); // CGPI
+            ExcelStyles.SetWidth(worksheet.Column(c), 12); // Remark
 
             // Banner (full-width header, replaces the name text) -> logo + name -> name only.
             if (ExcelBranding.TryAddBanner(worksheet, reportDto.CollegeBanner, brandingRow, totalColumns, 1) == 0)
             {
-                worksheet.Cells[brandingRow, 1].Value = reportDto.CollegeName;
-                worksheet.Cells[brandingRow, 1].Style.Font.Bold = true;
-                worksheet.Cells[brandingRow, 1].Style.Font.Size = 18;
-                worksheet.Cells[brandingRow, 1].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
-                worksheet.Cells[brandingRow, 1].Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Center;
+                worksheet.Cell(brandingRow, 1).Value = reportDto.CollegeName;
+                worksheet.Cell(brandingRow, 1).Style.Font.Bold = true;
+                worksheet.Cell(brandingRow, 1).Style.Font.FontSize = 18;
+                worksheet.Cell(brandingRow, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                worksheet.Cell(brandingRow, 1).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
                 // College logo (College Details) floats at the left of the name row; no cell moves.
                 // An explicit height: Excel does not autofit merged cells, so the 18pt name would be clipped in a default 15pt row.
                 worksheet.Row(brandingRow).Height = ExcelBranding.TryAddLogo(worksheet, reportDto.CollegeLogo, brandingRow, 1, 96, 40) ? 32 : 26;
             }
 
-            return await package.GetAsByteArrayAsync();
+            return ExcelStyles.ToBytes(workbook);
         }
 
         public async Task<byte[]> GenerateMarksheetPdfAsync(Guid studId, Guid examId, string semId, string pattern, bool includeHistory, DateTime? resultDate, Guid collegeId, bool noRleForFail = false)

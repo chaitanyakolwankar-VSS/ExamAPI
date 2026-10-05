@@ -8,7 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using Moq;
 using ExamAPI.DTOs;
 using ExamAPI.Services.Report.Documents;
-using OfficeOpenXml;
+using ClosedXML.Excel;
 using QuestPDF.Fluent;
 
 namespace ExamAPI.Tests;
@@ -170,45 +170,48 @@ public sealed class CollegeBrandingTests : IDisposable
     [Fact]
     public void Excel_logo_is_a_floating_picture_that_moves_no_cells()
     {
-        ExcelPackage.License.SetNonCommercialPersonal("ReactApi Project");
-        using var package = new ExcelPackage();
-        var sheet = package.Workbook.Worksheets.Add("S");
-        sheet.Cells[1, 1].Value = "College";
-        sheet.Cells[8, 3].Value = "row8col3";
-        sheet.Cells[8, 9].Value = "row8col9";
+        using var workbook = new XLWorkbook();
+        var sheet = workbook.Worksheets.Add("S");
+        sheet.Cell(1, 1).Value = "College";
+        sheet.Cell(8, 3).Value = "row8col3";
+        sheet.Cell(8, 9).Value = "row8col9";
 
         Assert.True(ExcelBranding.TryAddLogo(sheet, UploadsTests.Png, 1, 1, 96, 44));
-        Assert.Single(sheet.Drawings);
-        Assert.Equal("College", sheet.Cells[1, 1].Text);
-        Assert.Equal("row8col3", sheet.Cells[8, 3].Text);
-        Assert.Equal("row8col9", sheet.Cells[8, 9].Text);
+        Assert.Single(sheet.Pictures);
+        Assert.Equal("College", sheet.Cell(1, 1).GetText());
+        Assert.Equal("row8col3", sheet.Cell(8, 3).GetText());
+        Assert.Equal("row8col9", sheet.Cell(8, 9).GetText());
 
         // No logo / garbage: nothing added, no exception.
         Assert.False(ExcelBranding.TryAddLogo(sheet, null));
         Assert.False(ExcelBranding.TryAddLogo(sheet, new byte[] { 1, 2, 3 }));
-        Assert.Single(sheet.Drawings);
+        Assert.Single(sheet.Pictures);
+
+        // The file opens again (picture names within Excel's 31-character limit).
+        using var stream = new MemoryStream(ExcelStyles.ToBytes(workbook));
+        using var reopened = new XLWorkbook(stream);
+        Assert.Single(reopened.Worksheet(1).Pictures);
     }
 
     [Fact]
     public void Excel_banner_reserves_its_rows_and_moves_no_cells()
     {
-        ExcelPackage.License.SetNonCommercialPersonal("ReactApi Project");
-        using var package = new ExcelPackage();
-        var sheet = package.Workbook.Worksheets.Add("S");
+        using var workbook = new XLWorkbook();
+        var sheet = workbook.Worksheets.Add("S");
         for (var c = 1; c <= 6; c++) sheet.Column(c).Width = 20;
-        sheet.Cells[4, 1].Value = "table header";
+        sheet.Cell(4, 1).Value = "table header";
 
         var rows = ExcelBranding.TryAddBanner(sheet, UploadsTests.Png, 1, 6, 2);
 
         Assert.Equal(2, rows);
-        Assert.Single(sheet.Drawings);
+        Assert.Single(sheet.Pictures);
         Assert.True(sheet.Row(1).Height > 15);
-        Assert.Equal("table header", sheet.Cells[4, 1].Text);
+        Assert.Equal("table header", sheet.Cell(4, 1).GetText());
 
         // No banner / garbage: nothing added and 0 rows reserved, so callers print the text header.
         Assert.Equal(0, ExcelBranding.TryAddBanner(sheet, null, 1, 6));
         Assert.Equal(0, ExcelBranding.TryAddBanner(sheet, new byte[] { 1, 2, 3 }, 1, 6));
-        Assert.Single(sheet.Drawings);
+        Assert.Single(sheet.Pictures);
     }
 
     [Fact]

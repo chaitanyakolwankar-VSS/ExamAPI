@@ -34,9 +34,10 @@ namespace ExamAPI.Services.Result.Engine
     {
         public static IServiceCollection AddOrdinanceEngine(this IServiceCollection services)
         {
-            // Register all FactProviders
+            // Register all FactProviders. Only this assembly is scanned: walking every loaded assembly
+            // throws ReflectionTypeLoadException as soon as one of them has a type that cannot load.
             var factProviderType = typeof(IFactProvider);
-            var factImplementations = AppDomain.CurrentDomain.GetAssemblies()
+            var factImplementations = new[] { typeof(IFactProvider).Assembly }
                 .SelectMany(s => s.GetTypes())
                 .Where(p => factProviderType.IsAssignableFrom(p) && !p.IsInterface && !p.IsAbstract);
 
@@ -47,7 +48,7 @@ namespace ExamAPI.Services.Result.Engine
 
             // Register all ActionHandlers
             var actionHandlerType = typeof(IActionHandler);
-            var actionImplementations = AppDomain.CurrentDomain.GetAssemblies()
+            var actionImplementations = new[] { typeof(IActionHandler).Assembly }
                 .SelectMany(s => s.GetTypes())
                 .Where(p => actionHandlerType.IsAssignableFrom(p) && !p.IsInterface && !p.IsAbstract);
 

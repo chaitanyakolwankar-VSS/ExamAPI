@@ -13,8 +13,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using OfficeOpenXml;
-using OfficeOpenXml.Style;
+using ClosedXML.Excel;
 
 namespace ExamAPI.Services.Result
 {
@@ -626,35 +625,22 @@ namespace ExamAPI.Services.Result
                 .Select(g => new { Subject = g.Key, Heads = g.ToList() })
                 .ToList();
 
-            ExcelPackage.License.SetNonCommercialPersonal("ReactApi Project");
-            using (var package = new ExcelPackage())
+            using (var workbook = ExamAPI.Services.Report.ExcelStyles.NewWorkbook())
             {
-                var ws = package.Workbook.Worksheets.Add("Results");
-                ws.View.ShowGridLines = true;
+                var ws = workbook.Worksheets.Add("Results");
+                ExamAPI.Services.Report.ExcelStyles.NormalMargins(ws);
+                ws.ShowGridLines = true;
 
-                // Border styles
-                var thinBorder = ExcelBorderStyle.Thin;
-                var borderColor = System.Drawing.Color.Gray;
-
-                // Helper to apply border to a cell or range
-                Action<ExcelRange> applyBorders = (range) => {
-                    range.Style.Border.Top.Style = thinBorder;
-                    range.Style.Border.Bottom.Style = thinBorder;
-                    range.Style.Border.Left.Style = thinBorder;
-                    range.Style.Border.Right.Style = thinBorder;
-                    range.Style.Border.Top.Color.SetColor(borderColor);
-                    range.Style.Border.Bottom.Color.SetColor(borderColor);
-                    range.Style.Border.Left.Color.SetColor(borderColor);
-                    range.Style.Border.Right.Color.SetColor(borderColor);
-                };
+                // Thin grey borders on every header and data cell
+                var borderColor = XLColor.FromColor(System.Drawing.Color.Gray);
 
                 // Base headers
-                ws.Cells["A1:A2"].Merge = true;
-                ws.Cells["A1"].Value = "Seat No";
-                ws.Cells["B1:B2"].Merge = true;
-                ws.Cells["B1"].Value = "Student ID";
-                ws.Cells["C1:C2"].Merge = true;
-                ws.Cells["C1"].Value = "Student Name";
+                ws.Range("A1:A2").Merge();
+                ws.Cell("A1").Value = "Seat No";
+                ws.Range("B1:B2").Merge();
+                ws.Cell("B1").Value = "Student ID";
+                ws.Range("C1:C2").Merge();
+                ws.Cell("C1").Value = "Student Name";
 
                 int col = 4;
                 foreach (var group in subjectsGrouped)
@@ -664,111 +650,94 @@ namespace ExamAPI.Services.Result
 
                     if (startCol == endCol)
                     {
-                        ws.Cells[1, startCol].Value = group.Subject;
+                        ws.Cell(1, startCol).Value = group.Subject;
                     }
                     else
                     {
-                        ws.Cells[1, startCol, 1, endCol].Merge = true;
-                        ws.Cells[1, startCol].Value = group.Subject;
+                        ws.Range(1, startCol, 1, endCol).Merge();
+                        ws.Cell(1, startCol).Value = group.Subject;
                     }
 
                     for (int i = 0; i < group.Heads.Count; i++)
                     {
-                        ws.Cells[2, col + i].Value = string.IsNullOrEmpty(group.Heads[i].Head) ? "-" : group.Heads[i].Head;
+                        ws.Cell(2, col + i).Value = string.IsNullOrEmpty(group.Heads[i].Head) ? "-" : group.Heads[i].Head;
                     }
                     col += group.Heads.Count;
                 }
 
                 // Footer headers
-                ws.Cells[1, col, 2, col].Merge = true;
-                ws.Cells[1, col].Value = "Total";
+                ws.Range(1, col, 2, col).Merge();
+                ws.Cell(1, col).Value = "Total";
 
-                ws.Cells[1, col + 1, 2, col + 1].Merge = true;
-                ws.Cells[1, col + 1].Value = "%";
+                ws.Range(1, col + 1, 2, col + 1).Merge();
+                ws.Cell(1, col + 1).Value = "%";
 
-                ws.Cells[1, col + 2, 2, col + 2].Merge = true;
-                ws.Cells[1, col + 2].Value = "SGPI";
+                ws.Range(1, col + 2, 2, col + 2).Merge();
+                ws.Cell(1, col + 2).Value = "SGPI";
 
-                ws.Cells[1, col + 3, 2, col + 3].Merge = true;
-                ws.Cells[1, col + 3].Value = "CGPI";
+                ws.Range(1, col + 3, 2, col + 3).Merge();
+                ws.Cell(1, col + 3).Value = "CGPI";
 
-                ws.Cells[1, col + 4, 2, col + 4].Merge = true;
-                ws.Cells[1, col + 4].Value = "Result";
+                ws.Range(1, col + 4, 2, col + 4).Merge();
+                ws.Cell(1, col + 4).Value = "Result";
 
-                ws.Cells[1, col + 5, 2, col + 5].Merge = true;
-                ws.Cells[1, col + 5].Value = "Remarks";
+                ws.Range(1, col + 5, 2, col + 5).Merge();
+                ws.Cell(1, col + 5).Value = "Remarks";
 
                 int totalCols = col + 5;
 
                 // Style the header cells (bold, centered, with borders, no fill colors)
-                var headerRange = ws.Cells[1, 1, 2, totalCols];
+                var headerRange = ws.Range(1, 1, 2, totalCols);
                 headerRange.Style.Font.Bold = true;
-                headerRange.Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
-                headerRange.Style.VerticalAlignment = ExcelVerticalAlignment.Center;
-
-                // Set borders for all header cells individually
-                for (int r = 1; r <= 2; r++)
-                {
-                    for (int c = 1; c <= totalCols; c++)
-                    {
-                        applyBorders(ws.Cells[r, c]);
-                    }
-                }
+                headerRange.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                headerRange.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+                ExamAPI.Services.Report.ExcelStyles.ThinBorders(headerRange.Style, borderColor);
 
                 // Write rows
                 int rowIdx = 3;
                 foreach (var r in results)
                 {
-                    ws.Cells[rowIdx, 1].Value = r.SeatNo;
-                    ws.Cells[rowIdx, 2].Value = r.StudentId;
-                    ws.Cells[rowIdx, 3].Value = r.StudentName;
-                    ws.Cells[rowIdx, 3].Style.HorizontalAlignment = ExcelHorizontalAlignment.Left;
+                    ws.Cell(rowIdx, 1).Value = r.SeatNo;
+                    ws.Cell(rowIdx, 2).Value = r.StudentId;
+                    ws.Cell(rowIdx, 3).Value = r.StudentName;
+                    ws.Cell(rowIdx, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
 
                     int cIdx = 4;
                     foreach (var sh in subjectHeads)
                     {
-                        ws.Cells[rowIdx, cIdx].Value = r.SubjectMarks.TryGetValue(sh.Key, out var val) ? val : "-";
-                        ws.Cells[rowIdx, cIdx].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
+                        ws.Cell(rowIdx, cIdx).Value = r.SubjectMarks.TryGetValue(sh.Key, out var val) ? val : "-";
+                        ws.Cell(rowIdx, cIdx).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
                         cIdx++;
                     }
 
-                    ws.Cells[rowIdx, cIdx].Value = r.TotalMarks;
-                    ws.Cells[rowIdx, cIdx + 1].Value = (double)(r.Percentage / 100.0m);
-                    ws.Cells[rowIdx, cIdx + 1].Style.Numberformat.Format = "0.00%";
-                    ws.Cells[rowIdx, cIdx + 2].Value = r.Sgpi;
-                    ws.Cells[rowIdx, cIdx + 3].Value = r.Cgpi;
-                    ws.Cells[rowIdx, cIdx + 4].Value = r.ResultStatus;
-                    ws.Cells[rowIdx, cIdx + 5].Value = r.Remarks;
+                    ws.Cell(rowIdx, cIdx).Value = r.TotalMarks;
+                    ws.Cell(rowIdx, cIdx + 1).Value = (double)(r.Percentage / 100.0m);
+                    ws.Cell(rowIdx, cIdx + 1).Style.NumberFormat.NumberFormatId = 10; // built-in 0.00%
+                    ws.Cell(rowIdx, cIdx + 2).Value = r.Sgpi;
+                    ws.Cell(rowIdx, cIdx + 3).Value = r.Cgpi;
+                    ws.Cell(rowIdx, cIdx + 4).Value = r.ResultStatus;
+                    ws.Cell(rowIdx, cIdx + 5).Value = r.Remarks;
 
                     // Apply horizontal alignment
-                    ws.Cells[rowIdx, 1].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
-                    ws.Cells[rowIdx, 2].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
-                    ws.Cells[rowIdx, cIdx].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
-                    ws.Cells[rowIdx, cIdx + 1].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
-                    ws.Cells[rowIdx, cIdx + 2].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
-                    ws.Cells[rowIdx, cIdx + 3].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
-                    ws.Cells[rowIdx, cIdx + 4].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
-                    ws.Cells[rowIdx, cIdx + 5].Style.HorizontalAlignment = ExcelHorizontalAlignment.Left;
+                    ws.Cell(rowIdx, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                    ws.Cell(rowIdx, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                    ws.Range(rowIdx, cIdx, rowIdx, cIdx + 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                    ws.Cell(rowIdx, cIdx + 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
 
                     // Apply borders
-                    for (int c = 1; c <= totalCols; c++)
-                    {
-                        applyBorders(ws.Cells[rowIdx, c]);
-                    }
+                    ExamAPI.Services.Report.ExcelStyles.ThinBorders(ws.Range(rowIdx, 1, rowIdx, totalCols).Style, borderColor);
 
                     rowIdx++;
                 }
 
-                // Autofit columns
-                ws.Cells[1, 1, rowIdx - 1, totalCols].AutoFitColumns();
-
-                // Add padding to column widths
+                // Autofit columns, then add padding to the widths
+                ExamAPI.Services.Report.ExcelStyles.AutoFit(ws, 1, totalCols, 1, rowIdx - 1);
                 for (int c = 1; c <= totalCols; c++)
                 {
-                    ws.Column(c).Width = ws.Column(c).Width + 3;
+                    ExamAPI.Services.Report.ExcelStyles.SetWidth(ws.Column(c), ExamAPI.Services.Report.ExcelStyles.StoredWidth(ws.Column(c)) + 3);
                 }
 
-                return package.GetAsByteArray();
+                return ExamAPI.Services.Report.ExcelStyles.ToBytes(workbook);
             }
         }
 

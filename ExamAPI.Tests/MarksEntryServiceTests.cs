@@ -10,7 +10,7 @@ using ExamAPI.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Http;
 using Moq;
-using OfficeOpenXml;
+using ClosedXML.Excel;
 using ExamAPI.DTOs;
 using ExamAPI.Services.Tenancy;
 
@@ -48,7 +48,6 @@ namespace ExamAPI.Tests
 
             _service = new MarksEntryService(_context);
 
-            ExcelPackage.License.SetNonCommercialPersonal("ReactApi Project");
             _currentCollegeId = _collegeId;
             _context.Exams.Add(new ExamMaster
             {
@@ -130,6 +129,40 @@ namespace ExamAPI.Tests
             Assert.False(result.Success);
             Assert.Contains("carried forward", result.Message);
             Assert.Equal(55, carried.RawMarks);
+        }
+
+        [Fact]
+        public async Task Exported_template_imports_back_with_typed_numbers_and_Ab()
+        {
+            var subject = AddSubject(PassingStrategies.HeadWise, null, ("H1", 100, 40));
+            var first = AddStudent("ST001", subject).Single();
+            var second = AddStudent("ST002", subject).Single();
+            await _context.SaveChangesAsync();
+
+            var template = await _service.ExportTemplateExcelAsync(new MarksEntryFilterRequest
+            {
+                BranchId = _courseId, SemId = Semester, Pattern = Pattern, ExamId = _examId, SubjectId = subject.SubjectId
+            }, _collegeId);
+
+            // Staff fill it in Excel: a typed number is a numeric cell, "Ab" is text.
+            byte[] filled;
+            using (var workbook = new XLWorkbook(new MemoryStream(template)))
+            {
+                var ws = workbook.Worksheet(1);
+                Assert.EndsWith("_ID", ws.Cell(6, 5).GetText());
+                Assert.True(ws.Column(5).IsHidden);
+                Assert.Single(ws.DataValidations);
+                var rowOf = (Guid id) => Enumerable.Range(7, 2).Single(r => ws.Cell(r, 5).GetText() == id.ToString());
+                ws.Cell(rowOf(first.Id), 4).Value = 42;
+                ws.Cell(rowOf(second.Id), 4).Value = "Ab";
+                filled = ExamAPI.Services.Report.ExcelStyles.ToBytes(workbook);
+            }
+
+            var result = await _service.ImportMarksExcelAsync(_examId, subject.SubjectId, filled, _collegeId);
+
+            Assert.True(result.Success, result.Message);
+            Assert.Equal(42, first.RawMarks);
+            Assert.True(second.IsAbsent);
         }
 
         [Fact]
@@ -415,17 +448,17 @@ namespace ExamAPI.Tests
         /// <summary>An Excel file in the import template format that sets every given head to 35.</summary>
         private static byte[] BuildTemplate(params StudentMarks[] heads)
         {
-            using var package = new ExcelPackage();
-            var ws = package.Workbook.Worksheets.Add("Marks");
-            ws.Cells[1, 1].Value = "Dummy"; // Ensure Dimension starts at 1,1
-            ws.Cells[6, 4].Value = "H1";
-            ws.Cells[6, 5].Value = "H1_ID";
+            using var workbook = new XLWorkbook();
+            var ws = workbook.Worksheets.Add("Marks");
+            ws.Cell(1, 1).Value = "Dummy";
+            ws.Cell(6, 4).Value = "H1";
+            ws.Cell(6, 5).Value = "H1_ID";
             for (var i = 0; i < heads.Length; i++)
             {
-                ws.Cells[7 + i, 4].Value = "35";
-                ws.Cells[7 + i, 5].Value = heads[i].Id.ToString();
+                ws.Cell(7 + i, 4).Value = "35";
+                ws.Cell(7 + i, 5).Value = heads[i].Id.ToString();
             }
-            return package.GetAsByteArray();
+            return ExamAPI.Services.Report.ExcelStyles.ToBytes(workbook);
         }
     }
 }

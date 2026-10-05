@@ -5,7 +5,6 @@ using ExamAPI.Data;
 using ExamAPI.DTOs;
 using ExamAPI.Models;
 using Microsoft.EntityFrameworkCore;
-using OfficeOpenXml;
 using System.Collections;
 using System.Data;
 

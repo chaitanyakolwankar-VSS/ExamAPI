@@ -9,7 +9,7 @@ using ExamAPI.Services.Tenancy;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Moq;
-using OfficeOpenXml;
+using ClosedXML.Excel;
 
 namespace ExamAPI.Tests;
 
@@ -209,15 +209,15 @@ public sealed class StatisticalReportServiceTests
 
             var export = await _service.GenerateExcelAsync(Request(), _collegeId);
             Assert.True(export.Success, export.Message);
-            using var workbook = new ExcelPackage(new MemoryStream(export.Data!));
-            var sheet = workbook.Workbook.Worksheets[0];
-            Assert.Equal("COMB", sheet.Cells[8, 3].GetValue<string>());
-            Assert.Equal(row.TotalAppeared, sheet.Cells[8, 4].GetValue<int>());
-            Assert.Equal(row.TotalPassed, sheet.Cells[8, 5].GetValue<int>());
-            Assert.Equal(row.PassingPercentage / 100m, sheet.Cells[8, 6].GetValue<decimal>());
-            Assert.Equal(row.PassedBetween40And60, sheet.Cells[8, 7].GetValue<int>());
-            Assert.Equal(row.PassedAtOrAbove60, sheet.Cells[8, 8].GetValue<int>());
-            Assert.Equal(expectedGrace, sheet.Cells[8, 9].GetValue<int>());
+            using var workbook = new XLWorkbook(new MemoryStream(export.Data!));
+            var sheet = workbook.Worksheet(1);
+            Assert.Equal("COMB", sheet.Cell(8, 3).GetValue<string>());
+            Assert.Equal(row.TotalAppeared, sheet.Cell(8, 4).GetValue<int>());
+            Assert.Equal(row.TotalPassed, sheet.Cell(8, 5).GetValue<int>());
+            Assert.Equal(row.PassingPercentage / 100m, sheet.Cell(8, 6).GetValue<decimal>());
+            Assert.Equal(row.PassedBetween40And60, sheet.Cell(8, 7).GetValue<int>());
+            Assert.Equal(row.PassedAtOrAbove60, sheet.Cell(8, 8).GetValue<int>());
+            Assert.Equal(expectedGrace, sheet.Cell(8, 9).GetValue<int>());
             Assert.False(_context.ChangeTracker.HasChanges()); // Reporting never applies grace or edits marks.
         }
     }

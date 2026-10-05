@@ -4,8 +4,7 @@ using ExamAPI.Models;
 using ExamAPI.Services.Result;
 using ExamAPI.Services.Result.Engine;
 using Microsoft.EntityFrameworkCore;
-using OfficeOpenXml;
-using OfficeOpenXml.Style;
+using ClosedXML.Excel;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -598,8 +597,6 @@ namespace ExamAPI.Services.MarksEntry
 
         public async Task<byte[]> ExportTemplateExcelAsync(MarksEntryFilterRequest request, Guid collegeId)
         {
-            ExcelPackage.License.SetNonCommercialPersonal("ReactApi Project");
-
             var dataResult = await GetMarksEntryDataAsync(request, collegeId);
             if (!dataResult.Success || dataResult.Data == null || !dataResult.Data.Any())
             {
@@ -610,114 +607,100 @@ namespace ExamAPI.Services.MarksEntry
             var subject = await _context.SubjectMasters.FindAsync(request.SubjectId);
             var exam = await _context.Exams.FindAsync(request.ExamId);
 
-            using (var package = new ExcelPackage())
+            using (var workbook = ExamAPI.Services.Report.ExcelStyles.NewWorkbook())
             {
-                var worksheet = package.Workbook.Worksheets.Add("Marks Entry");
+                var worksheet = workbook.Worksheets.Add("Marks Entry");
+                ExamAPI.Services.Report.ExcelStyles.NormalMargins(worksheet);
 
                 // Title
-                worksheet.Cells["A1:F1"].Merge = true;
-                worksheet.Cells["A1"].Value = "MARKS ENTRY TEMPLATE";
-                worksheet.Cells["A1"].Style.Font.Size = 16;
-                worksheet.Cells["A1"].Style.Font.Bold = true;
-                worksheet.Cells["A1"].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
-                worksheet.Cells["A1"].Style.Font.Color.SetColor(Color.DarkBlue);
+                worksheet.Range("A1:F1").Merge();
+                worksheet.Cell("A1").Value = "MARKS ENTRY TEMPLATE";
+                worksheet.Cell("A1").Style.Font.FontSize = 16;
+                worksheet.Cell("A1").Style.Font.Bold = true;
+                worksheet.Cell("A1").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                worksheet.Cell("A1").Style.Font.FontColor = XLColor.FromColor(Color.DarkBlue);
 
                 // Header Information
-                worksheet.Cells["A3"].Value = "Exam:";
-                worksheet.Cells["B3"].Value = exam?.Name ?? "N/A";
-                worksheet.Cells["A4"].Value = "Subject:";
-                worksheet.Cells["B4"].Value = subject?.Name ?? "N/A";
-                worksheet.Cells["A3:A4"].Style.Font.Bold = true;
+                worksheet.Cell("A3").Value = "Exam:";
+                worksheet.Cell("B3").Value = exam?.Name ?? "N/A";
+                worksheet.Cell("A4").Value = "Subject:";
+                worksheet.Cell("B4").Value = subject?.Name ?? "N/A";
+                worksheet.Range("A3:A4").Style.Font.Bold = true;
 
                 // Column Headers
-                worksheet.Cells[6, 1].Value = "Seat No";
-                worksheet.Cells[6, 2].Value = "Student ID";
-                worksheet.Cells[6, 3].Value = "Student Name";
+                worksheet.Cell(6, 1).Value = "Seat No";
+                worksheet.Cell(6, 2).Value = "Student ID";
+                worksheet.Cell(6, 3).Value = "Student Name";
 
                 var heads = marksData.First().Heads.OrderBy(h => h.HeadName).ToList();
                 int col = 4;
                 foreach (var head in heads)
                 {
-                    worksheet.Cells[6, col].Value = $"{head.HeadName} (Out Of: {head.OutOf})";
-                    worksheet.Cells[5, col].Value = head.HeadName; // Raw head name for matching
-                    worksheet.Cells[5, col].Style.Font.Color.SetColor(Color.White); // Hide it by making it white or keep it visible
-                    
+                    worksheet.Cell(6, col).Value = $"{head.HeadName} (Out Of: {head.OutOf})";
+                    worksheet.Cell(5, col).Value = head.HeadName; // Raw head name for matching
+                    worksheet.Cell(5, col).Style.Font.FontColor = XLColor.White; // Hide it by making it white or keep it visible
+
                     // Hidden column for StudentMarksId
-                    worksheet.Cells[6, col + 1].Value = $"{head.HeadName}_ID";
-                    worksheet.Column(col + 1).Hidden = true;
+                    worksheet.Cell(6, col + 1).Value = $"{head.HeadName}_ID";
+                    worksheet.Column(col + 1).Hide();
                     col += 2;
                 }
 
                 // Style the Header Row
-                using (var range = worksheet.Cells[6, 1, 6, col - 1])
-                {
-                    range.Style.Font.Bold = true;
-                    range.Style.Font.Color.SetColor(Color.White);
-                    range.Style.Fill.PatternType = ExcelFillStyle.Solid;
-                    range.Style.Fill.BackgroundColor.SetColor(Color.FromArgb(41, 128, 185)); // Professional Blue
-                    range.Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
-                    range.Style.VerticalAlignment = ExcelVerticalAlignment.Center;
-                }
+                var header = worksheet.Range(6, 1, 6, col - 1).Style;
+                header.Font.Bold = true;
+                header.Font.FontColor = XLColor.White;
+                header.Fill.BackgroundColor = XLColor.FromArgb(41, 128, 185); // Professional Blue
+                header.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                header.Alignment.Vertical = XLAlignmentVerticalValues.Center;
 
                 // Data
                 int row = 7;
                 foreach (var student in marksData)
                 {
-                    worksheet.Cells[row, 1].Value = student.SeatNo;
-                    worksheet.Cells[row, 2].Value = student.StudentId;
-                    worksheet.Cells[row, 3].Value = student.StudentName;
+                    worksheet.Cell(row, 1).Value = student.SeatNo;
+                    worksheet.Cell(row, 2).Value = student.StudentId;
+                    worksheet.Cell(row, 3).Value = student.StudentName;
 
                     int sCol = 4;
                     foreach (var head in student.Heads.OrderBy(h => h.HeadName))
                     {
-                        worksheet.Cells[row, sCol].Value = head.Marks;
-                        worksheet.Cells[row, sCol].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
-                        
+                        worksheet.Cell(row, sCol).Value = head.Marks;
+                        worksheet.Cell(row, sCol).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
                         // Highlight missing/empty marks with light yellow for data entry focus
                         if (string.IsNullOrEmpty(head.Marks))
                         {
-                            worksheet.Cells[row, sCol].Style.Fill.PatternType = ExcelFillStyle.Solid;
-                            worksheet.Cells[row, sCol].Style.Fill.BackgroundColor.SetColor(Color.FromArgb(255, 253, 208)); // Cream/Light Yellow
+                            worksheet.Cell(row, sCol).Style.Fill.BackgroundColor = XLColor.FromArgb(255, 253, 208); // Cream/Light Yellow
                         }
 
-                        worksheet.Cells[row, sCol + 1].Value = head.StudentMarksId.ToString();
+                        worksheet.Cell(row, sCol + 1).Value = head.StudentMarksId.ToString();
                         sCol += 2;
                     }
                     row++;
                 }
 
                 // Apply borders to the entire data table
-                using (var range = worksheet.Cells[6, 1, row - 1, col - 1])
-                {
-                    range.Style.Border.Top.Style = ExcelBorderStyle.Thin;
-                    range.Style.Border.Bottom.Style = ExcelBorderStyle.Thin;
-                    range.Style.Border.Left.Style = ExcelBorderStyle.Thin;
-                    range.Style.Border.Right.Style = ExcelBorderStyle.Thin;
-                    range.Style.Border.Top.Color.SetColor(Color.Gray);
-                    range.Style.Border.Bottom.Color.SetColor(Color.Gray);
-                    range.Style.Border.Left.Color.SetColor(Color.Gray);
-                    range.Style.Border.Right.Color.SetColor(Color.Gray);
-                }
+                ExamAPI.Services.Report.ExcelStyles.ThinBorders(worksheet.Range(6, 1, row - 1, col - 1).Style, XLColor.FromColor(Color.Gray));
 
                 // Add Data Validations to columns
                 int vCol = 4;
                 foreach (var head in heads)
                 {
-                    var valAddress = ExcelCellBase.GetAddress(7, vCol, Math.Max(7, row - 1), vCol);
-                    var validation = worksheet.DataValidations.AddCustomValidation(valAddress);
-                    var cellAddress = ExcelCellBase.GetAddress(7, vCol);
-                    
-                    validation.Formula.ExcelFormula = $"OR(EXACT({cellAddress}, \"Ab\"), EXACT({cellAddress}, \"ab\"), AND(ISNUMBER({cellAddress}), {cellAddress}>=0, {cellAddress}<={head.OutOf}))";
+                    var validation = worksheet.Range(7, vCol, Math.Max(7, row - 1), vCol).CreateDataValidation();
+                    var cellAddress = worksheet.Cell(7, vCol).Address.ToStringRelative();
+
+                    validation.Custom($"OR(EXACT({cellAddress}, \"Ab\"), EXACT({cellAddress}, \"ab\"), AND(ISNUMBER({cellAddress}), {cellAddress}>=0, {cellAddress}<={head.OutOf}))");
                     validation.ShowErrorMessage = true;
-                    validation.ErrorStyle = OfficeOpenXml.DataValidation.ExcelDataValidationWarningStyle.stop;
+                    validation.ErrorStyle = XLErrorStyle.Stop;
                     validation.ErrorTitle = "Invalid Marks Entry";
-                    validation.Error = $"Marks must be between 0 and {head.OutOf}, or 'Ab' for absent.";
-                    
+                    validation.ErrorMessage = $"Marks must be between 0 and {head.OutOf}, or 'Ab' for absent.";
+
                     vCol += 2;
                 }
 
-                worksheet.Cells.AutoFitColumns();
-                return await package.GetAsByteArrayAsync();
+                ExamAPI.Services.Report.ExcelStyles.AutoFit(worksheet, 1, col - 1, 1, row - 1);
+                return ExamAPI.Services.Report.ExcelStyles.ToBytes(workbook);
             }
         }
 
@@ -730,20 +713,19 @@ namespace ExamAPI.Services.MarksEntry
                 {
                     return new ApiResponseDto<object> { Success = false, Message = "This exam is locked. Further marks imports are not allowed." };
                 }
-                
-                ExcelPackage.License.SetNonCommercialPersonal("ReactApi Project");
+
                 using (var stream = new MemoryStream(fileBytes))
-                using (var package = new ExcelPackage(stream))
+                using (var workbook = new XLWorkbook(stream))
                 {
-                    var worksheet = package.Workbook.Worksheets[0];
-                    int rowCount = worksheet.Dimension.Rows;
-                    int colCount = worksheet.Dimension.Columns;
+                    var worksheet = workbook.Worksheet(1);
+                    int rowCount = worksheet.LastRowUsed()?.RowNumber() ?? 0;
+                    int colCount = worksheet.LastColumnUsed()?.ColumnNumber() ?? 0;
 
                     // Identify Head columns and their ID columns
                     var headColumns = new List<(int MarkCol, int IdCol)>();
                     for (int col = 4; col <= colCount; col++)
                     {
-                        var headerValue = worksheet.Cells[6, col].Value?.ToString();
+                        var headerValue = ExamAPI.Services.Report.ExcelStyles.Text(worksheet.Cell(6, col));
                         if (headerValue != null && headerValue.EndsWith("_ID"))
                         {
                             headColumns.Add((col - 1, col));
@@ -756,10 +738,10 @@ namespace ExamAPI.Services.MarksEntry
                     {
                         foreach (var (markCol, idCol) in headColumns)
                         {
-                            var idValue = worksheet.Cells[row, idCol].Value?.ToString();
+                            var idValue = ExamAPI.Services.Report.ExcelStyles.Text(worksheet.Cell(row, idCol));
                             if (Guid.TryParse(idValue, out Guid studentMarksId))
                             {
-                                var markValue = worksheet.Cells[row, markCol].Value?.ToString()?.Trim();
+                                var markValue = ExamAPI.Services.Report.ExcelStyles.Text(worksheet.Cell(row, markCol))?.Trim();
                                 var sm = await _context.StudentMarks
                                     .Include(x => x.MarksMaster)
                                         .ThenInclude(marksMaster => marksMaster!.Student)

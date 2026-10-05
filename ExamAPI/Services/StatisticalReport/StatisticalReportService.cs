@@ -2,8 +2,7 @@ using ExamAPI.Data;
 using ExamAPI.DTOs;
 using ExamAPI.Models;
 using Microsoft.EntityFrameworkCore;
-using OfficeOpenXml;
-using OfficeOpenXml.Style;
+using ClosedXML.Excel;
 
 namespace ExamAPI.Services.StatisticalReport;
 
@@ -197,17 +196,18 @@ public sealed class StatisticalReportService : IStatisticalReportService
         }
 
         var report = reportResponse.Data;
-        ExcelPackage.License.SetNonCommercialPersonal("ReactApi Project");
-        using var package = new ExcelPackage();
-        var worksheet = package.Workbook.Worksheets.Add("Statistical Report");
-        worksheet.View.ShowGridLines = false;
-        worksheet.PrinterSettings.Orientation = eOrientation.Landscape;
-        worksheet.PrinterSettings.PaperSize = ePaperSize.A4;
-        worksheet.PrinterSettings.FitToPage = true;
-        worksheet.PrinterSettings.FitToWidth = 1;
-        worksheet.PrinterSettings.FitToHeight = 0;
-        worksheet.PrinterSettings.LeftMargin = 0.25;
-        worksheet.PrinterSettings.RightMargin = 0.25;
+        using var workbook = Report.ExcelStyles.NewWorkbook();
+        var worksheet = workbook.Worksheets.Add("Statistical Report");
+        worksheet.ShowGridLines = false;
+        worksheet.PageSetup.PageOrientation = XLPageOrientation.Landscape;
+        worksheet.PageSetup.PaperSize = XLPaperSize.A4Paper;
+        worksheet.PageSetup.FitToPages(1, 0);
+        worksheet.PageSetup.Margins.Left = 0.25;
+        worksheet.PageSetup.Margins.Right = 0.25;
+        worksheet.PageSetup.Margins.Top = 0.748;
+        worksheet.PageSetup.Margins.Bottom = 0.748;
+        worksheet.PageSetup.Margins.Header = 0.315;
+        worksheet.PageSetup.Margins.Footer = 0.315;
 
         const int totalColumns = 9;
         MergeAndStyle(worksheet, 1, totalColumns, report.CollegeName, 18, true);
@@ -230,47 +230,43 @@ public sealed class StatisticalReportService : IStatisticalReportService
         };
         for (var column = 1; column <= headers.Length; column++)
         {
-            worksheet.Cells[7, column].Value = headers[column - 1];
+            worksheet.Cell(7, column).Value = headers[column - 1];
         }
 
-        using (var header = worksheet.Cells[7, 1, 7, totalColumns])
-        {
-            header.Style.Font.Bold = true;
-            header.Style.Font.Size = 9;
-            header.Style.WrapText = true;
-            header.Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
-            header.Style.VerticalAlignment = ExcelVerticalAlignment.Center;
-            header.Style.Fill.PatternType = ExcelFillStyle.Solid;
-            header.Style.Fill.BackgroundColor.SetColor(System.Drawing.Color.FromArgb(30, 64, 175));
-            header.Style.Font.Color.SetColor(System.Drawing.Color.White);
-            ApplyBorders(header);
-        }
+        var header = worksheet.Range(7, 1, 7, totalColumns).Style;
+        header.Font.Bold = true;
+        header.Font.FontSize = 9;
+        header.Alignment.WrapText = true;
+        header.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        header.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        header.Fill.BackgroundColor = XLColor.FromArgb(30, 64, 175);
+        header.Font.FontColor = XLColor.White;
+        Report.ExcelStyles.ThinBorders(header);
         worksheet.Row(7).Height = 42;
 
         var row = 8;
         foreach (var item in report.Rows)
         {
-            worksheet.Cells[row, 1].Value = item.SrNo;
-            worksheet.Cells[row, 2].Value = item.SubjectName;
-            worksheet.Cells[row, 3].Value = item.SubjectCode;
-            worksheet.Cells[row, 4].Value = item.TotalAppeared;
-            worksheet.Cells[row, 5].Value = item.TotalPassed;
-            worksheet.Cells[row, 6].Value = item.PassingPercentage / 100m;
-            worksheet.Cells[row, 6].Style.Numberformat.Format = "0.00%";
-            worksheet.Cells[row, 7].Value = item.PassedBetween40And60;
-            worksheet.Cells[row, 8].Value = item.PassedAtOrAbove60;
-            worksheet.Cells[row, 9].Value = item.GraceMarksAwarded;
+            worksheet.Cell(row, 1).Value = item.SrNo;
+            worksheet.Cell(row, 2).Value = item.SubjectName;
+            worksheet.Cell(row, 3).Value = item.SubjectCode;
+            worksheet.Cell(row, 4).Value = item.TotalAppeared;
+            worksheet.Cell(row, 5).Value = item.TotalPassed;
+            worksheet.Cell(row, 6).Value = item.PassingPercentage / 100m;
+            worksheet.Cell(row, 6).Style.NumberFormat.NumberFormatId = 10; // built-in 0.00%
+            worksheet.Cell(row, 7).Value = item.PassedBetween40And60;
+            worksheet.Cell(row, 8).Value = item.PassedAtOrAbove60;
+            worksheet.Cell(row, 9).Value = item.GraceMarksAwarded;
 
-            using var dataRange = worksheet.Cells[row, 1, row, totalColumns];
-            dataRange.Style.VerticalAlignment = ExcelVerticalAlignment.Center;
-            dataRange.Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
-            ApplyBorders(dataRange);
+            var data = worksheet.Range(row, 1, row, totalColumns).Style;
+            data.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+            data.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            Report.ExcelStyles.ThinBorders(data);
             if (row % 2 == 0)
             {
-                dataRange.Style.Fill.PatternType = ExcelFillStyle.Solid;
-                dataRange.Style.Fill.BackgroundColor.SetColor(System.Drawing.Color.FromArgb(239, 246, 255));
+                data.Fill.BackgroundColor = XLColor.FromArgb(239, 246, 255);
             }
-            worksheet.Cells[row, 2].Style.HorizontalAlignment = ExcelHorizontalAlignment.Left;
+            worksheet.Cell(row, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
             row++;
         }
 
@@ -280,24 +276,24 @@ public sealed class StatisticalReportService : IStatisticalReportService
         WriteSummary(worksheet, row++, totalColumns, "OVERALL PASSING PERCENTAGE", $"{report.OverallPassingPercentage:0.00}%");
         WriteSummary(worksheet, row++, totalColumns, "REPORT GENERATED", report.GeneratedAt.ToString("dd MMM yyyy, hh:mm tt"));
 
-        worksheet.Column(1).Width = 10;
-        worksheet.Column(2).Width = 36;
-        worksheet.Column(3).Width = 16;
-        worksheet.Column(4).Width = 18;
-        worksheet.Column(5).Width = 18;
-        worksheet.Column(6).Width = 17;
-        worksheet.Column(7).Width = 18;
-        worksheet.Column(8).Width = 19;
-        worksheet.Column(9).Width = 18;
-        worksheet.Cells[1, 1, row, totalColumns].Style.WrapText = true;
-        worksheet.View.FreezePanes(8, 1);
+        Report.ExcelStyles.SetWidth(worksheet.Column(1), 10);
+        Report.ExcelStyles.SetWidth(worksheet.Column(2), 36);
+        Report.ExcelStyles.SetWidth(worksheet.Column(3), 16);
+        Report.ExcelStyles.SetWidth(worksheet.Column(4), 18);
+        Report.ExcelStyles.SetWidth(worksheet.Column(5), 18);
+        Report.ExcelStyles.SetWidth(worksheet.Column(6), 17);
+        Report.ExcelStyles.SetWidth(worksheet.Column(7), 18);
+        Report.ExcelStyles.SetWidth(worksheet.Column(8), 19);
+        Report.ExcelStyles.SetWidth(worksheet.Column(9), 18);
+        worksheet.Range(1, 1, row, totalColumns).Style.Alignment.WrapText = true;
+        worksheet.SheetView.FreezeRows(7);
 
         // Banner -> logo + name -> name only. The banner covers rows 1-2 (name + address rows), so
         // those texts are not printed again and every row below keeps its position.
         if (Report.ExcelBranding.TryAddBanner(worksheet, branding.Banner, 1, totalColumns, 2) > 0)
         {
-            worksheet.Cells[1, 1].Value = null;
-            worksheet.Cells[2, 1].Value = null;
+            worksheet.Cell(1, 1).Value = Blank.Value;
+            worksheet.Cell(2, 1).Value = Blank.Value;
         }
         else
         {
@@ -311,7 +307,7 @@ public sealed class StatisticalReportService : IStatisticalReportService
         {
             Success = true,
             Message = "Statistical report exported successfully.",
-            Data = package.GetAsByteArray()
+            Data = Report.ExcelStyles.ToBytes(workbook)
         };
     }
 
@@ -327,33 +323,24 @@ public sealed class StatisticalReportService : IStatisticalReportService
         return string.IsNullOrWhiteSpace(number) ? semesterId : $"Semester {number}";
     }
 
-    private static void MergeAndStyle(ExcelWorksheet worksheet, int row, int totalColumns, string? value, int size, bool bold)
+    private static void MergeAndStyle(IXLWorksheet worksheet, int row, int totalColumns, string? value, int size, bool bold)
     {
-        var range = worksheet.Cells[row, 1, row, totalColumns];
-        range.Merge = true;
-        range.Value = value;
-        range.Style.Font.Size = size;
+        var range = worksheet.Range(row, 1, row, totalColumns);
+        range.Merge();
+        range.FirstCell().Value = value;
+        range.Style.Font.FontSize = size;
         range.Style.Font.Bold = bold;
-        range.Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
-        range.Style.VerticalAlignment = ExcelVerticalAlignment.Center;
+        range.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        range.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
     }
 
-    private static void WriteSummary(ExcelWorksheet worksheet, int row, int totalColumns, string label, string value)
+    private static void WriteSummary(IXLWorksheet worksheet, int row, int totalColumns, string label, string value)
     {
-        var range = worksheet.Cells[row, 1, row, totalColumns];
-        range.Merge = true;
-        range.Value = $"{label}: {value}";
+        var range = worksheet.Range(row, 1, row, totalColumns);
+        range.Merge();
+        range.FirstCell().Value = $"{label}: {value}";
         range.Style.Font.Bold = true;
-        range.Style.Fill.PatternType = ExcelFillStyle.Solid;
-        range.Style.Fill.BackgroundColor.SetColor(System.Drawing.Color.FromArgb(219, 234, 254));
-        ApplyBorders(range);
-    }
-
-    private static void ApplyBorders(ExcelRange range)
-    {
-        range.Style.Border.Top.Style = ExcelBorderStyle.Thin;
-        range.Style.Border.Bottom.Style = ExcelBorderStyle.Thin;
-        range.Style.Border.Left.Style = ExcelBorderStyle.Thin;
-        range.Style.Border.Right.Style = ExcelBorderStyle.Thin;
+        range.Style.Fill.BackgroundColor = XLColor.FromArgb(219, 234, 254);
+        Report.ExcelStyles.ThinBorders(range.Style);
     }
 }
