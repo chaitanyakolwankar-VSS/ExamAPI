@@ -28,9 +28,9 @@ namespace ExamAPI.Services.Result
         public const string Symbol = "^";
 
         /// <summary>
-        /// Parses ResolutionMaster rows into SubjectCreditId -> limit. Zero limits are kept (so a
-        /// UI can show an explicit 0); negative or unparseable values count as 0. When the table
-        /// holds duplicates for one head the most recently written row wins.
+        /// Reads ResolutionMaster rows into SubjectCreditId -> limit. Zero limits are kept (so a
+        /// UI can show an explicit 0); negative values count as 0. The table has one row per
+        /// exam x head (unique index); should duplicates appear anyway, the latest row wins.
         /// </summary>
         public static Dictionary<Guid, int> ParseLimits(IEnumerable<ResolutionMaster> rows)
         {
@@ -44,9 +44,8 @@ namespace ExamAPI.Services.Result
         public static ResolutionMaster Latest(IEnumerable<ResolutionMaster> duplicates) =>
             duplicates.OrderByDescending(r => r.UpdatedAt ?? r.CreatedAt).First();
 
-        /// <summary>Parses a stored limit. Blank, negative or non-integer text means 0 (off).</summary>
-        public static int ParseLimit(string? stored) =>
-            int.TryParse(stored?.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var limit) ? limit : 0;
+        /// <summary>A stored limit; negative means 0 (off).</summary>
+        public static int ParseLimit(int stored) => Math.Max(stored, 0);
 
         /// <summary>
         /// Clears the previous run's bump so the head is back to what staff typed. A carried-forward

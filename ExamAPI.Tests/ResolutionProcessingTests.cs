@@ -108,7 +108,7 @@ public sealed class ResolutionProcessingTests
         _context.Resolution.Add(new ResolutionMaster
         {
             ID = Guid.NewGuid(), CollegeId = _collegeId, ExamID = _examId, SubjectCreditID = Credit(subject, "H2").Id,
-            Resolution = "-3", CreatedAt = DateTime.UtcNow
+            Resolution = -3, CreatedAt = DateTime.UtcNow
         });
         await _context.SaveChangesAsync();
 
@@ -283,8 +283,8 @@ public sealed class ResolutionProcessingTests
         var student = AddStudent(subject, 17, 25);
         var creditId = Credit(subject, "H1").Id;
         _context.Resolution.AddRange(
-            new ResolutionMaster { ID = Guid.NewGuid(), CollegeId = _collegeId, ExamID = _examId, SubjectCreditID = creditId, Resolution = "9", CreatedAt = DateTime.UtcNow.AddDays(-2) },
-            new ResolutionMaster { ID = Guid.NewGuid(), CollegeId = _collegeId, ExamID = _examId, SubjectCreditID = creditId, Resolution = "0", CreatedAt = DateTime.UtcNow.AddDays(-1) });
+            new ResolutionMaster { ID = Guid.NewGuid(), CollegeId = _collegeId, ExamID = _examId, SubjectCreditID = creditId, Resolution = 9, CreatedAt = DateTime.UtcNow.AddDays(-2) },
+            new ResolutionMaster { ID = Guid.NewGuid(), CollegeId = _collegeId, ExamID = _examId, SubjectCreditID = creditId, Resolution = 0, CreatedAt = DateTime.UtcNow.AddDays(-1) });
         await _context.SaveChangesAsync();
 
         await ProcessAsync();
@@ -441,11 +441,11 @@ public sealed class ResolutionProcessingTests
         _context.Resolution.Add(new ResolutionMaster
         {
             ID = Guid.NewGuid(), CollegeId = _collegeId, ExamID = _examId, CreditID = subject.CreditsId,
-            SubjectCreditID = Credit(subject, head).Id, Head = head, Resolution = limit.ToString(), CreatedAt = DateTime.UtcNow
+            SubjectCreditID = Credit(subject, head).Id, Resolution = limit, CreatedAt = DateTime.UtcNow
         });
 
     private void SetLimitValue(SubjectSetup subject, string head, int limit) =>
-        _context.Resolution.Local.Single(r => r.SubjectCreditID == Credit(subject, head).Id).Resolution = limit.ToString();
+        _context.Resolution.Local.Single(r => r.SubjectCreditID == Credit(subject, head).Id).Resolution = limit;
 
     private void SeedRuleSet(IEnumerable<(decimal Min, decimal Max, string Grade, int Gp)> bands)
     {

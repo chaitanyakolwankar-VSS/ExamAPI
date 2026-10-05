@@ -172,6 +172,12 @@ namespace ExamAPI.Data
                 .HasIndex(r => new { r.MarksId, r.SubjectId })
                 .IsUnique();
 
+            // One resolution limit per exam x head (the save upserts; live rows only).
+            modelBuilder.Entity<ResolutionMaster>()
+                .HasIndex(r => new { r.ExamID, r.SubjectCreditID })
+                .IsUnique()
+                .HasFilter("[IsDeleted] = 0");
+
             // Configure Decimal Precision for Grades 
             modelBuilder.Entity<RuleAction>()
                 .Property(p => p.Param1Value)

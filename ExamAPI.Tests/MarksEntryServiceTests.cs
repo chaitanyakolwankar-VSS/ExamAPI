@@ -231,8 +231,8 @@ namespace ExamAPI.Tests
             Assert.True(second.Success, second.Message);
             var rows = _context.Resolution.Where(r => r.ExamID == _examId).ToList();
             Assert.Equal(2, rows.Count);
-            Assert.Equal("7", rows.Single(r => r.SubjectCreditID == h1).Resolution);
-            Assert.Equal("0", rows.Single(r => r.SubjectCreditID == h2).Resolution);
+            Assert.Equal(7, rows.Single(r => r.SubjectCreditID == h1).Resolution);
+            Assert.Equal(0, rows.Single(r => r.SubjectCreditID == h2).Resolution);
             Assert.All(rows, r => Assert.Equal(_collegeId, r.CollegeId));
 
             var read = await _service.GetResolutionConfigAsync(Config(), _collegeId);
@@ -274,8 +274,8 @@ namespace ExamAPI.Tests
             // Moving the limit to the other head: the old head is zeroed in the same request.
             Assert.True((await _service.SaveResolutionConfigAsync(Save((h1, 3m), (h2, 0m)), _collegeId)).Success);
             Assert.True((await _service.SaveResolutionConfigAsync(Save((h1, 0m), (h2, 6m)), _collegeId)).Success);
-            Assert.Equal("6", _context.Resolution.Single(r => r.SubjectCreditID == h2).Resolution);
-            Assert.Equal("0", _context.Resolution.Single(r => r.SubjectCreditID == h1).Resolution);
+            Assert.Equal(6, _context.Resolution.Single(r => r.SubjectCreditID == h2).Resolution);
+            Assert.Equal(0, _context.Resolution.Single(r => r.SubjectCreditID == h1).Resolution);
 
             // A request that would leave the stored non-zero head AND a new one is rejected too.
             var partial = await _service.SaveResolutionConfigAsync(Save((h1, 2m)), _collegeId);
@@ -289,16 +289,16 @@ namespace ExamAPI.Tests
             AddStudent("ST001", subject, 10);
             var h1 = subject.Heads.Single().Id;
             _context.Resolution.AddRange(
-                new ResolutionMaster { ID = Guid.NewGuid(), CollegeId = _collegeId, ExamID = _examId, SubjectCreditID = h1, Resolution = "9", CreatedAt = DateTime.UtcNow.AddDays(-3) },
-                new ResolutionMaster { ID = Guid.NewGuid(), CollegeId = _collegeId, ExamID = _examId, SubjectCreditID = h1, Resolution = "4", CreatedAt = DateTime.UtcNow.AddDays(-1) },
-                new ResolutionMaster { ID = Guid.NewGuid(), CollegeId = _collegeId, ExamID = _examId, SubjectCreditID = h1, Resolution = "1", CreatedAt = DateTime.UtcNow.AddDays(-2) });
+                new ResolutionMaster { ID = Guid.NewGuid(), CollegeId = _collegeId, ExamID = _examId, SubjectCreditID = h1, Resolution = 9, CreatedAt = DateTime.UtcNow.AddDays(-3) },
+                new ResolutionMaster { ID = Guid.NewGuid(), CollegeId = _collegeId, ExamID = _examId, SubjectCreditID = h1, Resolution = 4, CreatedAt = DateTime.UtcNow.AddDays(-1) },
+                new ResolutionMaster { ID = Guid.NewGuid(), CollegeId = _collegeId, ExamID = _examId, SubjectCreditID = h1, Resolution = 1, CreatedAt = DateTime.UtcNow.AddDays(-2) });
             await _context.SaveChangesAsync();
 
             var result = await _service.SaveResolutionConfigAsync(Save((h1, 8m)), _collegeId);
 
             Assert.True(result.Success, result.Message);
             var row = Assert.Single(_context.Resolution.Where(r => r.SubjectCreditID == h1));
-            Assert.Equal("8", row.Resolution);
+            Assert.Equal(8, row.Resolution);
         }
 
         [Fact]
@@ -391,8 +391,8 @@ namespace ExamAPI.Tests
             _context.Resolution.Add(new ResolutionMaster
             {
                 ID = Guid.NewGuid(), CollegeId = _collegeId, ExamID = _examId, CreditID = subject.CreditsId,
-                SubjectCreditID = subject.Heads.Single(h => h.Head == head).Id, Head = head,
-                Resolution = limit.ToString(), CreatedAt = DateTime.UtcNow
+                SubjectCreditID = subject.Heads.Single(h => h.Head == head).Id,
+                Resolution = limit, CreatedAt = DateTime.UtcNow
             });
 
         private SaveMarksRequest SaveRequest(params (Guid Id, string Marks)[] updates) => new()

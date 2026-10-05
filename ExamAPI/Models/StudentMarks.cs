@@ -24,15 +24,6 @@ namespace ExamAPI.Models
         [MaxLength(50)]
         public string? Grace { get; set; }
 
-        [MaxLength(100)]
-        public string? Remark { get; set; } // legacy, no longer written; see StudentSubjectResult
-
-        public int? RawGradePoint { get; set; }
-        public int? GradePoint { get; set; }
-
-        [MaxLength(10)]
-        public string? Grade { get; set; }
-
         // Foreign Keys
         public Guid? MarksId { get; set; }
         [ForeignKey(nameof(MarksId))]

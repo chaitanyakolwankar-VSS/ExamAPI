@@ -246,7 +246,7 @@ public sealed class StatisticalReportServiceTests
                 _context.Resolution.Add(new ResolutionMaster
                 {
                     ID = Guid.NewGuid(), CollegeId = _collegeId, ExamID = _examId, CreditID = credit.CreditsId,
-                    SubjectCreditID = headConfig.Id, Head = head, Resolution = resolutionLimit.ToString(),
+                    SubjectCreditID = headConfig.Id, Resolution = resolutionLimit,
                     CreatedAt = DateTime.UtcNow
                 });
             }

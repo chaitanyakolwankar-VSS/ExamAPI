@@ -20,12 +20,6 @@ namespace ExamAPI.Models
         [MaxLength(20)]
         public string? HeadPass { get; set; } // Passing marks
 
-        [MaxLength(50)]
-        public string? HeadResolution { get; set; }
-
-        [MaxLength(100)]
-        public string? HeadFormula { get; set; }
-
         // Foreign Key
         public Guid? CreditsId { get; set; }
         [ForeignKey(nameof(CreditsId))]

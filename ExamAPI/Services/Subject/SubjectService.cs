@@ -122,7 +122,6 @@ namespace ExamAPI.Services.Subject
                             HeadType = string.Join(" ", credit.ExamType),
                             HeadOutOf = credit.ExamOutOf,
                             HeadPass = credit.ExamPassing,
-                            HeadFormula = credit.PassingPercentage,
                         };
                         _context.SubjectCredits.Add(CreditsH1);
                     }
@@ -136,7 +135,6 @@ namespace ExamAPI.Services.Subject
                             HeadType = string.Join(" ", credit.InternalType),
                             HeadOutOf = credit.InternalOutOf,
                             HeadPass = credit.InternalPassing,
-                            HeadFormula = credit.PassingPercentage,
                         };
                         _context.SubjectCredits.Add(CreditsH2);
                     }
@@ -285,7 +283,6 @@ namespace ExamAPI.Services.Subject
                                 find_credit_H1.HeadType = string.Join(' ', credit.ExamType); // or InternalType based on logic
                                 find_credit_H1.HeadOutOf = credit.ExamOutOf;
                                 find_credit_H1.HeadPass = credit.ExamPassing;
-                                find_credit_H1.HeadFormula = credit.PassingPercentage;
                                 // ...set other fields as needed
 
                                 //Update The Changes
@@ -311,7 +308,6 @@ namespace ExamAPI.Services.Subject
                                     HeadType = string.Join(" ", credit.ExamType),
                                     HeadOutOf = credit.ExamOutOf,
                                     HeadPass = credit.ExamPassing,
-                                    HeadFormula = credit.PassingPercentage,
                                 };
                                 _context.SubjectCredits.Add(CreditsH1);
                             }
@@ -326,7 +322,6 @@ namespace ExamAPI.Services.Subject
                                 find_credit_H2.HeadType = string.Join(' ', credit.InternalType); // or InternalType based on logic
                                 find_credit_H2.HeadOutOf = credit.InternalOutOf;
                                 find_credit_H2.HeadPass = credit.InternalPassing;
-                                find_credit_H2.HeadFormula = credit.PassingPercentage;
                                 // ...set other fields as needed
 
                                 //Update The Changes
@@ -351,7 +346,6 @@ namespace ExamAPI.Services.Subject
                                     HeadType = string.Join(" ", credit.InternalType),
                                     HeadOutOf = credit.InternalOutOf,
                                     HeadPass = credit.InternalPassing,
-                                    HeadFormula = credit.PassingPercentage,
                                 };
                                 _context.SubjectCredits.Add(CreditsH2);
                             }
@@ -549,7 +543,6 @@ namespace ExamAPI.Services.Subject
                             HeadType = subcred.HeadType,
                             HeadOutOf = subcred.HeadOutOf,
                             HeadPass = subcred.HeadPass,
-                            HeadFormula = subcred.HeadFormula,
                             CreditsId = newCreditMasterId
                         });
                     }

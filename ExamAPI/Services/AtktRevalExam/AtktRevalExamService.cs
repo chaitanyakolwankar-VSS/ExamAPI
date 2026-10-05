@@ -1009,9 +1009,6 @@ namespace ExamAPI.Services.AtktRevalExam
                         row.Resolution = null;
                         row.IsAbsent = false;
                         row.Grace = null;
-                        row.Grade = null;
-                        row.GradePoint = null;
-                        row.RawGradePoint = null;
                     }
                     else
                     {
@@ -1022,9 +1019,6 @@ namespace ExamAPI.Services.AtktRevalExam
                         row.Resolution = sourceHead?.Resolution;
                         row.IsAbsent = sourceHead?.IsAbsent ?? false;
                         row.Grace = sourceHead?.Grace;
-                        row.Grade = sourceHead?.Grade;
-                        row.GradePoint = sourceHead?.GradePoint;
-                        row.RawGradePoint = sourceHead?.RawGradePoint;
                     }
                 }
             }

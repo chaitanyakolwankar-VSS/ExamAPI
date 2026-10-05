@@ -557,12 +557,11 @@ namespace ExamAPI.Services.MarksEntry
                 var written = 0;
                 foreach (var (subjectCreditId, limit) in requested)
                 {
-                    var stored = limit.ToString(CultureInfo.InvariantCulture);
                     if (rowByHead.TryGetValue(subjectCreditId, out var row))
                     {
-                        if (row.Resolution != stored)
+                        if (row.Resolution != limit)
                         {
-                            row.Resolution = stored;
+                            row.Resolution = limit;
                             row.UpdatedAt = DateTime.UtcNow;
                             written++;
                         }
@@ -577,10 +576,7 @@ namespace ExamAPI.Services.MarksEntry
                         ExamID = request.ExamId,
                         CreditID = head.CreditsId,
                         SubjectCreditID = subjectCreditId,
-                        Head = head.Head,
-                        CourseID = exam.CourseId,
-                        AYID = exam.AcademicYearAYID,
-                        Resolution = stored,
+                        Resolution = limit,
                         CreatedAt = DateTime.UtcNow
                     });
                     written++;

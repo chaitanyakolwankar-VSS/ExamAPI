@@ -22,7 +22,6 @@ namespace ExamAPI.Tests
                 Head = "TH",
                 RawMarks = 38,
                 Marks = 38,
-                Remark = "Fail",
                 CreditMaster = new SubjectCreditMaster 
                 {
                     Credits = new List<SubjectCredits>
@@ -68,7 +67,6 @@ namespace ExamAPI.Tests
                 Head = "TH",
                 RawMarks = 30,
                 Marks = 30,
-                Remark = "Fail",
                 CreditMaster = new SubjectCreditMaster 
                 {
                     Credits = new List<SubjectCredits>
