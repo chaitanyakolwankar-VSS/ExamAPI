@@ -99,4 +99,4 @@ Remove-Item $work -Recurse -Force
 Write-Host "`nReady:" -ForegroundColor Green
 Write-Host "  $apiZip   ($apiCommit)"
 Write-Host "  $siteZip  ($siteCommit)"
-Write-Host "Copy both to the server and follow DEPLOY_GUIDE.md from step 3."
+Write-Host "Copy these files to the server and follow DEPLOY_GUIDE.md (database: GradeSphereApp-Setup.sql in SSMS)."
