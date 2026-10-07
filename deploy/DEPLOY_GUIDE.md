@@ -26,9 +26,17 @@ Skip what is already installed (the demo needs the same, so most likely all of i
 
 The install script checks the first two and stops with a message if one is missing.
 
-## 2. Download the build from GitHub
+## 2. Get the two zips
 
-Sign in to GitHub in the server's browser.
+**By hand (no GitHub on the server).** On the development PC, with everything committed:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File D:\Projects\ReactApi\ExamAPI\deploy\Build-Package.ps1
+```
+
+It runs the tests, builds the API, the database script and the website, and writes `gradesphere-api-<date>.zip` and `gradesphere-site-<date>.zip` to `D:\Projects\ReactApi\_deploy`. Copy both to the server (Remote Desktop: copy on the PC, paste on the server's desktop or Downloads).
+
+**Or from GitHub** (same zips, built on every push). Sign in to GitHub in the server's browser.
 
 - `ExamAPI` repository → **Actions** → **Build API** → newest run with a green tick → at the bottom, **Artifacts** → download **gradesphere-api**.
 - `ExamClient` repository → **Actions** → **Build website** → newest green run → download **gradesphere-site**.
