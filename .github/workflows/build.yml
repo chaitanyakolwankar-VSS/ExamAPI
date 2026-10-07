@@ -50,7 +50,9 @@ jobs:
       - name: Package
         shell: pwsh
         run: |
-          Copy-Item deploy/SeedStarterTemplates.sql package/database/
+          Copy-Item deploy/SeedStarterTemplates.sql, deploy/CreateDatabase.sql package/database/
+          New-Item -ItemType Directory -Force package/server | Out-Null
+          Copy-Item deploy/server/* package/server/
           Copy-Item deploy/DEPLOY_GUIDE.md package/
           Copy-Item deploy/appsettings.Production.example.json package/
           "$env:GITHUB_SHA" | Out-File package/COMMIT.txt

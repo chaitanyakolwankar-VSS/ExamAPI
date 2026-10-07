@@ -1,122 +1,124 @@
-# GradeSphere — install on IIS (Windows Server 2016 + SQL Server)
+# GradeSphere — install on the Windows Server (IIS + SQL Server)
 
 A fresh install: a new, empty database and nothing copied from the demo. The demo (`/ExamSoftware`, `/ExamAPI`) is not touched.
 
-| | Value used in this guide |
+| | Value |
 |---|---|
-| Website | `https://vivacollege.in/gradesphere` (replaces the old solution in that folder) |
+| Website | `https://vivacollege.in/gradesphere` (replaces the old solution at that address; its files are backed up) |
 | API | `https://vivacollege.in/gradesphere-api` |
-| Database | `GradeSphereApp` (a `GradeSphere` database from the old solution may exist — do not touch it) |
-| Uploads (photos, signatures, logos) | `D:\GradeSphereApp\uploads` — outside the website folders, so a redeploy never deletes them |
-| Site files | `D:\GradeSphereApp\site` · API files `D:\GradeSphereApp\api` |
+| Database | `GradeSphereApp` (an old `GradeSphere` database may exist — it is not touched) |
+| Files on the server | `D:\GradeSphereApp\` → `api\`, `site\`, `uploads\` (photos, signatures, logos), `database\`, `backup\` |
+| IIS app pools | `GradeSphereApp-API`, `GradeSphereApp-Site` |
 
-Change the paths if the server uses other drives; keep the same values in every step.
+**How the API reaches the database.** The API runs inside the IIS app pool `GradeSphereApp-API`. Windows gives every app pool its own account (`IIS AppPool\GradeSphereApp-API`). `CreateDatabase.sql` gives that account permission to read and write the `GradeSphereApp` database — so there is **no database password** to create, store or rotate. (This needs SQL Server on the same machine as IIS; otherwise see "SQL Server on another machine" at the end.)
+
+Everything below is done on the server, over Remote Desktop.
 
 ---
 
-## 1. Prerequisites on the server (once)
+## 1. Once: prerequisites
 
-- **ASP.NET Core 10 Hosting Bundle** (gives IIS the ASP.NET Core Module). Install, then run `iisreset`.
-- **IIS URL Rewrite 2.1** (the website's `web.config` uses it to send every page address to `index.html`).
-- **SQL Server Management Studio** (to run the database scripts).
-- An **https certificate** for `vivacollege.in` bound to the site (the demo already uses it).
+Skip what is already installed (the demo needs the same, so most likely all of it is).
 
-## 2. Get the build
+1. **.NET 10 Hosting Bundle** — https://dotnet.microsoft.com/download/dotnet/10.0 → *ASP.NET Core Runtime* → *Hosting Bundle*. Install, then in an Administrator command prompt: `iisreset`.
+2. **IIS URL Rewrite 2.1** — https://www.iis.net/downloads/microsoft/url-rewrite.
+3. **SQL Server Management Studio (SSMS)** to run the database scripts.
 
-**From GitHub (normal way).** Every push to `master` (ExamAPI) and `main` (ExamClient) is built and tested by GitHub Actions. On the server, sign in to GitHub in the browser:
+The install script checks the first two and stops with a message if one is missing.
 
-- `ExamAPI` repo → **Actions** → latest green **Build API** run → download **gradesphere-api** (zip): `api/` (the published API), `database/deploy.sql`, `database/SeedStarterTemplates.sql`, this guide, `appsettings.Production.example.json`, `COMMIT.txt`.
-- `ExamClient` repo → **Actions** → latest green **Build website** run → download **gradesphere-site** (zip): the website for `/gradesphere`.
+## 2. Download the build from GitHub
 
-Unzip: `api/` → `D:\GradeSphereApp\api`, the site zip → `D:\GradeSphereApp\site`. Artifacts are kept 30 days; re-run the workflow (**Run workflow**) for a fresh one. Both builds should come from the same day's pushes.
+Sign in to GitHub in the server's browser.
 
-**By hand (alternative),** from a clean checkout of `ExamAPI` (`master`) and `ExamClient` (`main`), with no local changes:
+- `ExamAPI` repository → **Actions** → **Build API** → newest run with a green tick → at the bottom, **Artifacts** → download **gradesphere-api**.
+- `ExamClient` repository → **Actions** → **Build website** → newest green run → download **gradesphere-site**.
+
+You get `gradesphere-api.zip` and `gradesphere-site.zip` (e.g. in `C:\Users\<you>\Downloads`). Leave them zipped.
+
+## 3. Run the install script
+
+From `gradesphere-api.zip`, copy `server\Install-GradeSphere.ps1` to the desktop. Open **PowerShell as Administrator** (right-click → *Run as administrator*):
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+cd $HOME\Desktop
+.\Install-GradeSphere.ps1 -ApiZip "$HOME\Downloads\gradesphere-api.zip" -SiteZip "$HOME\Downloads\gradesphere-site.zip"
+```
+
+- If the IIS site for vivacollege.in is not called *Default Web Site*, the script lists the sites — run again with `-SiteName "<name>"`.
+- If SQL Server is a named instance (e.g. SQL Express), add `-SqlServer ".\SQLEXPRESS"`.
+- It asks for the **platform admin** email and password — the login that adds colleges. Use an email address you can receive mail at (e.g. `edbalogin@vivacollege.in`), so "Forgot password" works later.
+
+The script backs up the old `/gradesphere` files to `D:\GradeSphereApp\backup\`, creates the folders, the two app pools, the IIS applications `/gradesphere-api` and `/gradesphere`, the permissions, and `D:\GradeSphereApp\api\appsettings.Production.json` (with a new random login key). Email settings stay empty for now.
+
+## 4. Create the database (SSMS, first install only)
+
+Connect SSMS to the server's SQL Server as an administrator (e.g. `sa`).
+
+1. Open `D:\GradeSphereApp\database\CreateDatabase.sql` → **Execute**. It creates `GradeSphereApp` and gives the API access.
+2. Open `D:\GradeSphereApp\database\deploy.sql`, pick **GradeSphereApp** in the database drop-down → **Execute**. It creates all the tables.
+3. In the Administrator PowerShell: `Restart-WebAppPool GradeSphereApp-API`, then open `https://vivacollege.in/gradesphere-api/api/health` in the browser — it shows `{"status":"ok"}`. This first start also creates the platform admin.
+4. Back in SSMS: open `D:\GradeSphereApp\database\SeedStarterTemplates.sql`, pick **GradeSphereApp** → **Execute**. It adds the Engineering and Pharmacy starter templates (grade scales + Regular/ATKT rules).
+
+## 5. Sign in and finish
+
+1. Open `https://vivacollege.in/gradesphere` and sign in as the platform admin.
+2. Open `D:\GradeSphereApp\api\appsettings.Production.json` in Notepad (as Administrator), set `"PlatformAdminPassword": ""`, save, and run `Restart-WebAppPool GradeSphereApp-API`.
+3. Optional: in `D:\GradeSphereApp\api\web.config` set `stdoutLogEnabled="false"` (the first start had it on; logs are in `D:\GradeSphereApp\api\logs`).
+
+## 6. Add a college
+
+Platform → **New college**. On the Setup step keep the pattern **NEP** and choose **Copy from: Starter: Engineering…** or **Starter: Pharmacy…**. Add one or two college admins; they sign in and set up subjects, students and exams.
+
+## 7. Email for password reset (later)
+
+Gmail: turn on 2-Step Verification on the sending account, create an **App Password** (Google Account → Security → App passwords). Then in `appsettings.Production.json`:
+
+```json
+"EmailSettings": { "SmtpServer": "smtp.gmail.com", "Port": 587, "SenderEmail": "<account>@gmail.com", "Password": "<16-character app password>", "SenderName": "GradeSphere" }
+```
+
+Save and `Restart-WebAppPool GradeSphereApp-API`.
+
+## 8. Smoke test
+
+Per college: admin sign-in; one college's data not visible from another; subject + student; regular exam, seat numbers, marks, resolution dialog, process results; gazette, marksheet and hall ticket (banner and signatures); ATKT exam; Statistical Report; dashboard; declare result / release hall ticket; upload a student photo, install an update (below), the photo is still there.
+
+## Installing a new version
+
+1. Download the two newest artifacts (step 2).
+2. Run the same command as in step 3. It takes the API offline for a moment, replaces the files and starts it again; `appsettings.Production.json`, uploads and logs are kept.
+3. If the new version changed the database, run the new `D:\GradeSphereApp\database\deploy.sql` on **GradeSphereApp** in SSMS — it only adds what is missing.
+
+## If something goes wrong
+
+- **Site shows "500.30" or "HTTP Error 500"**: read the newest file in `D:\GradeSphereApp\api\logs`. Typical: the database is not created yet (step 4), or SQL Server is a named instance (fix `Server=` in `appsettings.Production.json`).
+- **"Login failed for user 'IIS APPPOOL\GradeSphereApp-API'"**: run `CreateDatabase.sql` again.
+- **Old site needed back**: its files are in `D:\GradeSphereApp\backup\old-gradesphere-<date>`; in IIS Manager point the `gradesphere` application back to its old folder and pool.
+
+## SQL Server on another machine
+
+Then the app pool's account cannot be used. In SSMS create a SQL login instead:
+
+```sql
+CREATE LOGIN gradesphereapp_user WITH PASSWORD = '<strong password>';
+USE GradeSphereApp;
+CREATE USER gradesphereapp_user FOR LOGIN gradesphereapp_user;
+ALTER ROLE db_datareader ADD MEMBER gradesphereapp_user;
+ALTER ROLE db_datawriter ADD MEMBER gradesphereapp_user;
+```
+
+and in `appsettings.Production.json` use `Server=<sql server>;Database=GradeSphereApp;User Id=gradesphereapp_user;Password=<password>;TrustServerCertificate=True;` (SQL Server must allow SQL Server authentication).
+
+## Building by hand (without GitHub)
 
 ```bash
 cd ExamAPI
-dotnet ef migrations has-pending-model-changes --project ExamAPI
 dotnet ef migrations script --idempotent --project ExamAPI -o deploy/deploy.sql
 dotnet publish ExamAPI/ExamAPI.csproj -c Release -o out/api
-```
-
-`has-pending-model-changes` must say *No changes*. The publish output never contains `appsettings.json` or `appsettings.Development.json` (they hold the demo connection); the server has its own settings file (step 4).
-
-```bash
-cd ExamClient
+cd ../ExamClient
 npm ci
 npm run build:gradesphere
 ```
 
-The website is in `ExamClient/dist` (built for `/gradesphere/` and `/gradesphere-api`, see `.env.gradesphere`; its `web.config` is generated for that path). Plain `npm run build` is the demo build — do not use it here.
-
-Copy to the server: `out/api` → `D:\GradeSphereApp\api`, `dist` → `D:\GradeSphereApp\site`, plus `deploy/deploy.sql`, `deploy/SeedStarterTemplates.sql` and `deploy/appsettings.Production.example.json`.
-
-## 3. Database
-
-In SSMS, connected as an administrator:
-
-1. `CREATE DATABASE GradeSphereApp;` — first check `SELECT name FROM sys.databases;` and leave any existing `GradeSphere` database (the old solution) untouched
-2. Open `deploy.sql`, select database **GradeSphereApp**, run it. (SSMS runs with `QUOTED_IDENTIFIER ON`, which the filtered unique indexes need. With `sqlcmd`, add **`-I`**.)
-3. Create the login the app uses (not `sa`):
-   ```sql
-   CREATE LOGIN gradesphereapp_user WITH PASSWORD = '<strong password>';
-   USE GradeSphereApp;
-   CREATE USER gradesphereapp_user FOR LOGIN gradesphereapp_user;
-   ALTER ROLE db_datareader ADD MEMBER gradesphereapp_user;
-   ALTER ROLE db_datawriter ADD MEMBER gradesphereapp_user;
-   ```
-   The app only reads and writes data; schema changes are always run by an administrator with a reviewed script.
-
-`SeedStarterTemplates.sql` runs in step 6, after the first start.
-
-## 4. API settings
-
-Copy `appsettings.Production.example.json` to `D:\GradeSphereApp\api\appsettings.Production.json` and fill in:
-
-| Setting | What to put |
-|---|---|
-| `ConnectionStrings:DefaultConnection` | `Server=<sql server>;Database=GradeSphereApp;User Id=gradesphereapp_user;Password=<…>;TrustServerCertificate=True;` |
-| `Jwt:Key` | A new random value (never the demo's). PowerShell: `$b = New-Object byte[] 48; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); [Convert]::ToBase64String($b)` |
-| `Storage:UploadsRoot` | `D:\\GradeSphereApp\\uploads` |
-| `EmailSettings` | The SMTP account that sends password-reset codes (server, port, sender address, password). |
-| `Bootstrap:PlatformAdminEmail` / `PlatformAdminPassword` | The platform admin login, created on the first start (password at least 8 characters). |
-
-The API refuses to start without a connection string or with a missing/short `Jwt:Key`. This file is not part of the publish output, so redeploys leave it alone. Keep it out of git.
-
-## 5. IIS
-
-1. Create `D:\GradeSphereApp\uploads` and `D:\GradeSphereApp\api\logs`.
-2. **Application pools:** `GradeSphereApp-API` and `GradeSphereApp-Site` (new names, so nothing of the old solution is reused), both *.NET CLR version: No Managed Code*, pipeline *Integrated*.
-3. Give `IIS AppPool\GradeSphereApp-API` **Modify** on `D:\GradeSphereApp\uploads` and `D:\GradeSphereApp\api\logs`.
-4. Under the `vivacollege.in` site:
-   - **Back up and stop the old `/gradesphere` application first** (copy its folder somewhere safe).
-   - Application **`gradesphere-api`** → `D:\GradeSphereApp\api`, pool `GradeSphereApp-API`.
-   - Application **`gradesphere`** → `D:\GradeSphereApp\site`, pool `GradeSphereApp-Site` (replaces the old application; leave the old pool and folder alone).
-5. First start only: in `D:\GradeSphereApp\api\web.config` set `stdoutLogEnabled="true"` and `stdoutLogFile=".\logs\stdout"`.
-
-## 6. First start
-
-1. Browse `https://vivacollege.in/gradesphere-api/api/Auth/login` once (a 405 or 400 answer is fine — it means the API is up). The first start creates the screen list and the platform admin; `logs\stdout*.log` shows `Startup: created the platform admin …`.
-2. Run `SeedStarterTemplates.sql` against **GradeSphereApp** in SSMS. It adds two starter templates (`TPL-ENG` engineering, `TPL-PHM` pharmacy). They are not colleges: hidden from the college list, no logins. Safe to run again.
-3. Open `https://vivacollege.in/gradesphere`, sign in as the platform admin.
-4. **Remove `Bootstrap:PlatformAdminPassword`** from `appsettings.Production.json`, set `stdoutLogEnabled="false"`, recycle the `GradeSphereApp-API` pool.
-
-## 7. Adding a college
-
-Platform → **New college**. On the Setup step keep the pattern **NEP** and choose **Copy from: Starter: Engineering…** or **Starter: Pharmacy…** — the college gets its own copy of the grade scale and the Regular + ATKT rule sets. Add one or two college admins; they sign in and set up subjects, students and exams.
-
-## 8. Smoke test
-
-Per college: admin sign-in; data of one college not visible from the other; subject + student; regular exam, seat numbers, marks, resolution dialog, process results; gazette, marksheet and hall ticket (banner and signatures); ATKT exam; Statistical Report; dashboard; declare result / release hall ticket; password reset by email; upload a student photo, redeploy, the photo is still there.
-
-## Redeploying a new version
-
-1. Build as in step 2. If the database changed, generate a new idempotent script (`dotnet ef migrations script --idempotent`), review it and run it in SSMS **before** copying the files.
-2. Put an `app_offline.htm` in `D:\GradeSphereApp\api` (IIS stops the app), copy the new `out/api` files over (settings file and uploads are not touched), delete `app_offline.htm`.
-3. Replace the contents of `D:\GradeSphereApp\site` with the new `dist`.
-
-## Notes
-
-- 10 sign-in/OTP attempts per minute and 5 reset mails per 15 minutes are allowed per IP; more get "Too many attempts".
-- Unexpected errors show a generic message to the user; the details go to the log.
-- `Cors:AllowedOrigins` stays empty: the website and the API are on the same host.
+Zip so the layout matches the GitHub artifacts: API zip = `api\` (publish output), `database\` (`deploy.sql`, `CreateDatabase.sql`, `SeedStarterTemplates.sql`), `server\`; site zip = the contents of `dist`.

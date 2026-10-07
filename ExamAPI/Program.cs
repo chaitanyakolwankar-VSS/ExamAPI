@@ -218,6 +218,9 @@ app.UseAuthorization();
 
 app.MapControllers();
 
+// Liveness check for the install (deploy/server/Install-GradeSphere.ps1): no data, no login needed.
+app.MapGet("/api/health", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
+
 app.Run();
 
 
