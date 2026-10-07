@@ -50,6 +50,37 @@ finally { Pop-Location }
 
 if (Test-Path "$apiPkg\api\appsettings.json") { throw "appsettings.json must not be in the publish output" }
 Copy-Item "$apiRepo\deploy\CreateDatabase.sql", "$apiRepo\deploy\SeedStarterTemplates.sql" "$apiPkg\database\"
+
+# One file for SSMS that builds the whole database: database + login, tables, starter templates, access.
+$setup = @(
+    (Get-Content "$apiRepo\deploy\setup\1-header.sql" -Raw),
+    (Get-Content "$apiPkg\database\deploy.sql" -Raw),
+    "GO`r`n`r`n-- ----------------------------------------------------------------------------- starter templates`r`n",
+    (Get-Content "$apiRepo\deploy\SeedStarterTemplates.sql" -Raw),
+    (Get-Content "$apiRepo\deploy\setup\9-footer.sql" -Raw)
+) -join "`r`n"
+$setupFile = Join-Path $Out "GradeSphereApp-Setup.sql"
+[IO.File]::WriteAllText($setupFile, $setup, (New-Object Text.UTF8Encoding $true))
+Copy-Item $setupFile "$apiPkg\database\"
+
+# A ready settings file for the API folder (first install only; never inside the zip, so an update
+# cannot overwrite the server's copy). New random JWT key; the rest is filled in on the server.
+$settingsOut = Join-Path $Out "appsettings.Production.json"
+if (-not (Test-Path $settingsOut)) {
+    $keyBytes = New-Object byte[] 48
+    [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($keyBytes)
+    $config = [ordered]@{
+        Logging           = [ordered]@{ LogLevel = [ordered]@{ Default = "Information"; "Microsoft.AspNetCore" = "Warning"; "Microsoft.EntityFrameworkCore" = "Warning" } }
+        AllowedHosts      = "*"
+        ConnectionStrings = [ordered]@{ DefaultConnection = "Server=localhost;Database=GradeSphereApp;User Id=YOUR_EXISTING_SQL_LOGIN;Password=ITS_PASSWORD;TrustServerCertificate=True;" }
+        Jwt               = [ordered]@{ Key = [Convert]::ToBase64String($keyBytes); Issuer = "GradeSphere"; Audience = "GradeSphere" }
+        Storage           = [ordered]@{ UploadsRoot = "C:\inetpub\gradesphere-uploads" }
+        EmailSettings     = [ordered]@{ SmtpServer = ""; Port = 587; SenderEmail = ""; Password = ""; SenderName = "GradeSphere" }
+        Cors              = [ordered]@{ AllowedOrigins = @() }
+        Bootstrap         = [ordered]@{ PlatformAdminEmail = ""; PlatformAdminPassword = "" }
+    }
+    $config | ConvertTo-Json -Depth 5 | Set-Content -Path $settingsOut -Encoding UTF8
+}
 Copy-Item "$apiRepo\deploy\server\*" "$apiPkg\server\"
 Copy-Item "$apiRepo\deploy\DEPLOY_GUIDE.md", "$apiRepo\deploy\appsettings.Production.example.json" $apiPkg
 Set-Content "$apiPkg\COMMIT.txt" $apiCommit
