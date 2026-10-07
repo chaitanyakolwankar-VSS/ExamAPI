@@ -4,11 +4,13 @@ A fresh install with a new, empty database. The demo (`/ExamSoftware`, `/ExamAPI
 
 | | Value |
 |---|---|
-| Website | `https://vivacollege.in/gradesphere` → folder `C:\inetpub\wwwroot\gradesphere` |
-| API | `https://vivacollege.in/gradesphere-api` → folder `C:\inetpub\wwwroot\gradesphere-api` |
-| Uploads (photos, signatures, logos) | `C:\inetpub\gradesphere-uploads` (outside the website folders, so an update never deletes them) |
+| Website | `https://www.vivacollege.in/gradesphereapp` → folder `D:\website\GradeSphereApp\GradeSphereClient` |
+| API | `https://www.vivacollege.in/gradesphereapi` → folder `D:\website\GradeSphereApp\GradeSphereApi` |
+| Uploads (photos, signatures, logos) | `D:\website\GradeSphereApp\GradeSphereUplodes` — not an IIS application; only the API reads and writes it |
 | Database | `GradeSphereApp`, used through your **existing** SQL login |
-| IIS app pools | `GradeSphereApp-Site`, `GradeSphereApp-API` |
+| IIS app pools | `GradeSphereApi`, `GradeSphereClient` (both *No Managed Code*) |
+
+The website and the API are under the same host, so the browser calls the API at `/gradesphereapi` directly; CORS is not involved (the settings still allow `vivacollege.in` and `www.vivacollege.in`).
 
 ## 0. On the development PC: build
 
@@ -18,9 +20,9 @@ powershell -ExecutionPolicy Bypass -File D:\Projects\ReactApi\ExamAPI\deploy\Bui
 
 `D:\Projects\ReactApi\_deploy` then holds:
 
-- `gradesphere-api-<date>.zip` — the API (folder `api\`) and the database files (folder `database\`)
-- `gradesphere-site-<date>.zip` — the website
-- `GradeSphereApp-Setup.sql` — the one database file (also inside the API zip)
+- `GradeSphereApi-<date>.zip` — the API; extract it **straight into** `GradeSphereApi` (`ExamAPI.dll` and `web.config` end up directly in that folder)
+- `GradeSphereClient-<date>.zip` — the website; extract it straight into `GradeSphereClient` (`index.html`, `assets`, `web.config`)
+- `GradeSphereApp-Setup.sql` — the whole database, for SSMS
 - `appsettings.Production.json` — the API's settings, with a new random login key (made once; keep it)
 
 Copy them to the server (Remote Desktop: copy on the PC, paste on the server).
@@ -42,35 +44,50 @@ It creates only the database `GradeSphereApp`, its tables and the Engineering + 
 
 ## 3. Files
 
-1. Create the folders `C:\inetpub\wwwroot\gradesphere`, `C:\inetpub\wwwroot\gradesphere-api` and `C:\inetpub\gradesphere-uploads`.
-2. If `/gradesphere` holds the old solution: copy its folder somewhere safe first.
-3. Unzip **gradesphere-site** → put its contents (`index.html`, `assets`, `web.config`, …) into `C:\inetpub\wwwroot\gradesphere`.
-4. Unzip **gradesphere-api** → put the contents of its **`api`** folder (`ExamAPI.dll`, `web.config`, …) into `C:\inetpub\wwwroot\gradesphere-api`.
-5. Put `appsettings.Production.json` into `C:\inetpub\wwwroot\gradesphere-api` and edit it in Notepad:
-   - `ConnectionStrings` → `Server=` your SQL Server (e.g. `localhost` or `.\SQLEXPRESS`), `User Id=` the login from step 2, `Password=` its password.
-   - `Bootstrap` → `PlatformAdminEmail` and `PlatformAdminPassword`: the platform admin, the login that adds colleges (an email address you can receive mail at).
-   - Leave `Jwt` and `Storage` as they are; `EmailSettings` stays empty until email is set up (section 6).
-6. Optional, recommended for the first start: in `C:\inetpub\wwwroot\gradesphere-api\web.config` set `stdoutLogEnabled="true"` and create the folder `C:\inetpub\wwwroot\gradesphere-api\logs` — any start-up error is then written there.
+1. Extract `GradeSphereApi-<date>.zip` into `D:\website\GradeSphereApp\GradeSphereApi`, and `GradeSphereClient-<date>.zip` into `D:\website\GradeSphereApp\GradeSphereClient`. (If Windows creates an extra inner folder, move its contents up one level.)
+2. Put `appsettings.Production.json` into `GradeSphereApi` and edit it in Notepad:
+   - `ConnectionStrings` → `Server=` the SQL Server as the web server sees it (its LAN address, add `,port` or `\instance` if it is not the default), `User Id=` the login from step 2, `Password=` its password.
+   - `Bootstrap` → `PlatformAdminEmail` and `PlatformAdminPassword`: the platform admin, the login that adds colleges.
+   - `Storage:UploadsRoot` must be the uploads folder's exact path (written as `D:\\website\\GradeSphereApp\\GradeSphereUplodes` — double backslashes in this file).
+   - Leave `Jwt` as it is; `EmailSettings` stays empty until email is set up (section 6).
+3. Optional, recommended for the first start: create `GradeSphereApi\logs` and in `GradeSphereApi\web.config` set `stdoutLogEnabled="true"` — any start-up error is then written there.
 
-## 4. IIS Manager
+## 4. IIS
 
-1. **Application Pools → Add Application Pool**, twice: `GradeSphereApp-API` and `GradeSphereApp-Site`, both *.NET CLR version: No Managed Code*, *Integrated*.
-2. Under the site for vivacollege.in (the one with `/ExamSoftware`): **Add Application**
-   - Alias `gradesphere-api`, pool `GradeSphereApp-API`, path `C:\inetpub\wwwroot\gradesphere-api`
-   - Alias `gradesphere`, pool `GradeSphereApp-Site`, path `C:\inetpub\wwwroot\gradesphere`
-   (If `gradesphere` already exists from the old solution: select it → *Basic Settings* → change the path and pool.)
-3. Folder rights (right-click the folder → Properties → Security → Edit → Add → type the name → OK):
-   - `C:\inetpub\gradesphere-uploads`: `IIS AppPool\GradeSphereApp-API` → **Modify**
-   - `C:\inetpub\wwwroot\gradesphere-api\logs` (if created): `IIS AppPool\GradeSphereApp-API` → **Modify**
+PowerShell **as Administrator** on the server (change `$site` if the vivacollege.in site has another name — `Get-Website` lists them):
+
+```powershell
+$site = "Default Web Site"
+$root = "D:\website\GradeSphereApp"
+Import-Module WebAdministration
+
+foreach ($p in "GradeSphereApi", "GradeSphereClient") {
+    if (-not (Test-Path "IIS:\AppPools\$p")) { New-WebAppPool $p | Out-Null }
+    Set-ItemProperty "IIS:\AppPools\$p" managedRuntimeVersion ""
+}
+New-WebApplication -Site $site -Name gradesphereapi -PhysicalPath "$root\GradeSphereApi" -ApplicationPool GradeSphereApi
+New-WebApplication -Site $site -Name gradesphereapp -PhysicalPath "$root\GradeSphereClient" -ApplicationPool GradeSphereClient
+
+# IIS may read the two application folders; only the API may write uploads (and its logs).
+icacls "$root\GradeSphereApi" /grant "IIS_IUSRS:(OI)(CI)RX" "IUSR:(OI)(CI)RX"
+icacls "$root\GradeSphereClient" /grant "IIS_IUSRS:(OI)(CI)RX" "IUSR:(OI)(CI)RX"
+icacls "$root\GradeSphereUplodes" /grant "IIS AppPool\GradeSphereApi:(OI)(CI)M"
+if (Test-Path "$root\GradeSphereApi\logs") { icacls "$root\GradeSphereApi\logs" /grant "IIS AppPool\GradeSphereApi:(OI)(CI)M" }
+```
+
+Or by hand in IIS Manager: two app pools (*No Managed Code*), *Add Application* twice under the site (alias `gradesphereapi` → `GradeSphereApi` folder and pool; alias `gradesphereapp` → `GradeSphereClient` folder and pool), and on `GradeSphereUplodes` → Properties → Security → Edit → Add `IIS AppPool\GradeSphereApi` → **Modify**.
+
+**How uploads work:** the API saves every photo, signature and logo under `Storage:UploadsRoot` and creates the subfolders itself. The folder does not need to be inside the API or under any website — the browser never opens it; files are only handed out by the API (`/gradesphereapi/api/Files/…`) to signed-in users. Being outside `GradeSphereApi`, it survives every update of the API files.
 
 ## 5. First start
 
-1. Open `https://vivacollege.in/gradesphere-api/api/health` → `{"status":"ok"}`. This first start also creates the platform admin.
-2. Open `https://vivacollege.in/gradesphere` and sign in as the platform admin.
+1. Open `https://www.vivacollege.in/gradesphereapi/api/health` → `{"status":"ok"}`. This first start also creates the platform admin.
+2. Open `https://www.vivacollege.in/gradesphereapp` and sign in as the platform admin.
 3. In `appsettings.Production.json` set `"PlatformAdminPassword": ""` and save (the admin already exists; the setting is only read on a start with no platform admin).
 4. Platform → **New college**: pattern **NEP**, *Copy from: Starter: Engineering…* (or Pharmacy), branches, academic year, college admin(s).
+5. Upload a college logo or a student photo once, and check a file appeared in `GradeSphereUplodes`.
 
-**If the health page shows an error (500.x):** read the newest file in `C:\inetpub\wwwroot\gradesphere-api\logs`. Most common: wrong `Server=`, login name or password in `appsettings.Production.json`, or the login was not given on the `>>>` line.
+**If the health page shows an error (500.x):** read the newest file in `GradeSphereApi\logs`. Most common: wrong `Server=`, login name or password in `appsettings.Production.json`, or the login was not given on the `>>>` line.
 
 ## 6. Email for password reset (later)
 
@@ -83,13 +100,9 @@ Gmail: turn on 2-Step Verification on the sending account, create an **App Passw
 ## Installing a new version
 
 1. Build again on the PC (step 0).
-2. On the server, put a file named `app_offline.htm` into `C:\inetpub\wwwroot\gradesphere-api` (IIS stops the API).
+2. On the server, put a file named `app_offline.htm` into `GradeSphereApi` (IIS stops the API).
 3. Replace the files of both folders with the new zips' contents — **keep** `appsettings.Production.json` (and `logs`).
 4. Delete `app_offline.htm`.
 5. Run the new `GradeSphereApp-Setup.sql` in SSMS (same login name on the `>>>` line) — it only adds what changed.
 
-The photos and signatures in `C:\inetpub\gradesphere-uploads` are not affected by updates.
-
----
-
-*Alternative:* `server\Install-GradeSphere.ps1` (inside the API zip) does steps 3–4 automatically into `D:\GradeSphereApp\…`; see its header.
+`GradeSphereUplodes` is not touched by updates.

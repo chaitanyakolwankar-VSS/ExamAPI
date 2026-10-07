@@ -85,7 +85,7 @@ QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
 // JWT Authentication
 // A missing or short signing key must stop the start, not produce tokens anyone could forge.
 var jwtKey = builder.Configuration["Jwt:Key"];
-if (string.IsNullOrWhiteSpace(jwtKey) || Encoding.UTF8.GetByteCount(jwtKey) < 32)
+if (string.IsNullOrWhiteSpace(jwtKey) || Encoding.UTF8.GetByteCount(jwtKey) < 32 || jwtKey.StartsWith("CHANGE_ME"))
     throw new InvalidOperationException("Jwt:Key must be set to a random value of at least 32 characters.");
 if (string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("DefaultConnection")))
     throw new InvalidOperationException("ConnectionStrings:DefaultConnection is not set.");
@@ -218,7 +218,7 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-// Liveness check for the install (deploy/server/Install-GradeSphere.ps1): no data, no login needed.
+// Liveness check after an install (/gradesphereapi/api/health): no data, no login needed.
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
 
 app.Run();
