@@ -6,6 +6,7 @@ using ExamAPI.Services.Email;
 using ExamAPI.Services.PasswordResetOTP;
 using ExamAPI.Services.Result.Engine;
 using ExamAPI.Services.RoleMaster;
+using ExamAPI.Services.StudentAssignRpt;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
@@ -14,7 +15,6 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using OfficeOpenXml;
 using System.Text;
-using System.Text; 
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
@@ -67,6 +67,7 @@ builder.Services.AddScoped<ExamAPI.Services.MarksEntry.IMarksEntryService, ExamA
 builder.Services.AddScoped<ExamAPI.Services.Report.IReportService, ExamAPI.Services.Report.ReportService>();
 builder.Services.AddScoped<ExamAPI.Services.ReleaseHallTicket.IReleaseHallticketService, ExamAPI.Services.ReleaseHallTicket.ReleaseHallticketService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
+builder.Services.AddScoped<IStudentAssignRptService, StudentAssignRptService>();
 builder.Services.AddOrdinanceEngine();
 
 
