@@ -81,6 +81,7 @@ if (-not (Test-Path $settingsOut)) {
         Storage           = [ordered]@{ UploadsRoot = $UploadsRoot }
         EmailSettings     = [ordered]@{ SmtpServer = ""; Port = 587; SenderEmail = ""; Password = ""; SenderName = "GradeSphere" }
         Cors              = [ordered]@{ AllowedOrigins = @("https://vivacollege.in", "https://www.vivacollege.in") }
+        KeepAlive         = [ordered]@{ Url = "https://www.vivacollege.in/gradesphereapi/api/health" }
         Bootstrap         = [ordered]@{ PlatformAdminEmail = ""; PlatformAdminPassword = "" }
     }
     $config | ConvertTo-Json -Depth 5 | Set-Content -Path $settingsOut -Encoding UTF8

@@ -89,6 +89,10 @@ Set-ItemProperty "IIS:\Sites\$site\gradesphereapi" preloadEnabled True
 
 The API then warms its sign-in path by itself right after every start.
 
+**Without IIS admin rights** (files only), two things do most of it:
+- `appsettings.Production.json` → `"KeepAlive": { "Url": "https://www.vivacollege.in/gradesphereapi/api/health" }`: the API calls its own health check every 10 minutes, so IIS never sees it idle. If the API log shows "Keep-alive: … could not be reached" (some servers cannot reach their own public address), try `http://localhost/gradesphereapi/api/health`.
+- The sign-in page wakes the API as soon as it opens, so after a nightly IIS restart the API starts while the first person is still typing.
+
 Or by hand in IIS Manager: two app pools (*No Managed Code*), *Add Application* twice under the site (alias `gradesphereapi` → `GradeSphereApi` folder and pool; alias `gradesphereapp` → `GradeSphereClient` folder and pool), and on `GradeSphereUplodes` → Properties → Security → Edit → Add `IIS AppPool\GradeSphereApi` → **Modify**.
 
 **How uploads work:** the API saves every photo, signature and logo under `Storage:UploadsRoot` and creates the subfolders itself. The folder does not need to be inside the API or under any website — the browser never opens it; files are only handed out by the API (`/gradesphereapi/api/Files/…`) to signed-in users. Being outside `GradeSphereApi`, it survives every update of the API files.
