@@ -75,6 +75,20 @@ icacls "$root\GradeSphereUplodes" /grant "IIS AppPool\GradeSphereApi:(OI)(CI)M"
 if (Test-Path "$root\GradeSphereApi\logs") { icacls "$root\GradeSphereApi\logs" /grant "IIS AppPool\GradeSphereApi:(OI)(CI)M" }
 ```
 
+**Keep the API awake** (otherwise IIS stops it after 20 idle minutes and restarts it every 29 hours, and the next person to sign in waits several seconds for it to start):
+
+```powershell
+Install-WindowsFeature Web-AppInit                       # "Application Initialization": starts the API without waiting for a visitor
+$pool = "IIS:\AppPools\GradeSphereApi"
+Set-ItemProperty $pool startMode AlwaysRunning
+Set-ItemProperty $pool processModel.idleTimeout ([TimeSpan]::Zero)          # never stop when idle
+Set-ItemProperty $pool recycling.periodicRestart.time ([TimeSpan]::Zero)    # no restart every 29 hours ...
+Set-ItemProperty $pool -Name recycling.periodicRestart.schedule -Value @{value = "03:00:00"}   # ... one at 3 am instead
+Set-ItemProperty "IIS:\Sites\$site\gradesphereapi" preloadEnabled True
+```
+
+The API then warms its sign-in path by itself right after every start.
+
 Or by hand in IIS Manager: two app pools (*No Managed Code*), *Add Application* twice under the site (alias `gradesphereapi` → `GradeSphereApi` folder and pool; alias `gradesphereapp` → `GradeSphereClient` folder and pool), and on `GradeSphereUplodes` → Properties → Security → Edit → Add `IIS AppPool\GradeSphereApi` → **Modify**.
 
 **How uploads work:** the API saves every photo, signature and logo under `Storage:UploadsRoot` and creates the subfolders itself. The folder does not need to be inside the API or under any website — the browser never opens it; files are only handed out by the API (`/gradesphereapi/api/Files/…`) to signed-in users. Being outside `GradeSphereApi`, it survives every update of the API files.
