@@ -20,6 +20,10 @@ namespace ExamAPI.Services.AssignSeatNo
         {
             try
             {
+                // A revaluation exam keeps the seat numbers of the exam it revalues (the picker hides it; checked here too).
+                if (await IsRevaluationAsync(dto.ExamId))
+                    return new List<AssignSeatNoStudents>();
+
                 var students = _context.MarksMasters.Join(_context.StudentMasters, mm => mm.StdMstId, sm => sm.StdMstId, (mm, sm) => new {mm,sm}).Where(a=>a.mm.SemesterId==dto.Semester && a.mm.ExamId==dto.ExamId && a.mm.AcademicYearAYID==dto.Ayid && a.mm.Pattern == dto.Pattern).Select( s=>new AssignSeatNoStudents { MarksId = s.mm.MarksId, StudentId = s.mm.StudentID, StudentName = s.sm.FirstName + ' ' + s.sm.MiddleName + ' ' + s.sm.LastName,SeatNo=s.mm.SeatNo ??"" ,QuotaType= s.mm.QuotaType ?? "" } ).OrderBy(x => x.StudentId);
                 return students.ToList();
             }
@@ -28,6 +32,9 @@ namespace ExamAPI.Services.AssignSeatNo
                 throw;
             }
         }
+
+        private Task<bool> IsRevaluationAsync(Guid examId) =>
+            _context.Exams.AnyAsync(e => e.ExamId == examId && e.RevaluationForExamId != null);
 
         public async Task<ApiResponseDto<object>> UpdateSeatNo(SaveSeatNoRequest dto)
         {
@@ -57,6 +64,16 @@ namespace ExamAPI.Services.AssignSeatNo
                 var marksMasters = await _context.MarksMasters
                     .Where(x => ids.Contains(x.MarksId))
                     .ToListAsync();
+
+                var examIds = marksMasters.Select(x => x.ExamId).Distinct().ToList();
+                if (await _context.Exams.AnyAsync(e => examIds.Contains(e.ExamId) && e.RevaluationForExamId != null))
+                {
+                    return new ApiResponseDto<object>
+                    {
+                        Success = false,
+                        Message = "Seat numbers cannot be changed on a revaluation exam; it keeps the seat numbers of the exam it revalues."
+                    };
+                }
 
                 foreach (var student in dto.Students)
                 {
