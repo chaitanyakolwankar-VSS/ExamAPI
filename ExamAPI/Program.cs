@@ -6,6 +6,7 @@ using ExamAPI.Services.Email;
 using ExamAPI.Services.PasswordResetOTP;
 using ExamAPI.Services.Result.Engine;
 using ExamAPI.Services.RoleMaster;
+using ExamAPI.Services.StudentAssignRpt;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
@@ -73,6 +74,7 @@ builder.Services.AddScoped<ExamAPI.Services.StudentPromotion.IStudentPromotionSe
 builder.Services.AddScoped<ExamAPI.Services.ReleaseHallTicket.IReleaseHallticketService, ExamAPI.Services.ReleaseHallTicket.ReleaseHallticketService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<ExamAPI.Services.Lookup.ILookupService, ExamAPI.Services.Lookup.LookupService>();
+builder.Services.AddScoped<IStudentAssignRptService, StudentAssignRptService>();
 builder.Services.AddOrdinanceEngine();
 
 
