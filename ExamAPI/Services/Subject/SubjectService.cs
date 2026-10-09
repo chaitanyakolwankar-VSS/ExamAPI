@@ -18,17 +18,6 @@ namespace ExamAPI.Services.Subject
             _context = context;
             _genericRepository = genericRepository;
         }
-        public async Task<List<SubjectDtos>> GetSubjectsAsync(GetSubjectReqDtos dto)
-        {
-
-            // Kept for the obsolete GET /Subject/get-subjects; the predicate lives in LookupService.SubjectsQuery.
-            var subjects = await Lookup.LookupService.SubjectsQuery(_context, dto.CourseId, dto.Pattern, dto.Semester).Select(s => new SubjectDtos
-            {
-                SubjectId = s.SubjectId,
-                SubjectName = s.Name
-            }).ToListAsync();
-            return subjects;
-        }
         public async Task<ApiResponseDto<object>> CreateSubjectAsync(CreateSubjectDto dto)
         {
             // 🔹 Transaction start

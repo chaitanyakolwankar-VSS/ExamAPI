@@ -31,34 +31,6 @@ namespace ExamAPI.Services.Result
             _logger = logger;
         }
 
-        /// <summary>
-        /// Exams of a course (optionally one academic year) for Apply Grace Marks / result processing.
-        /// <paramref name="semId"/> and <paramref name="pattern"/> are accepted for compatibility but
-        /// IGNORED: ExamMaster.Semester is never written (Exam Master creates exams without one), so
-        /// filtering on it hid every exam (T-25). The semester is chosen separately by the caller.
-        /// </summary>
-        public async Task<IEnumerable<ExamOptionDto>> GetExamsAsync(Guid branchId, string semId, string pattern, Guid collegeId, Guid? ayid = null)
-        {
-            // With an academic year this is exactly ExamPurposes.Process (course + AY); without one it is
-            // every exam of the course. The explicit college check stays as defence in depth.
-            var query = ayid.HasValue && ayid.Value != Guid.Empty
-                ? ExamPurposes.Query(_context, ExamPurposes.Process, branchId, ayid.Value, null)!
-                : _context.Exams.Where(e => e.CourseId == branchId);
-
-            query = query.Where(e => e.Course != null && e.Course.CollegeId == collegeId && !e.IsDeleted);
-
-            var exams = await query
-                .Select(e => new ExamOptionDto
-                {
-                    ExamId = e.ExamId,
-                    ExamCode = e.ExamId.ToString(),
-                    ExamName = e.Name
-                })
-                .ToListAsync();
-
-            return exams;
-        }
-
         public async Task<ApiResponseDto<object>> ProcessResultsAsync(ProcessResultRequest request, Guid collegeId)
         {
             try

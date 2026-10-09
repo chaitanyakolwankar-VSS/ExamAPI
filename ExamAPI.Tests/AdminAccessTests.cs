@@ -153,7 +153,6 @@ public sealed class AdminAccessTests
     [InlineData(typeof(UserMasterController), "GetById")]        // GetAll/{id}: reset-password modal reads the caller's own user
     [InlineData(typeof(UserMasterController), "ChangePassword")] // self-service, guarded by the current password
     [InlineData(typeof(CollegeDetailController), "Get")]         // own college name/branding
-    [InlineData(typeof(StudentMasterController), "GetData")]
     [InlineData(typeof(StudentMasterController), "SaveStudent")]
     [InlineData(typeof(StudentMasterController), "UpdateStudent")]
     public void Endpoints_used_by_normal_staff_screens_are_not_admin_locked(Type controller, string action)

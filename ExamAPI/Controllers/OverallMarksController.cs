@@ -21,26 +21,6 @@ namespace ExamAPI.Controllers
             _resultService = resultService;
         }
 
-        // Duplicate of the shared lookup layer; kept for team branches, remove after they migrate (T-19 D).
-        [Obsolete("Use /api/Lookup/exams?purpose=process -- kept for team branches; remove after they migrate (T-19 D)")]
-        [HttpGet("Exams")]
-        public async Task<IActionResult> GetExams(Guid branchId, string semId, string pattern, Guid? ayid)
-        {
-            var collegeIdClaim = User.FindFirstValue("CollegeId");
-            if (string.IsNullOrEmpty(collegeIdClaim) || !Guid.TryParse(collegeIdClaim, out var collegeId))
-            {
-                return Unauthorized(new ApiResponseDto<object> { Success = false, Message = "Invalid or missing CollegeId in token." });
-            }
-
-            var exams = await _resultService.GetExamsAsync(branchId, semId, pattern, collegeId, ayid);
-            return Ok(new ApiResponseDto<IEnumerable<ExamOptionDto>> 
-            { 
-                Success = true, 
-                Data = exams, 
-                Message = "Exams fetched successfully." 
-            });
-        }
-
         [HttpPost("Process")]
         public async Task<IActionResult> ProcessResults([FromBody] ProcessResultRequest request)
         {

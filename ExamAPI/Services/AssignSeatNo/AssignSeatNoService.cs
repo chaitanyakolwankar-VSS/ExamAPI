@@ -16,18 +16,6 @@ namespace ExamAPI.Services.AssignSeatNo
             _genericRepository = genericRepository;
         }
 
-        // Kept for the obsolete GET /AssignSeatNo/get-exam. Predicate = ExamPurposes.SeatNo.
-        // Kept for the obsolete GET /AssignSeatNo/get-exam. Predicate = ExamPurposes.SeatNo.
-        public async Task<List<ExamResponse>> GetExam(GetAssignSeatNoExam dto)
-        {
-            return await ExamPurposes.Query(_context, ExamPurposes.SeatNo, dto.Courseid, dto.Ayid, dto.Semester)!
-                .Select(a => new ExamResponse
-                {
-                    ExamId = a.ExamId,
-                    Examname = a.RevaluationForExamId != null ? a.Name + " (Revaluation)" : a.Name,
-                })
-                .ToListAsync();
-        }
         public async Task<List<AssignSeatNoStudents>> GetStudents(GetAssignSeatNoStudents dto)
         {
             try

@@ -8,7 +8,6 @@ namespace ExamAPI.Services.StudentMasters
     public interface IStudentMasterService
 
     {
-         Task<List<StudentMasterDto>> GetDataAsync([FromQuery] Guid ayid);
         //Task<string> SaveStudentAsync(Savedata dto); 
         Task<string> SaveStudentAsync(Savedata dto);
         Task<List<FetchData>> GetbycourseAsync(Guid courseId, Guid ayid);

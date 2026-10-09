@@ -21,15 +21,6 @@ namespace ExamAPI.Controllers
             var result = await _examService.CreateExamAsync(request);
             return Ok(result);
         }
-        // GET EXAMS
-        // Duplicate of the shared lookup layer; kept for team branches, remove after they migrate (T-19 D).
-        [Obsolete("Use /api/Lookup/exams?purpose=master -- kept for team branches; remove after they migrate (T-19 D)")]
-        [HttpGet("get-exam")]
-        public async Task<IActionResult> GetExam([FromQuery] GetExam request)
-        {
-            var result = await _examService.GetExam(request);
-            return Ok(result);
-        }
         // SEARCH EXAMS
         [HttpGet("search-exam")]
         public async Task<IActionResult> SearchExam([FromQuery] Exams request)

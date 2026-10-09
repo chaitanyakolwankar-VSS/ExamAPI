@@ -33,10 +33,4 @@ namespace ExamAPI.DTOs
         public Dictionary<string, string> SubjectMarks { get; set; } = new Dictionary<string, string>();
     }
 
-    public class ExamOptionDto
-    {
-        public Guid ExamId { get; set; }
-        public string ExamCode { get; set; }
-        public string ExamName { get; set; }
-    }
 }

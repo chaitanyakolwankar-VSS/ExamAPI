@@ -60,32 +60,6 @@ namespace ExamAPI.Services.RegularExam
             }
         }
 
-        // Kept for the obsolete GET /RegularExam/get-exam. Predicate = ExamPurposes.HallTicket
-        // (active, non-revaluation; ATKT exams included) -- the same filter this method always had.
-        // Kept for the obsolete GET /RegularExam/get-exam. Predicate = ExamPurposes.HallTicket
-        // (active, non-revaluation; ATKT exams included) -- the same filter this method always had.
-        public async Task<List<RegularExamResponse>> GetExam(GetExam dto)
-        {
-            return await ExamPurposes.Query(_context, ExamPurposes.HallTicket, dto.Courseid, dto.Ayid, null)!
-                .Select(a => new RegularExamResponse
-                {
-                    ExamId = a.ExamId,
-                    Examname = a.RevaluationForExamId != null ? a.Name + " (Revaluation)" : a.Name,
-                })
-                .ToListAsync();
-        }
-
-        // Kept for the obsolete GET /RegularExam/get-all-exams. Predicate = ExamPurposes.All.
-        public async Task<List<RegularExamResponse>> GetAllExams(GetExam dto)
-        {
-            return await ExamPurposes.Query(_context, ExamPurposes.All, dto.Courseid, dto.Ayid, null)!
-                .Select(a => new RegularExamResponse
-                {
-                    ExamId = a.ExamId,
-                    Examname = a.RevaluationForExamId != null ? a.Name + " (Revaluation)" : a.Name,
-                })
-                .ToListAsync();
-        }
         public async Task<RegularStudentResponse> GetStudents(RegularExamStudents dto)
         {
             try

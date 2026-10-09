@@ -5,7 +5,6 @@ namespace ExamAPI.Services.Subject
 {
     public interface ISubjectService
     {
-        Task<List<SubjectDtos>> GetSubjectsAsync(GetSubjectReqDtos dto);
         Task<ApiResponseDto<object>> CreateSubjectAsync(CreateSubjectDto dto);
         Task<ApiResponseDto<object>> SaveCreditAsync(SaveCreditsDto dto);
         Task<List<CreditDto>> GetSubjectCreditAsync(GetCredits dto);

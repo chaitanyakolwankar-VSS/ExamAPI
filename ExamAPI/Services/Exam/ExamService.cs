@@ -133,21 +133,6 @@ namespace ExamAPI.Services.Exam
             }
         }
 
-        // Kept for the obsolete GET /ExamMaster/get-exam. Predicate = ExamPurposes.Master.
-        // Kept for the obsolete GET /ExamMaster/get-exam. Predicate = ExamPurposes.Master.
-        public async Task<List<GetExamResponse>> GetExam(GetExam dto)
-        {
-            return await ExamPurposes.Query(_context, ExamPurposes.Master, dto.Courseid, dto.Ayid, null)!
-                .Where(a => !a.IsDeleted)
-                .Select(a => new GetExamResponse
-                {
-                    ExamId = a.ExamId,
-                    Name = a.RevaluationForExamId != null ? a.Name + " (Revaluation)" : a.Name,
-                    ExamType = a.ExamType,
-                    IsActive = a.IsActive,
-                })
-                .ToListAsync();
-        }
 
         public async Task<ApiResponseDto<object>> SearchExam(Exams dto)
         {

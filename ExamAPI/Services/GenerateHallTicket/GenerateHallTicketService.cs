@@ -15,18 +15,6 @@ namespace ExamAPI.Services.GenerateHallTicket
             _context = context;
         }
 
-        // Kept for the obsolete GET /GenerateHallTicket/get-exam. Predicate = ExamPurposes.HallTicket.
-        // Kept for the obsolete GET /GenerateHallTicket/get-exam. Predicate = ExamPurposes.HallTicket.
-        public async Task<List<RegularExamResponse>> GetExam(GetExam dto)
-        {
-            return await ExamPurposes.Query(_context, ExamPurposes.HallTicket, dto.Courseid, dto.Ayid, null)!
-                .Select(a => new RegularExamResponse
-                {
-                    ExamId = a.ExamId,
-                    Examname = a.RevaluationForExamId != null ? a.Name + " ( " + a.ExamType + " )" + " (Revaluation)" : a.Name + " ( " + a.ExamType + " )",
-                })
-                .ToListAsync();
-        }
         public async Task<List<HallTicketSubjects>> GetHallTicketSubject(HallTicketSubjectsRequest dto)
         {
             try

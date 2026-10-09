@@ -3,12 +3,6 @@ using System.ComponentModel.DataAnnotations;
 
 namespace ExamAPI.DTOs
 {
-    public class StudentMasterDto
-    {
-
-        public required string Name { get; set; }
-        public Guid CourseId { get; set; }
-    }
     public class Savedata
     {
 

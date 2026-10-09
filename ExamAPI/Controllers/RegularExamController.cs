@@ -16,22 +16,6 @@ namespace ExamAPI.Controllers
         {
             _RegularExamService = regularExamService;
         }
-        // Duplicate of the shared lookup layer; kept for team branches, remove after they migrate (T-19 D).
-        [Obsolete("Use /api/Lookup/exams?purpose=hallTicket -- kept for team branches; remove after they migrate (T-19 D)")]
-        [HttpGet("get-exam")]
-        public  async Task<IActionResult> Get([FromQuery] GetExam request)
-        {
-            var result=await _RegularExamService.GetExam(request);
-            return Ok(result);
-        }
-        // Duplicate of the shared lookup layer; kept for team branches, remove after they migrate (T-19 D).
-        [Obsolete("Use /api/Lookup/exams?purpose=all -- kept for team branches; remove after they migrate (T-19 D)")]
-        [HttpGet("get-all-exams")]
-        public async Task<IActionResult> GetAll([FromQuery] GetExam request)
-        {
-            var result = await _RegularExamService.GetAllExams(request);
-            return Ok(result);
-        }
         [HttpPost("get-credit")]
         public async Task<IActionResult> GetCredit([FromBody] CheckCredits request)
         {

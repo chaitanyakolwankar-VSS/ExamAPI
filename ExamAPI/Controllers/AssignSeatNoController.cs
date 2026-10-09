@@ -14,14 +14,6 @@ namespace ExamAPI.Controllers
         {
             _AssignSeatNoService = AssignSeatNoService;
         }
-        // Duplicate of the shared lookup layer; kept for team branches, remove after they migrate (T-19 D).
-        [Obsolete("Use /api/Lookup/exams?purpose=seatNo -- kept for team branches; remove after they migrate (T-19 D)")]
-        [HttpGet("get-exam")]
-        public async Task<IActionResult> Get([FromQuery] GetAssignSeatNoExam request)
-        {
-            var result = await _AssignSeatNoService.GetExam(request);
-            return Ok(result);
-        }
         [HttpGet("get-assignseatnostudents")]
         public async Task<IActionResult> GetAssignSeatNoStudents([FromQuery] GetAssignSeatNoStudents request)
         {

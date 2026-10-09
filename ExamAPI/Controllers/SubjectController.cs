@@ -27,15 +27,6 @@ namespace ExamAPI.Controllers
             var result = await _subjectService.CreateSubjectAsync(request);
             return Ok(result);
         }
-        // GET SUBJECTS
-        // Duplicate of the shared lookup layer; kept for team branches, remove after they migrate (T-19 D).
-        [Obsolete("Use /api/Lookup/subjects -- kept for team branches; remove after they migrate (T-19 D)")]
-        [HttpGet("get-subjects")]
-        public async Task<IActionResult> GetSubjects([FromQuery] GetSubjectReqDtos dto)
-        {
-            var result = await _subjectService.GetSubjectsAsync(dto);
-            return Ok(result);
-        }
         [HttpPost("save-credits")]
         public async Task<IActionResult> SaveCredits([FromBody] SaveCreditsDto dto)
         {

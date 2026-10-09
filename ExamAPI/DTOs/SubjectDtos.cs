@@ -2,17 +2,6 @@
 
 namespace ExamAPI.DTOs
 {
-    public class SubjectDtos
-    {
-        public Guid SubjectId { get; set; }
-        public string SubjectName { get; set; }
-    }
-    public class GetSubjectReqDtos
-    {
-        public Guid CourseId { get; set; }
-        public string Pattern { get; set; }
-        public string Semester { get; set; }
-    }
     public class CreateSubjectDto
     {
         [Required]

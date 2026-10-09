@@ -26,20 +26,6 @@ namespace ExamAPI.Services.StudentMasters
             _storage = storage;
         }
 
-        public async Task<List<StudentMasterDto>> GetDataAsync(Guid ayid)
-        {
-            var branches = await _context.CourseMasters
-                .Where(c => !c.IsDeleted)
-                .OrderBy(c => c.Name)
-                .Select(c => new StudentMasterDto
-                {
-                    CourseId = c.CourseId,
-                    Name = c.Name
-                })
-                .ToListAsync();
-
-            return branches;
-        }
         private async Task<string> GenerateStudentIdAsync(Guid courseId, Guid ayid)
         {
             // 1️⃣ Get Current Academic Year

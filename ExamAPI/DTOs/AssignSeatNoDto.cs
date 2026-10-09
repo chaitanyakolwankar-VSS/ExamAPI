@@ -3,17 +3,6 @@
     public class AssignSeatNoDto
     {
     }
-    public class GetAssignSeatNoExam
-    {
-        public Guid Courseid { get; set; }
-        public Guid Ayid { get; set; }
-        public string Semester { get; set; }
-    }
-    public class ExamResponse
-    {
-        public Guid ExamId { get; set; }
-        public string Examname { get; set; }
-    }
     public class GetAssignSeatNoStudents
     {
         public Guid CourseId { get; set; }
