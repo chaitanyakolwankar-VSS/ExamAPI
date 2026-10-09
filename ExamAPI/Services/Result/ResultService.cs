@@ -127,22 +127,24 @@ namespace ExamAPI.Services.Result
                     .ToListAsync();
                 var resolutionLimits = ResolutionDerivation.ParseLimits(resolutionRows);
 
-                // 5. Process each student
+                // 5. Process each student. Everything a student's result needs is loaded for the whole class in
+                // one batch (one split query per related table), not one round of queries per student.
+                var marksIds = marksRecords.Select(mm => mm.MarksId).ToList();
+                var fullRecords = await _context.MarksMasters
+                    .Include(m => m.Student)
+                    .Include(m => m.StudentMarks)
+                        .ThenInclude(sm => sm.Subject)
+                    .Include(m => m.StudentMarks)
+                        .ThenInclude(sm => sm.CreditMaster)
+                            .ThenInclude(cm => cm.Credits)
+                    .Include(m => m.SubjectResults)
+                    .AsSplitQuery()
+                    .Where(m => marksIds.Contains(m.MarksId))
+                    .ToDictionaryAsync(m => m.MarksId);
+
                 foreach (var mm in marksRecords)
                 {
-                    // Reload with full inclusions for processing
-                    var fullMm = await _context.MarksMasters
-                        .Include(m => m.Student)
-                        .Include(m => m.StudentMarks)
-                            .ThenInclude(sm => sm.Subject)
-                        .Include(m => m.StudentMarks)
-                            .ThenInclude(sm => sm.CreditMaster)
-                                .ThenInclude(cm => cm.Credits)
-                        .Include(m => m.SubjectResults)
-                        .AsSplitQuery()
-                        .FirstOrDefaultAsync(m => m.MarksId == mm.MarksId);
-
-                    if (fullMm != null)
+                    if (fullRecords.TryGetValue(mm.MarksId, out var fullMm))
                     {
                         await ProcessStudentResult(fullMm, request, ruleSet, resolutionLimits);
                     }
