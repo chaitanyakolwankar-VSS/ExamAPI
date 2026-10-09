@@ -187,6 +187,23 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
+// Warm-up once the app is listening: runs the sign-in path with an address that has no account, which
+// compiles its queries, opens the SQL connection pool and loads BCrypt -- so the first person to sign in
+// after an app pool start does not wait for that. Background only; it never delays or fails the start.
+app.Lifetime.ApplicationStarted.Register(() => _ = Task.Run(async () =>
+{
+    try
+    {
+        using var scope = app.Services.CreateScope();
+        await scope.ServiceProvider.GetRequiredService<IAuthService>()
+            .LoginAsync(new ExamAPI.DTOs.LoginRequestDto { Email = "warm-up@invalid", Password = "warm-up" });
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogWarning(ex, "Startup: warm-up failed.");
+    }
+}));
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {

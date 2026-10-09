@@ -41,7 +41,14 @@ namespace ExamAPI.Services.Auth
 
             // Returning null (rather than throwing) lets AuthController answer 401.
             // The throw previously escaped unhandled and surfaced as a 500.
-            if (user == null || !VerifyPassword(request.Password, user.HashedPassword))
+            // An unknown email still costs one BCrypt check, so the answer takes as long as a wrong
+            // password and its timing does not reveal which emails have an account.
+            if (user == null)
+            {
+                VerifyPassword(request.Password, UnknownUserHash);
+                return null;
+            }
+            if (!VerifyPassword(request.Password, user.HashedPassword))
             {
                 return null;
             }
@@ -114,6 +121,9 @@ namespace ExamAPI.Services.Auth
                 College = dbCollegeDto
             };
         }
+
+        /// <summary>Checked against when the email is unknown; same cost as the stored hashes (BCrypt default).</summary>
+        private static readonly string UnknownUserHash = BCrypt.Net.BCrypt.HashPassword(Guid.NewGuid().ToString());
 
         /// <summary>
         /// BCrypt.Verify throws SaltParseException on a value that is not a bcrypt hash.
