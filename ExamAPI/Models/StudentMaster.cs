@@ -23,6 +23,9 @@ namespace ExamAPI.Models
         [MaxLength(50)]
         public required string LastName { get; set; }
 
+        [MaxLength(50)]
+        public string? MotherName { get; set; }
+
         [MaxLength(255)]
         [EmailAddress]
         public string? Email { get; set; }

@@ -89,6 +89,7 @@ namespace ExamAPI.Services.StudentMasters
                     FirstName = sm.FirstName,
                     LastName = sm.LastName,
                     MiddleName = sm.MiddleName,
+                    MotherName = sm.MotherName,
                     StudentName = sm.FirstName + " " + (sm.MiddleName ?? "") + " " + sm.LastName,
                     SemesterId = se.SemesterId,
                     StudentPRN = sm.StudentPRN,
@@ -133,6 +134,7 @@ namespace ExamAPI.Services.StudentMasters
                     FirstName = x.sm.FirstName,
                     MiddleName = x.sm.MiddleName,
                     LastName = x.sm.LastName,
+                    MotherName = x.sm.MotherName,
                     StudentName = x.sm.FirstName + " " + (x.sm.MiddleName ?? "") + " " + x.sm.LastName,
                     SemesterId = x.se.SemesterId,
                     Pattern = x.se.Pattern,
@@ -163,6 +165,7 @@ namespace ExamAPI.Services.StudentMasters
                     FirstName = sm.FirstName,
                     MiddleName = sm.MiddleName,
                     LastName = sm.LastName,
+                    MotherName = sm.MotherName,
                     Gender = sm.Gender,
                     Category = sm.Category,
                     StudentPRN = sm.StudentPRN,
@@ -184,6 +187,7 @@ namespace ExamAPI.Services.StudentMasters
                 throw new InvalidOperationException("Student not found.");
             if (string.IsNullOrWhiteSpace(dto.Pattern))
                 throw new InvalidOperationException("Select the pattern (e.g. NEP).");
+            var motherName = CleanMotherName(dto.MotherName);
             var pnrExists = await _context.StudentMasters
                 .AnyAsync(x => x.StudentPRN == dto.StudentPRN && x.StudentId != dto.StudentId && !x.IsDeleted);
 
@@ -196,6 +200,7 @@ namespace ExamAPI.Services.StudentMasters
             student.FirstName = dto.FirstName;
             student.MiddleName = dto.MiddleName;
             student.LastName = dto.LastName;
+            student.MotherName = motherName;
             student.Category = dto.Category;
             student.StudentPRN = dto.StudentPRN;
             student.Gender = dto.Gender;
@@ -239,8 +244,20 @@ namespace ExamAPI.Services.StudentMasters
 
             return "Student updated successfully";
         }
+        /// <summary>The trimmed mother's name; throws when it is blank or over 50 characters.</summary>
+        private static string CleanMotherName(string? value)
+        {
+            var name = (value ?? "").Trim();
+            if (name == "")
+                throw new InvalidOperationException("Enter the mother's name.");
+            if (name.Length > 50)
+                throw new InvalidOperationException("The mother's name can be at most 50 characters.");
+            return name;
+        }
+
         public async Task<string> SaveStudentAsync(Savedata dto)
         {
+            var motherName = CleanMotherName(dto.MotherName);
             using var transaction = await _context.Database.BeginTransactionAsync();
 
             try
@@ -275,6 +292,7 @@ namespace ExamAPI.Services.StudentMasters
                     FirstName = dto.FirstName,
                     MiddleName = dto.MiddleName,
                     LastName = dto.LastName,
+                    MotherName = motherName,
                     Category = dto.Category,
                     StudentPRN=dto.StudentPRN,
                     Gender = dto.Gender,
@@ -385,10 +403,12 @@ namespace ExamAPI.Services.StudentMasters
             return await _storage.SaveAsync(imageBytes, ExamAPI.Services.Files.FileStorage.StudentsFolder, fileName);
         }
         /// <summary>Columns of the student template, in order. Row 1 is a title, row 2 these headings, data from row 3.</summary>
-        private static readonly string[] TemplateHeaders = { "FirstName", "MiddleName", "LastName", "Category", "ERN", "Gender" };
+        private static readonly string[] TemplateHeaders = { "FirstName", "MiddleName", "LastName", "MotherName", "Category", "ERN", "Gender" };
         // Templates downloaded before the ERN rename say "PRN" in that column; still accept them.
         private const string LegacyErnHeader = "PRN";
         private const int TemplateRows = 1000;
+
+        private static int TemplateColumn(string header) => Array.IndexOf(TemplateHeaders, header) + 1;
 
         /// <summary>Admission categories (same list as the Student Master form; OPEN = general).</summary>
         public static readonly string[] StudentCategories =
@@ -439,20 +459,20 @@ namespace ExamAPI.Services.StudentMasters
             data.Style.NumberFormat.Format = "@"; // text, so long ERNs are not turned into 1.23E+14
 
             // Gender: a drop-down with the two values the screen uses.
-            var categories = sheet.Range(3, 4, TemplateRows + 2, 4).CreateDataValidation();
+            var categories = sheet.Range(3, TemplateColumn("Category"), TemplateRows + 2, TemplateColumn("Category")).CreateDataValidation();
             categories.List("\"" + string.Join(",", StudentCategories) + "\"", true);
             categories.ErrorTitle = "Category";
             categories.ErrorMessage = "Choose a category from the list (or leave it empty).";
 
-            var gender = sheet.Range(3, 6, TemplateRows + 2, 6).CreateDataValidation();
+            var gender = sheet.Range(3, TemplateColumn("Gender"), TemplateRows + 2, TemplateColumn("Gender")).CreateDataValidation();
             gender.List("\"Male,Female\"", true);
             gender.ErrorTitle = "Gender";
             gender.ErrorMessage = "Choose Male or Female.";
 
             // ERN: highlight a number typed twice in this sheet.
-            sheet.Range(3, 5, TemplateRows + 2, 5).AddConditionalFormat().WhenIsDuplicate().Fill.SetBackgroundColor(XLColor.LightPink);
+            sheet.Range(3, TemplateColumn("ERN"), TemplateRows + 2, TemplateColumn("ERN")).AddConditionalFormat().WhenIsDuplicate().Fill.SetBackgroundColor(XLColor.LightPink);
 
-            double[] widths = { 18, 18, 18, 14, 20, 10 };
+            double[] widths = { 18, 18, 18, 18, 14, 20, 10 };
             for (int i = 0; i < widths.Length; i++) sheet.Column(i + 1).Width = widths[i];
 
             using var stream = new MemoryStream();
@@ -494,22 +514,28 @@ namespace ExamAPI.Services.StudentMasters
             using (workbook)
             {
                 var sheet = workbook.Worksheet(1);
-                for (int i = 0; i < TemplateHeaders.Length; i++)
+                // Columns are found by heading, so a template from before MotherName (or with reordered columns) still reads correctly.
+                var columns = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                int lastColumn = sheet.Row(2).LastCellUsed()?.Address.ColumnNumber ?? 0;
+                for (int c = 1; c <= lastColumn; c++)
                 {
-                    var actual = sheet.Cell(2, i + 1).GetString().Trim();
-                    if (!string.Equals(actual, TemplateHeaders[i], StringComparison.OrdinalIgnoreCase)
-                        && !(TemplateHeaders[i] == "ERN" && string.Equals(actual, LegacyErnHeader, StringComparison.OrdinalIgnoreCase)))
-                        throw new InvalidOperationException("This is not the student template. Download it again with the Excel button.");
+                    var heading = sheet.Cell(2, c).GetString().Trim();
+                    if (heading.Equals(LegacyErnHeader, StringComparison.OrdinalIgnoreCase)) heading = "ERN";
+                    columns.TryAdd(heading, c);
                 }
+                if (TemplateHeaders.Any(h => h != "MotherName" && !columns.ContainsKey(h)))
+                    throw new InvalidOperationException("This is not the student template. Download it again with the Excel button.");
+                if (!columns.ContainsKey("MotherName"))
+                    throw new InvalidOperationException("This template has no MotherName column. Download the template again.");
 
                 // Read every filled row first; nothing is saved unless all rows are valid.
-                var rows = new List<(int Row, string First, string Middle, string Last, string Category, string Prn, string Gender)>();
+                var rows = new List<(int Row, string First, string Middle, string Last, string Mother, string Category, string Prn, string Gender)>();
                 int lastRow = sheet.LastRowUsed()?.RowNumber() ?? 0;
                 for (int r = 3; r <= lastRow; r++)
                 {
-                    string Cell(int c) => sheet.Cell(r, c).GetFormattedString().Trim();
-                    var row = (r, Cell(1), Cell(2), Cell(3), Cell(4), Cell(5), Cell(6));
-                    if (row.Item2 == "" && row.Item3 == "" && row.Item4 == "" && row.Item5 == "" && row.Item6 == "" && row.Item7 == "")
+                    string Cell(string header) => sheet.Cell(r, columns[header]).GetFormattedString().Trim();
+                    var row = (r, Cell("FirstName"), Cell("MiddleName"), Cell("LastName"), Cell("MotherName"), Cell("Category"), Cell("ERN"), Cell("Gender"));
+                    if (row.Item2 == "" && row.Item3 == "" && row.Item4 == "" && row.Item5 == "" && row.Item6 == "" && row.Item7 == "" && row.Item8 == "")
                         continue; // empty row
                     rows.Add(row);
                 }
@@ -523,11 +549,13 @@ namespace ExamAPI.Services.StudentMasters
                 var prnsInFile = new HashSet<string>();
                 var errors = new List<string>();
 
-                foreach (var (row, first, middle, last, category, prn, gender) in rows)
+                foreach (var (row, first, middle, last, mother, category, prn, gender) in rows)
                 {
                     if (first == "" || last == "")
                         errors.Add($"Row {row}: first name and last name are required.");
-                    if (first.Length > 50 || middle.Length > 50 || last.Length > 50 || category.Length > 50 || prn.Length > 50)
+                    if (mother == "")
+                        errors.Add($"Row {row}: mother's name is required.");
+                    if (first.Length > 50 || middle.Length > 50 || last.Length > 50 || mother.Length > 50 || category.Length > 50 || prn.Length > 50)
                         errors.Add($"Row {row}: a value is longer than 50 characters.");
                     if (!string.Equals(gender, "Male", StringComparison.OrdinalIgnoreCase) && !string.Equals(gender, "Female", StringComparison.OrdinalIgnoreCase))
                         errors.Add($"Row {row}: gender must be Male or Female.");
@@ -550,7 +578,7 @@ namespace ExamAPI.Services.StudentMasters
                 using var transaction = await _context.Database.BeginTransactionAsync();
                 try
                 {
-                    foreach (var (_, first, middle, last, category, prn, gender) in rows)
+                    foreach (var (_, first, middle, last, mother, category, prn, gender) in rows)
                     {
                         var studentId = $"{prefix}{numberPart:D4}";
                         numberPart++;
@@ -563,6 +591,7 @@ namespace ExamAPI.Services.StudentMasters
                             FirstName = first,
                             MiddleName = middle == "" ? null : middle,
                             LastName = last,
+                            MotherName = mother,
                             Category = category == "" ? null : CanonicalCategory(category),
                             StudentPRN = prn == "" ? null : prn,
                             Gender = string.Equals(gender, "Male", StringComparison.OrdinalIgnoreCase) ? "Male" : "Female",
