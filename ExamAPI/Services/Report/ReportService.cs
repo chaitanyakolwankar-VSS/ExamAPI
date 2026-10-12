@@ -451,7 +451,7 @@ namespace ExamAPI.Services.Report
 
                         if (isFirstRow)
                         {
-                            worksheet.Cell(startRow, 1).Value = $"{student.StudentName}\nSeat No: {student.SeatNo}\nPRN: {student.PRN}";
+                            worksheet.Cell(startRow, 1).Value = $"{student.StudentName}\nSeat No: {student.SeatNo}\nERN: {student.PRN}";
 
                             int trailingCol = 2 + subjectsPerRow;
                             worksheet.Cell(startRow, trailingCol++).Value = $"{FormatNumber(student.TotalObtained)}/{FormatNumber(student.TotalMax)}";

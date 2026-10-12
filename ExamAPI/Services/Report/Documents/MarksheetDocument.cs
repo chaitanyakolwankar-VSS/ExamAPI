@@ -54,7 +54,7 @@ namespace ExamAPI.Services.Report.Documents
                     row.RelativeItem().Column(col => 
                     {
                         col.Item().AlignRight().Text(text => { text.Span("Seat No: ").Bold().FontSize(9); text.Span(Model.SeatNo).FontSize(9); });
-                        col.Item().AlignRight().Text(text => { text.Span("PRN: ").Bold().FontSize(9); text.Span(Model.PRN).FontSize(9); });
+                        col.Item().AlignRight().Text(text => { text.Span("ERN: ").Bold().FontSize(9); text.Span(Model.PRN).FontSize(9); });
                         col.Item().AlignRight().Text(text => { text.Span("Semester: ").Bold().FontSize(9); text.Span(Model.Semester).FontSize(9); });
                     });
                 });

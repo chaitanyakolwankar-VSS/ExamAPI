@@ -189,7 +189,7 @@ namespace ExamAPI.Services.StudentMasters
 
             if (pnrExists)
             {
-                throw new InvalidOperationException("PRN already exists.");
+                throw new InvalidOperationException("ERN already exists.");
             }
             // 2️⃣ Update basic fields
 
@@ -265,7 +265,7 @@ namespace ExamAPI.Services.StudentMasters
                     .AnyAsync(x => x.StudentPRN == dto.StudentPRN && x.StudentId != dto.StudentId && !x.IsDeleted);
 
                 if (pnrExists)
-                    throw new InvalidOperationException("PRN already exists");
+                    throw new InvalidOperationException("ERN already exists");
 
 
                 var studentMaster = new Models.StudentMaster
@@ -385,7 +385,9 @@ namespace ExamAPI.Services.StudentMasters
             return await _storage.SaveAsync(imageBytes, ExamAPI.Services.Files.FileStorage.StudentsFolder, fileName);
         }
         /// <summary>Columns of the student template, in order. Row 1 is a title, row 2 these headings, data from row 3.</summary>
-        private static readonly string[] TemplateHeaders = { "FirstName", "MiddleName", "LastName", "Category", "PRN", "Gender" };
+        private static readonly string[] TemplateHeaders = { "FirstName", "MiddleName", "LastName", "Category", "ERN", "Gender" };
+        // Templates downloaded before the ERN rename say "PRN" in that column; still accept them.
+        private const string LegacyErnHeader = "PRN";
         private const int TemplateRows = 1000;
 
         /// <summary>Admission categories (same list as the Student Master form; OPEN = general).</summary>
@@ -434,7 +436,7 @@ namespace ExamAPI.Services.StudentMasters
             sheet.SheetView.FreezeRows(2);
 
             var data = sheet.Range(3, 1, TemplateRows + 2, TemplateHeaders.Length);
-            data.Style.NumberFormat.Format = "@"; // text, so long PRNs are not turned into 1.23E+14
+            data.Style.NumberFormat.Format = "@"; // text, so long ERNs are not turned into 1.23E+14
 
             // Gender: a drop-down with the two values the screen uses.
             var categories = sheet.Range(3, 4, TemplateRows + 2, 4).CreateDataValidation();
@@ -447,7 +449,7 @@ namespace ExamAPI.Services.StudentMasters
             gender.ErrorTitle = "Gender";
             gender.ErrorMessage = "Choose Male or Female.";
 
-            // PRN: highlight a number typed twice in this sheet.
+            // ERN: highlight a number typed twice in this sheet.
             sheet.Range(3, 5, TemplateRows + 2, 5).AddConditionalFormat().WhenIsDuplicate().Fill.SetBackgroundColor(XLColor.LightPink);
 
             double[] widths = { 18, 18, 18, 14, 20, 10 };
@@ -495,7 +497,8 @@ namespace ExamAPI.Services.StudentMasters
                 for (int i = 0; i < TemplateHeaders.Length; i++)
                 {
                     var actual = sheet.Cell(2, i + 1).GetString().Trim();
-                    if (!string.Equals(actual, TemplateHeaders[i], StringComparison.OrdinalIgnoreCase))
+                    if (!string.Equals(actual, TemplateHeaders[i], StringComparison.OrdinalIgnoreCase)
+                        && !(TemplateHeaders[i] == "ERN" && string.Equals(actual, LegacyErnHeader, StringComparison.OrdinalIgnoreCase)))
                         throw new InvalidOperationException("This is not the student template. Download it again with the Excel button.");
                 }
 
@@ -533,9 +536,9 @@ namespace ExamAPI.Services.StudentMasters
                     if (prn != "")
                     {
                         if (existingPrns.Contains(prn))
-                            errors.Add($"Row {row}: PRN {prn} already belongs to a student.");
+                            errors.Add($"Row {row}: ERN {prn} already belongs to a student.");
                         else if (!prnsInFile.Add(prn))
-                            errors.Add($"Row {row}: PRN {prn} appears twice in this file.");
+                            errors.Add($"Row {row}: ERN {prn} appears twice in this file.");
                     }
                 }
 

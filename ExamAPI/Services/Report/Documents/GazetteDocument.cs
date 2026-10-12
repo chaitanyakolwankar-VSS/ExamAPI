@@ -85,7 +85,7 @@ namespace ExamAPI.Services.Report.Documents
                     {
                         table.ColumnsDefinition(columns =>
                         {
-                            columns.RelativeColumn(3); // SeatNo / PRN / Name
+                            columns.RelativeColumn(3); // SeatNo / ERN / Name
                             for (int i = 0; i < subjectsPerRow; i++)
                             {
                                 columns.RelativeColumn(2); // Sub
@@ -145,7 +145,7 @@ namespace ExamAPI.Services.Report.Documents
                                     {
                                         c.Item().Text(student.StudentName).Bold();
                                         c.Item().Text($"Seat No: {student.SeatNo}").SemiBold();
-                                        c.Item().Text($"PRN: {student.PRN}");
+                                        c.Item().Text($"ERN: {student.PRN}");
                                     });
                                 }
 

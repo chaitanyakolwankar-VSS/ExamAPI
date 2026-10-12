@@ -70,7 +70,7 @@ public sealed class StudentExcelImportTests
         Assert.True(Success(result));
         var students = await _context.StudentMasters.OrderBy(s => s.StudentId).ToListAsync();
         Assert.Equal(2, students.Count);
-        Assert.Equal("202600000000012345", students[0].StudentPRN); // long PRN kept as text
+        Assert.Equal("202600000000012345", students[0].StudentPRN); // long ERN kept as text
         Assert.Equal("Female", students[0].Gender);
         Assert.Equal("OPEN", students[0].Category);                 // "Open" typed, list spelling stored
         Assert.All(await _context.StudentEligibilities.ToListAsync(), e =>
@@ -87,9 +87,9 @@ public sealed class StudentExcelImportTests
         _context.StudentMasters.Add(new StudentMaster { StdMstId = Guid.NewGuid(), StudentId = "OLD1", FirstName = "Old", LastName = "One", StudentPRN = "111", CollegeId = _college });
         await _context.SaveChangesAsync();
         var file = await FilledTemplate(
-            ["Asha", "", "Patil", "", "111", "Female"],   // PRN already used
+            ["Asha", "", "Patil", "", "111", "Female"],   // ERN already used
             ["Ravi", "", "", "", "222", "Male"],          // no last name
-            ["Mina", "", "Rao", "", "222", "F"],          // PRN twice in file, bad gender
+            ["Mina", "", "Rao", "", "222", "F"],          // ERN twice in file, bad gender
             ["Gen", "", "Eral", "General", "444", "Male"],       // category not in the list
             ["Ok", "", "Student", "obc", "333", "Male"]);
 
@@ -97,13 +97,45 @@ public sealed class StudentExcelImportTests
 
         Assert.False(Success(result));
         var errors = Errors(result);
-        Assert.Contains(errors, e => e.StartsWith("Row 3:") && e.Contains("already belongs"));
+        Assert.Contains(errors, e => e.StartsWith("Row 3: ERN 111") && e.Contains("already belongs"));
         Assert.Contains(errors, e => e.StartsWith("Row 4:") && e.Contains("last name"));
-        Assert.Contains(errors, e => e.StartsWith("Row 5:") && e.Contains("twice"));
+        Assert.Contains(errors, e => e.StartsWith("Row 5: ERN 222") && e.Contains("twice"));
         Assert.Contains(errors, e => e.StartsWith("Row 5:") && e.Contains("Male or Female"));
         Assert.Contains(errors, e => e.StartsWith("Row 6:") && e.Contains("not in the list"));
         Assert.DoesNotContain(errors, e => e.StartsWith("Row 7:"));
         Assert.Equal(1, await _context.StudentMasters.CountAsync()); // nothing imported
+    }
+
+    private static IFormFile WithHeader(IFormFile file, int column, string header)
+    {
+        using var workbook = new XLWorkbook(file.OpenReadStream());
+        workbook.Worksheet(1).Cell(2, column).Value = header;
+        var output = new MemoryStream();
+        workbook.SaveAs(output);
+        output.Position = 0;
+        return new FormFile(output, 0, output.Length, "File", "students.xlsx");
+    }
+
+    [Fact]
+    public async Task Template_says_ERN_and_an_old_PRN_template_still_imports()
+    {
+        var (bytes, _) = await _service.GenerateExcelTemplateAsync(new StudExcelDto { CourseId = _course, SemesterId = "Sem-1", Pattern = "NEP", AYID = _ay });
+        using (var workbook = new XLWorkbook(new MemoryStream(bytes)))
+            Assert.Equal("ERN", workbook.Worksheet(1).Cell(2, 5).GetString());
+
+        var oldTemplate = WithHeader(await FilledTemplate(["Asha", "", "Patil", "", "555", "Female"]), 5, "PRN");
+
+        Assert.True(Success(await _service.ImportStudentsAsync(Import(oldTemplate))));
+        Assert.Equal("555", (await _context.StudentMasters.SingleAsync()).StudentPRN);
+    }
+
+    [Fact]
+    public async Task A_file_with_another_heading_in_the_ERN_column_is_refused()
+    {
+        var file = WithHeader(await FilledTemplate(["Asha", "", "Patil", "", "555", "Female"]), 5, "Roll No");
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => _service.ImportStudentsAsync(Import(file)));
+        Assert.Contains("not the student template", ex.Message);
     }
 
     [Fact]
