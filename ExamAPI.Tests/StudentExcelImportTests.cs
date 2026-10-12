@@ -276,40 +276,66 @@ public sealed class StudentExcelImportTests
             CourseId = course, SemesterId = "Sem-1", Pattern = "NEP", AYID = _ay,
             FirstName = "A", LastName = "B", MotherName = "M", Gender = "Male", StudentPRN = prn,
         });
-
     [Fact]
-    public async Task Ids_are_year_two_clean_characters_and_a_running_number()
+    public async Task Ids_are_year_digits_and_a_running_five_digit_number()
     {
-        Assert.Equal("26IL0001", await Save(_course, "1"));            // CIVIL
-        Assert.Equal("26IL0002", await Save(_course, "2"));
-        Assert.Equal("26SE0001", await Save(Branch("MTECH-MSE"), "3"));  // hyphen dropped
-        Assert.Equal("26ML0001", await Save(Branch("cse-aiml"), "4"));   // upper case
+        Assert.Equal("2600001", await Save(_course, "1"));
+        Assert.Equal("2600002", await Save(_course, "2"));
     }
 
     [Fact]
-    public async Task Branches_whose_codes_end_alike_share_one_counter()
+    public async Task Branches_share_one_college_counter()
     {
-        var ece = Branch("ECE");
-        var ce = Branch("CE");
-
-        Assert.Equal("26CE0001", await Save(ece, "1"));
-        Assert.Equal("26CE0002", await Save(ce, "2"));
-        Assert.Equal("26CE0003", await Save(ece, "3"));
+        Assert.Equal("2600001", await Save(_course, "1"));
+        Assert.Equal("2600002", await Save(Branch("ECE"), "2"));
+        Assert.Equal("2600003", await Save(_course, "3"));
     }
 
     [Fact]
     public async Task Numbering_continues_after_existing_and_deleted_students()
     {
-        _context.StudentMasters.Add(new StudentMaster { StdMstId = Guid.NewGuid(), StudentId = "26IL0007", FirstName = "Old", LastName = "Gone", IsDeleted = true, CollegeId = _college });
-        _context.StudentMasters.Add(new StudentMaster { StdMstId = Guid.NewGuid(), StudentId = "26IL0004", FirstName = "Old", LastName = "Here", CollegeId = _college });
-        _context.StudentMasters.Add(new StudentMaster { StdMstId = Guid.NewGuid(), StudentId = "26IL0099", FirstName = "Other", LastName = "College", CollegeId = Guid.NewGuid() });
+        _context.StudentMasters.Add(new StudentMaster { StdMstId = Guid.NewGuid(), StudentId = "2600007", FirstName = "Old", LastName = "Gone", IsDeleted = true, CollegeId = _college });
+        _context.StudentMasters.Add(new StudentMaster { StdMstId = Guid.NewGuid(), StudentId = "2600004", FirstName = "Old", LastName = "Here", CollegeId = _college });
+        _context.StudentMasters.Add(new StudentMaster { StdMstId = Guid.NewGuid(), StudentId = "2600099", FirstName = "Other", LastName = "College", CollegeId = Guid.NewGuid() });
+        _context.StudentMasters.Add(new StudentMaster { StdMstId = Guid.NewGuid(), StudentId = "26IL0050", FirstName = "Old", LastName = "Style", CollegeId = _college });
         await _context.SaveChangesAsync();
 
-        Assert.Equal("26IL0008", await Save(_course, "1"));
+        Assert.Equal("2600008", await Save(_course, "1"));
+    }
+
+    [Fact]
+    public async Task An_import_continues_the_same_counter_in_row_order()
+    {
+        Assert.Equal("2600001", await Save(_course, "1"));
 
         var file = await FilledTemplate(["Asha", "", "Patil", "Sunita", "", "", "Female"], ["Ravi", "", "Shah", "Sunita", "", "", "Male"]);
         Assert.True(Success(await _service.ImportStudentsAsync(Import(file))));
-        Assert.True(await _context.StudentMasters.AnyAsync(s => s.StudentId == "26IL0009"));
-        Assert.True(await _context.StudentMasters.AnyAsync(s => s.StudentId == "26IL0010"));
+
+        Assert.Equal("Asha", (await _context.StudentMasters.SingleAsync(s => s.StudentId == "2600002")).FirstName);
+        Assert.Equal("Ravi", (await _context.StudentMasters.SingleAsync(s => s.StudentId == "2600003")).FirstName);
+        Assert.Equal("2600004", await Save(_course, "4"));
+    }
+
+    [Fact]
+    public async Task A_new_academic_year_starts_its_own_counter()
+    {
+        var ay2 = Guid.NewGuid();
+        _context.AcademicYears.Add(new AcademicYear { AYID = ay2, FullDuration = "2027-2028", ShortDuration = "2027-28", CollegeId = _college });
+        await _context.SaveChangesAsync();
+
+        Assert.Equal("2600001", await Save(_course, "1"));
+        var id = await _service.SaveStudentAsync(new Savedata
+        {
+            CourseId = _course, SemesterId = "Sem-1", Pattern = "NEP", AYID = ay2,
+            FirstName = "A", LastName = "B", MotherName = "M", Gender = "Male", StudentPRN = "2",
+        });
+        Assert.Equal("2700001", id);
+    }
+
+    [Fact]
+    public async Task Saving_without_a_branch_is_refused()
+    {
+        var ex = await Assert.ThrowsAnyAsync<Exception>(() => Save(Guid.Empty, "1"));
+        Assert.Contains("branch", ex.Message);
     }
 }

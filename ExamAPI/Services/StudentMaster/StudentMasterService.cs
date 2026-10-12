@@ -27,13 +27,12 @@ namespace ExamAPI.Services.StudentMasters
         }
 
         /// <summary>
-        /// Student ID = 2-digit year + 2-character branch tag + running number, e.g. 26IL0001
-        /// (year from the academic year "2026-27", tag = last two letters/digits of the branch code "CIVIL").
-        /// The number continues from the highest ID with the same year + tag in this college -- deleted
-        /// students included, since (CollegeId, StudentId) is unique -- so two branches whose codes end
-        /// alike share one counter instead of handing out the same ID.
+        /// Student ID = 2-digit year + one running 5-digit number for the whole college, e.g. 2600001
+        /// (year from the academic year "2026-27"; no branch part). The number continues from the highest
+        /// 7-digit ID with the same year in this college -- deleted students included, since
+        /// (CollegeId, StudentId) is unique. Older-style IDs (e.g. 26IL0001) are ignored.
         /// </summary>
-        private async Task<(string Prefix, int Next)> NextStudentIdAsync(Guid courseId, Guid ayid)
+        private async Task<(string Prefix, int Next)> NextStudentIdAsync(Guid ayid)
         {
             var shortDuration = await _context.AcademicYears
                 .Where(a => a.AYID == ayid)
@@ -42,36 +41,34 @@ namespace ExamAPI.Services.StudentMasters
             var yearDigits = new string((shortDuration ?? "").TakeWhile(char.IsDigit).ToArray());
             if (yearDigits.Length < 2)
                 throw new InvalidOperationException("The academic year has no year in its label (e.g. 2026-27).");
-            var yearPart = yearDigits.Length >= 4 ? yearDigits.Substring(2, 2) : yearDigits.Substring(0, 2);
+            var prefix = yearDigits.Length >= 4 ? yearDigits.Substring(2, 2) : yearDigits.Substring(0, 2);
 
-            var courseCode = await _context.CourseMasters
-                .Where(c => c.CourseId == courseId)
-                .Select(c => c.CourseCode)
-                .FirstOrDefaultAsync();
-            if (string.IsNullOrEmpty(courseCode))
-                throw new InvalidOperationException("Select a branch.");
-            var clean = new string(courseCode.Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant();
-            var tag = clean.Length >= 2 ? clean[^2..] : clean.PadRight(2, 'X');
-
-            var prefix = yearPart + tag;
             var collegeId = _context.CurrentCollegeId;
             var existing = await _context.StudentMasters
                 .IgnoreQueryFilters()
-                .Where(s => s.CollegeId == collegeId && s.StudentId.StartsWith(prefix))
+                .Where(s => s.CollegeId == collegeId && s.StudentId.StartsWith(prefix) && s.StudentId.Length == 7)
                 .Select(s => s.StudentId)
                 .ToListAsync();
 
             var highest = existing
-                .Select(id => int.TryParse(id[prefix.Length..], out var n) ? n : 0)
+                .Where(id => id.All(char.IsAsciiDigit))
+                .Select(id => int.Parse(id[prefix.Length..]))
                 .DefaultIfEmpty(0)
                 .Max();
             return (prefix, highest + 1);
         }
 
-        private async Task<string> GenerateStudentIdAsync(Guid courseId, Guid ayid)
+        private static string FormatStudentId(string prefix, int number)
         {
-            var (prefix, next) = await NextStudentIdAsync(courseId, ayid);
-            return $"{prefix}{next:D4}";
+            if (number > 99999)
+                throw new InvalidOperationException("No student numbers left for this academic year.");
+            return $"{prefix}{number:D5}";
+        }
+
+        private async Task<string> GenerateStudentIdAsync(Guid ayid)
+        {
+            var (prefix, next) = await NextStudentIdAsync(ayid);
+            return FormatStudentId(prefix, next);
         }
         public async Task<List<FetchData>> GetbycourseAsync(Guid courseId, Guid ayid)
         {
@@ -276,7 +273,9 @@ namespace ExamAPI.Services.StudentMasters
                     throw new InvalidOperationException("Select the pattern (e.g. NEP).");
 
                 Guid stdMstId = Guid.NewGuid();
-                string studentId = await GenerateStudentIdAsync(dto.CourseId, dto.AYID);
+                if (dto.CourseId == Guid.Empty || !await _context.CourseMasters.AnyAsync(c => c.CourseId == dto.CourseId))
+                    throw new InvalidOperationException("Select a branch.");
+                string studentId = await GenerateStudentIdAsync(dto.AYID);
 
                 var pnrExists = await _context.StudentMasters
                     .AnyAsync(x => x.StudentPRN == dto.StudentPRN && x.StudentId != dto.StudentId && !x.IsDeleted);
@@ -573,14 +572,14 @@ namespace ExamAPI.Services.StudentMasters
                 if (errors.Count > 0)
                     return new { Success = false, Message = $"Nothing was imported. Fix {errors.Count} problem(s) and import again.", Errors = errors };
 
-                var (prefix, numberPart) = await NextStudentIdAsync(dto.CourseId, academicYear.AYID);
+                var (prefix, numberPart) = await NextStudentIdAsync(academicYear.AYID);
 
                 using var transaction = await _context.Database.BeginTransactionAsync();
                 try
                 {
                     foreach (var (_, first, middle, last, mother, category, prn, gender) in rows)
                     {
-                        var studentId = $"{prefix}{numberPart:D4}";
+                        var studentId = FormatStudentId(prefix, numberPart);
                         numberPart++;
                         var stdMstId = Guid.NewGuid();
 
