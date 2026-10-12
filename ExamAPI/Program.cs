@@ -143,7 +143,8 @@ builder.Services.AddCors(options =>
         policy => policy
             .WithOrigins(corsOrigins)
             .AllowAnyMethod()
-            .AllowAnyHeader());
+            .AllowAnyHeader()
+            .WithExposedHeaders("Content-Disposition")); // file names of downloads
 
 });
 //CORS config

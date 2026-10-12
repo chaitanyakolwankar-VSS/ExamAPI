@@ -26,47 +26,52 @@ namespace ExamAPI.Services.StudentMasters
             _storage = storage;
         }
 
-        private async Task<string> GenerateStudentIdAsync(Guid courseId, Guid ayid)
+        /// <summary>
+        /// Student ID = 2-digit year + 2-character branch tag + running number, e.g. 26IL0001
+        /// (year from the academic year "2026-27", tag = last two letters/digits of the branch code "CIVIL").
+        /// The number continues from the highest ID with the same year + tag in this college -- deleted
+        /// students included, since (CollegeId, StudentId) is unique -- so two branches whose codes end
+        /// alike share one counter instead of handing out the same ID.
+        /// </summary>
+        private async Task<(string Prefix, int Next)> NextStudentIdAsync(Guid courseId, Guid ayid)
         {
-            // 1️⃣ Get Current Academic Year
-            var academicYear = await _context.AcademicYears
+            var shortDuration = await _context.AcademicYears
                 .Where(a => a.AYID == ayid)
-                .Select(a => new { a.AYID, a.ShortDuration })
+                .Select(a => a.ShortDuration)
                 .FirstOrDefaultAsync();
+            var yearDigits = new string((shortDuration ?? "").TakeWhile(char.IsDigit).ToArray());
+            if (yearDigits.Length < 2)
+                throw new InvalidOperationException("The academic year has no year in its label (e.g. 2026-27).");
+            var yearPart = yearDigits.Length >= 4 ? yearDigits.Substring(2, 2) : yearDigits.Substring(0, 2);
 
-            if (academicYear == null)
-                throw new Exception("No Data Not Found");
-
-            // Example: ShortDuration = "2024-25"
-            string yearPart = academicYear.ShortDuration.Substring(2, 2);
-
-            // 2️⃣ Get Course Code
             var courseCode = await _context.CourseMasters
                 .Where(c => c.CourseId == courseId)
                 .Select(c => c.CourseCode)
                 .FirstOrDefaultAsync();
-
             if (string.IsNullOrEmpty(courseCode))
-                throw new Exception("Invalid Course selected.");
+                throw new InvalidOperationException("Select a branch.");
+            var clean = new string(courseCode.Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant();
+            var tag = clean.Length >= 2 ? clean[^2..] : clean.PadRight(2, 'X');
 
-            string coursePart = courseCode.Substring(courseCode.Length - 2);
+            var prefix = yearPart + tag;
+            var collegeId = _context.CurrentCollegeId;
+            var existing = await _context.StudentMasters
+                .IgnoreQueryFilters()
+                .Where(s => s.CollegeId == collegeId && s.StudentId.StartsWith(prefix))
+                .Select(s => s.StudentId)
+                .ToListAsync();
 
-            // 3️⃣ Get Last StudentId for this Course
-            var lastStudentId = await _context.StudentEligibilities
-                .Where(e => e.CourseId == courseId && e.AYID == ayid)
-                .OrderByDescending(e => e.CreatedAt)
-                .Select(e => e.StudentId)
-                .FirstOrDefaultAsync();
+            var highest = existing
+                .Select(id => int.TryParse(id[prefix.Length..], out var n) ? n : 0)
+                .DefaultIfEmpty(0)
+                .Max();
+            return (prefix, highest + 1);
+        }
 
-            int nextNumber = 1;
-
-            if (!string.IsNullOrEmpty(lastStudentId) && lastStudentId.Length >= 8)
-            {
-                string numberPart = lastStudentId.Substring(4);
-                nextNumber = int.Parse(numberPart) + 1;
-            }
-
-            return $"{yearPart}{coursePart}{nextNumber:D4}";
+        private async Task<string> GenerateStudentIdAsync(Guid courseId, Guid ayid)
+        {
+            var (prefix, next) = await NextStudentIdAsync(courseId, ayid);
+            return $"{prefix}{next:D4}";
         }
         public async Task<List<FetchData>> GetbycourseAsync(Guid courseId, Guid ayid)
         {
@@ -245,6 +250,11 @@ namespace ExamAPI.Services.StudentMasters
                 if (academicYear == null)
                     throw new Exception("No current academic year found.");
 
+                // Exam assignment lists students by course + semester + PATTERN; without it the student
+                // never shows up there.
+                if (string.IsNullOrWhiteSpace(dto.Pattern))
+                    throw new InvalidOperationException("Select the pattern (e.g. NEP).");
+
                 Guid stdMstId = Guid.NewGuid();
                 string studentId = await GenerateStudentIdAsync(dto.CourseId, dto.AYID);
 
@@ -371,227 +381,197 @@ namespace ExamAPI.Services.StudentMasters
 
             return await _storage.SaveAsync(imageBytes, ExamAPI.Services.Files.FileStorage.StudentsFolder, fileName);
         }
+        /// <summary>Columns of the student template, in order. Row 1 is a title, row 2 these headings, data from row 3.</summary>
+        private static readonly string[] TemplateHeaders = { "FirstName", "MiddleName", "LastName", "Category", "PRN", "Gender" };
+        private const int TemplateRows = 1000;
+
         public async Task<(byte[] FileBytes, string FileName)> GenerateExcelTemplateAsync(StudExcelDto dto)
         {
-            using var workbook = new XLWorkbook();
-
-            // 🔹 Get Course Name
             var course = await _context.CourseMasters
                 .Where(c => c.CourseId == dto.CourseId)
                 .Select(c => c.Name)
                 .FirstOrDefaultAsync();
-
-            // 🔹 Get Academic Year
             var academicYear = await _context.AcademicYears
                 .Where(a => a.AYID == dto.AYID)
                 .Select(a => a.ShortDuration)
                 .FirstOrDefaultAsync();
 
-            if (string.IsNullOrEmpty(course) || string.IsNullOrEmpty(academicYear))
-                throw new Exception("Invalid data");
+            if (string.IsNullOrEmpty(course))
+                throw new InvalidOperationException("Select a branch.");
+            if (string.IsNullOrEmpty(academicYear))
+                throw new InvalidOperationException("Select an academic year.");
+            if (string.IsNullOrWhiteSpace(dto.SemesterId) || string.IsNullOrWhiteSpace(dto.Pattern))
+                throw new InvalidOperationException("Select the semester and the pattern.");
 
-            var worksheet = workbook.Worksheets.Add("StudentTemplate");
+            using var workbook = ExamAPI.Services.Report.ExcelStyles.NewWorkbook();
+            var sheet = workbook.Worksheets.Add("Students");
 
-            // ================= HEADER LINE =================
-            string headerText = $"{course}   {dto.SemesterId}  {dto.Pattern}  {academicYear}";
-            worksheet.Cell(1, 1).Value = headerText;
-            worksheet.Range("A1:F1").Merge();
-            worksheet.Cell(1, 1).Style.Font.Bold = true;
-            worksheet.Cell(1, 1).Style.Font.FontSize = 14;
-            worksheet.Cell(1, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            // Row 1: what this sheet is for (the import takes branch/semester/pattern from the screen, not from here).
+            sheet.Cell(1, 1).Value = $"{course}  |  {dto.SemesterId}  |  {dto.Pattern}  |  {academicYear}";
+            sheet.Range(1, 1, 1, TemplateHeaders.Length).Merge();
+            sheet.Cell(1, 1).Style.Font.Bold = true;
+            sheet.Cell(1, 1).Style.Font.FontSize = 13;
+            sheet.Cell(1, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
-            // ================= COLUMN HEADERS =================
-            string[] headers = { "FirstName", "MiddleName", "LastName", "Category", "PRN", "Gender" };
-            for (int i = 0; i < headers.Length; i++)
+            for (int i = 0; i < TemplateHeaders.Length; i++)
             {
-                worksheet.Cell(2, i + 1).Value = headers[i];
-                worksheet.Cell(2, i + 1).Style.Font.Bold = true;
+                var cell = sheet.Cell(2, i + 1);
+                cell.Value = TemplateHeaders[i];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#E8EEF9");
             }
+            sheet.SheetView.FreezeRows(2);
 
-            // ================= GENDER VALIDATION =================
+            var data = sheet.Range(3, 1, TemplateRows + 2, TemplateHeaders.Length);
+            data.Style.NumberFormat.Format = "@"; // text, so long PRNs are not turned into 1.23E+14
 
-            var genderRange = worksheet.Range("F3:F1000");
+            // Gender: a drop-down with the two values the screen uses.
+            var gender = sheet.Range(3, 6, TemplateRows + 2, 6).CreateDataValidation();
+            gender.List("\"Male,Female\"", true);
+            gender.ErrorTitle = "Gender";
+            gender.ErrorMessage = "Choose Male or Female.";
 
-            genderRange.AddConditionalFormat()
-                .WhenIsTrue(@"=AND(F3<>"""", NOT(OR(
-        LOWER(F3)=""male"",
-        LOWER(F3)=""female""
-    )))")
-                .Fill.SetBackgroundColor(XLColor.LightSkyBlue);
+            // PRN: highlight a number typed twice in this sheet.
+            sheet.Range(3, 5, TemplateRows + 2, 5).AddConditionalFormat().WhenIsDuplicate().Fill.SetBackgroundColor(XLColor.LightPink);
 
-            // ================= PRN VALIDATION =================
-
-            var prnRange = worksheet.Range("E3:E1000");
-
-            // Highlight duplicates **only in PRN column**
-            prnRange.AddConditionalFormat()
-                    .WhenIsDuplicate()
-                    .Fill.SetBackgroundColor(XLColor.LightPink);
-
-            prnRange.AddConditionalFormat()
-                   .WhenIsTrue(@"=AND(E3<>"""",NOT(ISNUMBER(E3)))")
-                   .Fill.SetBackgroundColor(XLColor.LightGreen);
-            // Auto adjust columns
-            worksheet.Columns().AdjustToContents();
+            double[] widths = { 18, 18, 18, 14, 20, 10 };
+            for (int i = 0; i < widths.Length; i++) sheet.Column(i + 1).Width = widths[i];
 
             using var stream = new MemoryStream();
             workbook.SaveAs(stream);
 
-            string fileName = $"{dto.CourseId}_{dto.SemesterId}_{dto.Pattern}_{academicYear}.xlsx";
-
+            // The controller adds ".xlsx".
+            var fileName = string.Concat($"Students {course} {dto.SemesterId} {dto.Pattern} {academicYear}"
+                .Split(Path.GetInvalidFileNameChars()));
             return (stream.ToArray(), fileName);
         }
+
         public async Task<object> ImportStudentsAsync(StudentImportDto dto)
         {
-            var errors = new List<string>();
+            if (dto.File == null || dto.File.Length == 0)
+                throw new InvalidOperationException("Choose the filled-in template (.xlsx).");
+            if (dto.CourseId == Guid.Empty || string.IsNullOrWhiteSpace(dto.SemesterId) || string.IsNullOrWhiteSpace(dto.Pattern))
+                throw new InvalidOperationException("Select the branch, semester and pattern before importing.");
 
             var academicYear = await _context.AcademicYears
-            .Where(a => a.AYID == dto.AYID)
-            .Select(a => new { a.AYID, a.ShortDuration })
-            .FirstOrDefaultAsync();
-
+                .Where(a => a.AYID == dto.AYID)
+                .Select(a => new { a.AYID, a.ShortDuration })
+                .FirstOrDefaultAsync();
             if (academicYear == null)
-                throw new Exception("Current Academic Year not found.");
+                throw new InvalidOperationException("Select an academic year.");
 
-            // ✅ 2. Load Excel
             using var stream = new MemoryStream();
             await dto.File.CopyToAsync(stream);
-
-            using var workbook = new XLWorkbook(stream);
-            var sheet = workbook.Worksheet(1);
-
-            // ✅ 3. Validate header
-            var headerRow = sheet.Row(2);
-            string[] expectedHeaders = { "FirstName", "MiddleName", "LastName", "Category", "PRN", "Gender" };
-
-            for (int i = 0; i < expectedHeaders.Length; i++)
-            {
-                var actual = headerRow.Cell(i + 1).GetValue<string>()?.Trim() ?? "";
-                if (!string.Equals(actual, expectedHeaders[i], StringComparison.OrdinalIgnoreCase))
-                {
-                    throw new Exception("Invalid Excel format. Please download latest template.");
-                }
-            }
-
-            int lastRow = sheet.LastRowUsed()?.RowNumber() ?? 0;
-            if (lastRow < 3)
-                throw new Exception("Excel must contain at least 1 data row.");
-
-            var existingPRNs = await _context.StudentMasters
-                .Where(s => !s.IsDeleted)
-                .Select(s => s.StudentPRN)
-                .ToHashSetAsync();
-
-            var newPRNsInFile = new HashSet<string>();
-
-            var baseStudentId = await GenerateStudentIdAsync(dto.CourseId, academicYear.AYID);
-            var prefix = new string(baseStudentId.TakeWhile(c => !char.IsDigit(c)).ToArray());
-            var numberPart = int.Parse(new string(baseStudentId.SkipWhile(c => !char.IsDigit(c)).ToArray()));
-
-            var rows = sheet.RowsUsed().Skip(2).ToList(); // data rows only
-
-            // ✅ 4. VALIDATION PHASE: collect all errors first
-            foreach (var row in rows)
-            {
-                string firstName = row.Cell(1).GetValue<string>()?.Trim() ?? "";
-                string middleName = row.Cell(2).GetValue<string>()?.Trim() ?? "";
-                string lastName = row.Cell(3).GetValue<string>()?.Trim() ?? "";
-                string category = row.Cell(4).GetValue<string>()?.Trim() ?? "";
-                string prn = row.Cell(5).GetValue<string>()?.Trim() ?? "";
-                string gender = row.Cell(6).GetValue<string>()?.Trim();
-
-                // Skip completely empty row
-                if (string.IsNullOrWhiteSpace(firstName) && string.IsNullOrWhiteSpace(lastName))
-                    continue;
-
-                // Mandatory fields
-                if (string.IsNullOrWhiteSpace(firstName) || string.IsNullOrWhiteSpace(lastName))
-                    errors.Add($"Row {row.RowNumber()}: FirstName or LastName missing");
-
-                // PRN duplicates
-                if (!string.IsNullOrEmpty(prn))
-                {
-                    if (existingPRNs.Contains(prn))
-                        errors.Add($"Row {row.RowNumber()}: PRN '{prn}' already exists in database");
-
-                    newPRNsInFile.Add(prn);
-                }
-            }
-
-            // ❌ IF ANY ERRORS, ABORT ENTIRE IMPORT
-            if (errors.Count > 0)
-            {
-                return new
-                {
-                    Success = false,
-                    Errors = errors
-                };
-            }
-
-            // ✅ 5. IMPORT PHASE: only if validation passed
-            using var transaction = await _context.Database.BeginTransactionAsync();
+            XLWorkbook workbook;
             try
             {
-                foreach (var row in rows)
-                {
-                    string firstName = row.Cell(1).GetValue<string>()?.Trim() ?? "";
-                    string middleName = row.Cell(2).GetValue<string>()?.Trim() ?? "";
-                    string lastName = row.Cell(3).GetValue<string>()?.Trim() ?? "";
-                    string category = row.Cell(4).GetValue<string>()?.Trim() ?? "";
-                    string prn = row.Cell(5).GetValue<string>()?.Trim() ?? "";
-                    string gender = row.Cell(6).GetValue<string>()?.Trim();
-
-                    // Skip completely empty row
-                    if (string.IsNullOrWhiteSpace(firstName) && string.IsNullOrWhiteSpace(lastName))
-                        continue;
-
-                    var studentId = $"{prefix}{numberPart:D4}";
-                    numberPart++;
-
-                    var stdMstId = Guid.NewGuid();
-
-                    // StudentMaster
-                    var studentMaster = new Models.StudentMaster
-                    {
-                        StdMstId = stdMstId,
-                        StudentId = studentId,
-                        FirstName = firstName,
-                        MiddleName = middleName,
-                        LastName = lastName,
-                        Category = category,
-                        StudentPRN = prn,
-                        Gender = string.IsNullOrEmpty(gender) ? null : gender,
-                        Dyslexia = false,
-                        CreatedAt = DateTime.UtcNow,
-                        IsDeleted = false
-                    };
-                    _context.StudentMasters.Add(studentMaster);
-
-                    // StudentEligibility
-                    var eligibility = new StudentEligibility
-                    {
-                        Id = Guid.NewGuid(),
-                        StdMstId = stdMstId,
-                        StudentId = studentId,
-                        CourseId = dto.CourseId,
-                        Pattern = dto.Pattern,
-                        SemesterId = dto.SemesterId,
-                        AYID = academicYear.AYID,
-                        CreatedAt = DateTime.UtcNow,
-                        IsDeleted = false
-                    };
-                    _context.StudentEligibilities.Add(eligibility);
-                }
-
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
-
-                return new { Success = true, Message = "Import successful" };
+                stream.Position = 0;
+                workbook = new XLWorkbook(stream);
             }
             catch
             {
-                await transaction.RollbackAsync();
-                throw;
+                throw new InvalidOperationException("The file could not be read. Use the downloaded .xlsx template.");
+            }
+
+            using (workbook)
+            {
+                var sheet = workbook.Worksheet(1);
+                for (int i = 0; i < TemplateHeaders.Length; i++)
+                {
+                    var actual = sheet.Cell(2, i + 1).GetString().Trim();
+                    if (!string.Equals(actual, TemplateHeaders[i], StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidOperationException("This is not the student template. Download it again with the Excel button.");
+                }
+
+                // Read every filled row first; nothing is saved unless all rows are valid.
+                var rows = new List<(int Row, string First, string Middle, string Last, string Category, string Prn, string Gender)>();
+                int lastRow = sheet.LastRowUsed()?.RowNumber() ?? 0;
+                for (int r = 3; r <= lastRow; r++)
+                {
+                    string Cell(int c) => sheet.Cell(r, c).GetFormattedString().Trim();
+                    var row = (r, Cell(1), Cell(2), Cell(3), Cell(4), Cell(5), Cell(6));
+                    if (row.Item2 == "" && row.Item3 == "" && row.Item4 == "" && row.Item5 == "" && row.Item6 == "" && row.Item7 == "")
+                        continue; // empty row
+                    rows.Add(row);
+                }
+                if (rows.Count == 0)
+                    throw new InvalidOperationException("The file has no students. Fill them in from row 3.");
+
+                var existingPrns = await _context.StudentMasters
+                    .Where(s => !s.IsDeleted && s.StudentPRN != null && s.StudentPRN != "")
+                    .Select(s => s.StudentPRN!)
+                    .ToHashSetAsync();
+                var prnsInFile = new HashSet<string>();
+                var errors = new List<string>();
+
+                foreach (var (row, first, middle, last, category, prn, gender) in rows)
+                {
+                    if (first == "" || last == "")
+                        errors.Add($"Row {row}: first name and last name are required.");
+                    if (first.Length > 50 || middle.Length > 50 || last.Length > 50 || category.Length > 50 || prn.Length > 50)
+                        errors.Add($"Row {row}: a value is longer than 50 characters.");
+                    if (!string.Equals(gender, "Male", StringComparison.OrdinalIgnoreCase) && !string.Equals(gender, "Female", StringComparison.OrdinalIgnoreCase))
+                        errors.Add($"Row {row}: gender must be Male or Female.");
+                    if (prn != "")
+                    {
+                        if (existingPrns.Contains(prn))
+                            errors.Add($"Row {row}: PRN {prn} already belongs to a student.");
+                        else if (!prnsInFile.Add(prn))
+                            errors.Add($"Row {row}: PRN {prn} appears twice in this file.");
+                    }
+                }
+
+                if (errors.Count > 0)
+                    return new { Success = false, Message = $"Nothing was imported. Fix {errors.Count} problem(s) and import again.", Errors = errors };
+
+                var (prefix, numberPart) = await NextStudentIdAsync(dto.CourseId, academicYear.AYID);
+
+                using var transaction = await _context.Database.BeginTransactionAsync();
+                try
+                {
+                    foreach (var (_, first, middle, last, category, prn, gender) in rows)
+                    {
+                        var studentId = $"{prefix}{numberPart:D4}";
+                        numberPart++;
+                        var stdMstId = Guid.NewGuid();
+
+                        _context.StudentMasters.Add(new Models.StudentMaster
+                        {
+                            StdMstId = stdMstId,
+                            StudentId = studentId,
+                            FirstName = first,
+                            MiddleName = middle == "" ? null : middle,
+                            LastName = last,
+                            Category = category == "" ? null : category,
+                            StudentPRN = prn == "" ? null : prn,
+                            Gender = string.Equals(gender, "Male", StringComparison.OrdinalIgnoreCase) ? "Male" : "Female",
+                            Dyslexia = false,
+                            CreatedAt = DateTime.UtcNow,
+                            IsDeleted = false
+                        });
+                        _context.StudentEligibilities.Add(new StudentEligibility
+                        {
+                            Id = Guid.NewGuid(),
+                            StdMstId = stdMstId,
+                            StudentId = studentId,
+                            CourseId = dto.CourseId,
+                            Pattern = dto.Pattern,
+                            SemesterId = dto.SemesterId,
+                            AYID = academicYear.AYID,
+                            CreatedAt = DateTime.UtcNow,
+                            IsDeleted = false
+                        });
+                    }
+
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
+                    return new { Success = true, Message = $"{rows.Count} student(s) imported.", Errors = new List<string>() };
+                }
+                catch
+                {
+                    await transaction.RollbackAsync();
+                    throw;
+                }
             }
         }
         public async Task<string> DeleteStudentAsync(string studentId)

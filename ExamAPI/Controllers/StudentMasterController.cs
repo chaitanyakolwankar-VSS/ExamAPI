@@ -103,19 +103,33 @@ namespace ExamAPI.Controllers
         [HttpGet("DownloadExcelTemplate")]
         public async Task<IActionResult> DownloadExcelTemplate([FromQuery] StudExcelDto dto)
         {
-            var (fileBytes, fileName) = await _service.GenerateExcelTemplateAsync(dto);
-
-            return File(
-                fileBytes,
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                fileName + ".xlsx"
-            );
+            try
+            {
+                var (fileBytes, fileName) = await _service.GenerateExcelTemplateAsync(dto);
+                return File(fileBytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName + ".xlsx");
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { success = false, message = ExamAPI.Services.Common.SafeError.Message(ex) });
+            }
         }
+
+        /// <summary>
+        /// Imports the filled-in template. All rows are checked first; nothing is saved unless every row is valid.
+        /// Answers { success, message, errors[] } (one line per problem row).
+        /// </summary>
         [HttpPost("ImportStudents")]
+        [RequestSizeLimit(5 * 1024 * 1024)]
         public async Task<IActionResult> ImportStudents([FromForm] StudentImportDto dto)
         {
-            var result = await _service.ImportStudentsAsync(dto);
-            return Ok(new { message = result });
+            try
+            {
+                return Ok(await _service.ImportStudentsAsync(dto));
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { success = false, message = ExamAPI.Services.Common.SafeError.Message(ex), errors = Array.Empty<string>() });
+            }
         }
         [HttpPost("ExamDetails")]
         public async Task<IActionResult> ExamDetails(string studentId)
