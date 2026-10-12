@@ -86,7 +86,7 @@ if (-not (Test-Path $settingsOut)) {
     }
     $config | ConvertTo-Json -Depth 5 | Set-Content -Path $settingsOut -Encoding UTF8
 }
-Copy-Item "$apiRepo\deploy\DEPLOY_GUIDE.md" $Out -Force
+Copy-Item "$apiRepo\deploy\DEPLOY_GUIDE.md", "$apiRepo\deploy\Fix*.sql" $Out -Force   # one-time data fixes ride along
 
 Push-Location $ClientRepo
 try { Run "Build website for /gradesphereapp" { npm run build:gradesphere --silent } }
