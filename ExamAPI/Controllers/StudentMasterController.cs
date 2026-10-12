@@ -96,8 +96,15 @@ namespace ExamAPI.Controllers
         [Authorize(Policy = AccessPolicies.CollegeAdmin)]
         public async Task<IActionResult> DeleteStudent(string studentId)
         {
-            var result = await _service.DeleteStudentAsync(studentId);
-            return Ok(new { message = result });
+            try
+            {
+                var result = await _service.DeleteStudentAsync(studentId);
+                return Ok(new { message = result });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ExamAPI.Services.Common.SafeError.Message(ex) });
+            }
         }
 
         [HttpGet("DownloadExcelTemplate")]

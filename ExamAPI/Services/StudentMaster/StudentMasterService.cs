@@ -181,13 +181,15 @@ namespace ExamAPI.Services.StudentMasters
                 .FirstOrDefaultAsync(x => x.StudentId == dto.StudentId && !x.IsDeleted);
 
             if (student == null)
-                throw new Exception("Student not found");
+                throw new InvalidOperationException("Student not found.");
+            if (string.IsNullOrWhiteSpace(dto.Pattern))
+                throw new InvalidOperationException("Select the pattern (e.g. NEP).");
             var pnrExists = await _context.StudentMasters
                 .AnyAsync(x => x.StudentPRN == dto.StudentPRN && x.StudentId != dto.StudentId && !x.IsDeleted);
 
             if (pnrExists)
             {
-                throw new Exception(" PNR already exists. ");
+                throw new InvalidOperationException("PRN already exists.");
             }
             // 2️⃣ Update basic fields
 
@@ -221,9 +223,10 @@ namespace ExamAPI.Services.StudentMasters
                     student.SignUrl = await SaveBase64ImageAsync(dto.SignUrl, signFileName);
                 }
             }
-            // 5️⃣ Update Eligibility
+            // 5️⃣ Update Eligibility: the enrolment of the selected academic year (a promoted student has one per year).
             var eligibility = await _context.StudentEligibilities
-                .FirstOrDefaultAsync(x => x.StudentId == dto.StudentId && !x.IsDeleted);
+                .FirstOrDefaultAsync(x => x.StudentId == dto.StudentId && x.AYID == dto.AYID && !x.IsDeleted)
+                ?? await _context.StudentEligibilities.FirstOrDefaultAsync(x => x.StudentId == dto.StudentId && !x.IsDeleted);
 
             if (eligibility != null)
             {
@@ -385,6 +388,14 @@ namespace ExamAPI.Services.StudentMasters
         private static readonly string[] TemplateHeaders = { "FirstName", "MiddleName", "LastName", "Category", "PRN", "Gender" };
         private const int TemplateRows = 1000;
 
+        /// <summary>Admission categories (same list as the Student Master form; OPEN = general).</summary>
+        public static readonly string[] StudentCategories =
+            { "OPEN", "NT-1 (NT-B)", "NT-2 (NT-C)", "NT-3 (NT-D)", "OBC", "SBC", "SC", "ST", "VJ/DT(A)", "EBC", "SEBC", "TFWS" };
+
+        /// <summary>The list's spelling of a category typed in any case ("obc" -> "OBC"), or null when it is not in the list.</summary>
+        private static string? CanonicalCategory(string value) =>
+            StudentCategories.FirstOrDefault(c => string.Equals(c, value.Trim(), StringComparison.OrdinalIgnoreCase));
+
         public async Task<(byte[] FileBytes, string FileName)> GenerateExcelTemplateAsync(StudExcelDto dto)
         {
             var course = await _context.CourseMasters
@@ -426,6 +437,11 @@ namespace ExamAPI.Services.StudentMasters
             data.Style.NumberFormat.Format = "@"; // text, so long PRNs are not turned into 1.23E+14
 
             // Gender: a drop-down with the two values the screen uses.
+            var categories = sheet.Range(3, 4, TemplateRows + 2, 4).CreateDataValidation();
+            categories.List("\"" + string.Join(",", StudentCategories) + "\"", true);
+            categories.ErrorTitle = "Category";
+            categories.ErrorMessage = "Choose a category from the list (or leave it empty).";
+
             var gender = sheet.Range(3, 6, TemplateRows + 2, 6).CreateDataValidation();
             gender.List("\"Male,Female\"", true);
             gender.ErrorTitle = "Gender";
@@ -512,6 +528,8 @@ namespace ExamAPI.Services.StudentMasters
                         errors.Add($"Row {row}: a value is longer than 50 characters.");
                     if (!string.Equals(gender, "Male", StringComparison.OrdinalIgnoreCase) && !string.Equals(gender, "Female", StringComparison.OrdinalIgnoreCase))
                         errors.Add($"Row {row}: gender must be Male or Female.");
+                    if (category != "" && CanonicalCategory(category) == null)
+                        errors.Add($"Row {row}: category \"{category}\" is not in the list (OPEN, OBC, SC, ST, ...).");
                     if (prn != "")
                     {
                         if (existingPrns.Contains(prn))
@@ -542,7 +560,7 @@ namespace ExamAPI.Services.StudentMasters
                             FirstName = first,
                             MiddleName = middle == "" ? null : middle,
                             LastName = last,
-                            Category = category == "" ? null : category,
+                            Category = category == "" ? null : CanonicalCategory(category),
                             StudentPRN = prn == "" ? null : prn,
                             Gender = string.Equals(gender, "Male", StringComparison.OrdinalIgnoreCase) ? "Male" : "Female",
                             Dyslexia = false,
@@ -581,7 +599,7 @@ namespace ExamAPI.Services.StudentMasters
 
             if (student == null)
             {
-                throw new Exception("Student not Found");
+                throw new InvalidOperationException("Student not found.");
             }
             student.IsDeleted = true;
             

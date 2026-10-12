@@ -72,6 +72,7 @@ public sealed class StudentExcelImportTests
         Assert.Equal(2, students.Count);
         Assert.Equal("202600000000012345", students[0].StudentPRN); // long PRN kept as text
         Assert.Equal("Female", students[0].Gender);
+        Assert.Equal("OPEN", students[0].Category);                 // "Open" typed, list spelling stored
         Assert.All(await _context.StudentEligibilities.ToListAsync(), e =>
         {
             Assert.Equal("NEP", e.Pattern);
@@ -89,7 +90,8 @@ public sealed class StudentExcelImportTests
             ["Asha", "", "Patil", "", "111", "Female"],   // PRN already used
             ["Ravi", "", "", "", "222", "Male"],          // no last name
             ["Mina", "", "Rao", "", "222", "F"],          // PRN twice in file, bad gender
-            ["Ok", "", "Student", "", "333", "Male"]);
+            ["Gen", "", "Eral", "General", "444", "Male"],       // category not in the list
+            ["Ok", "", "Student", "obc", "333", "Male"]);
 
         var result = await _service.ImportStudentsAsync(Import(file));
 
@@ -99,6 +101,8 @@ public sealed class StudentExcelImportTests
         Assert.Contains(errors, e => e.StartsWith("Row 4:") && e.Contains("last name"));
         Assert.Contains(errors, e => e.StartsWith("Row 5:") && e.Contains("twice"));
         Assert.Contains(errors, e => e.StartsWith("Row 5:") && e.Contains("Male or Female"));
+        Assert.Contains(errors, e => e.StartsWith("Row 6:") && e.Contains("not in the list"));
+        Assert.DoesNotContain(errors, e => e.StartsWith("Row 7:"));
         Assert.Equal(1, await _context.StudentMasters.CountAsync()); // nothing imported
     }
 
