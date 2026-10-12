@@ -660,6 +660,7 @@ namespace ExamAPI.Tests
             Seed();
             var request = Request();
             request.TargetExamId = _sourceExamId;
+            var marksBefore = _context.MarksMasters.Count(mm => mm.ExamId == _sourceExamId);
 
             var response = await _service.SaveAsync(new AtktSaveRequest
             {
@@ -671,7 +672,7 @@ namespace ExamAPI.Tests
             });
 
             Assert.False(response.Success);
-            Assert.Empty(_context.MarksMasters.Where(mm => mm.ExamId == _sourceExamId && mm.CreatedAt > DateTime.UtcNow.AddMinutes(-5)));
+            Assert.Equal(marksBefore, _context.MarksMasters.Count(mm => mm.ExamId == _sourceExamId));
         }
 
         [Fact]

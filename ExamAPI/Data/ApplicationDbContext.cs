@@ -302,6 +302,20 @@ namespace ExamAPI.Data
         // =========================================================
         public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
         {
+            PrepareSave();
+            return await base.SaveChangesAsync(cancellationToken);
+        }
+
+        // The synchronous save must stamp the tenant too: without it new rows got CollegeId = NULL and
+        // the tenant filter hid them (saved subject credits vanished from Subject Master).
+        public override int SaveChanges(bool acceptAllChangesOnSuccess)
+        {
+            PrepareSave();
+            return base.SaveChanges(acceptAllChangesOnSuccess);
+        }
+
+        private void PrepareSave()
+        {
             var user = _httpContextAccessor.HttpContext?.User;
             var userIdString = user?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             Guid? currentUserId = userIdString != null ? Guid.Parse(userIdString) : null;
@@ -391,10 +405,8 @@ namespace ExamAPI.Data
             // -----------------------------------------------------
             if (auditEntries.Count > 0)
             {
-                await AuditLogs.AddRangeAsync(auditEntries);
+                AuditLogs.AddRange(auditEntries);
             }
-
-                return await base.SaveChangesAsync(cancellationToken);
         }
     }
 }

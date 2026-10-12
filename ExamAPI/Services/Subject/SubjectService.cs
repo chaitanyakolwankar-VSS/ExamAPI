@@ -131,7 +131,7 @@ namespace ExamAPI.Services.Subject
                 }
 
 
-                _context.SaveChanges();
+                await _context.SaveChangesAsync();
 
 
                 // 🔹 Commit transaction
@@ -352,7 +352,7 @@ namespace ExamAPI.Services.Subject
                         }
                     }
                 }
-                _context.SaveChanges();
+                await _context.SaveChangesAsync();
                 // 🔹 Commit transaction
                 await transaction.CommitAsync();
 
@@ -402,7 +402,7 @@ namespace ExamAPI.Services.Subject
                         x => creditMasterIds.Contains(x.CreditsId)
                     );
                 }
-                _context.SaveChanges();
+                await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
 
                 return new ApiResponseDto<object>

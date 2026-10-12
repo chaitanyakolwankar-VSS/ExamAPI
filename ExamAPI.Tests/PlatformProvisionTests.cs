@@ -78,6 +78,9 @@ public sealed class PlatformProvisionTests
             ctx.RuleActions.Add(new RuleAction { ActionId = Guid.NewGuid(), ActionType = "AddGrace", CalculationMode = "Fixed", Param1Type = "Value", Param1Value = 5.5m, MaxLimit = 7.75m, MaxTargetCount = 2, Target = "Subject", Expression = "x+1", RuleId = rule.RuleId });
         }
         ctx.SaveChanges();
+        // A new row is always saved as not deleted, so the "F" threshold is soft-deleted afterwards.
+        ctx.GradeThresholds.Local.Single(t => t.Grade == "F").IsDeleted = true;
+        ctx.SaveChanges();
 
         var storage = new Mock<IFileStorage>();
         storage.Setup(s => s.SaveAsync(It.IsAny<byte[]>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
