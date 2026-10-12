@@ -61,9 +61,9 @@ public sealed class StudentExcelImportTests
     public async Task Template_rows_become_students_enrolled_with_the_pattern()
     {
         var file = await FilledTemplate(
-            ["Asha", "", "Patil", "Sunita", "Open", "202600000000012345", "female"],
+            ["Asha", "", "Patil", "Sunita", "Open", "202600000000012345", "female", "E"],
             [],
-            ["Ravi", "K", "Shah", "Sunita", "", "", "Male"]);
+            ["Ravi", "K", "Shah", "Sunita", "", "", "Male", "E"]);
 
         var result = await _service.ImportStudentsAsync(Import(file));
 
@@ -87,11 +87,11 @@ public sealed class StudentExcelImportTests
         _context.StudentMasters.Add(new StudentMaster { StdMstId = Guid.NewGuid(), StudentId = "OLD1", FirstName = "Old", LastName = "One", StudentPRN = "111", CollegeId = _college });
         await _context.SaveChangesAsync();
         var file = await FilledTemplate(
-            ["Asha", "", "Patil", "Sunita", "", "111", "Female"],   // ERN already used
-            ["Ravi", "", "", "Sunita", "", "222", "Male"],          // no last name
-            ["Mina", "", "Rao", "Sunita", "", "222", "F"],          // ERN twice in file, bad gender
-            ["Gen", "", "Eral", "Sunita", "General", "444", "Male"],       // category not in the list
-            ["Ok", "", "Student", "Sunita", "obc", "333", "Male"]);
+            ["Asha", "", "Patil", "Sunita", "", "111", "Female", "E"],   // ERN already used
+            ["Ravi", "", "", "Sunita", "", "222", "Male", "E"],          // no last name
+            ["Mina", "", "Rao", "Sunita", "", "222", "F", "E"],          // ERN twice in file, bad gender
+            ["Gen", "", "Eral", "Sunita", "General", "444", "Male", "E"],       // category not in the list
+            ["Ok", "", "Student", "Sunita", "obc", "333", "Male", "E"]);
 
         var result = await _service.ImportStudentsAsync(Import(file));
 
@@ -123,7 +123,7 @@ public sealed class StudentExcelImportTests
         using (var workbook = new XLWorkbook(new MemoryStream(bytes)))
             Assert.Equal("ERN", workbook.Worksheet(1).Cell(2, 6).GetString());
 
-        var oldTemplate = WithHeader(await FilledTemplate(["Asha", "", "Patil", "Sunita", "", "555", "Female"]), 6, "PRN");
+        var oldTemplate = WithHeader(await FilledTemplate(["Asha", "", "Patil", "Sunita", "", "555", "Female", "E"]), 6, "PRN");
 
         Assert.True(Success(await _service.ImportStudentsAsync(Import(oldTemplate))));
         Assert.Equal("555", (await _context.StudentMasters.SingleAsync()).StudentPRN);
@@ -132,7 +132,7 @@ public sealed class StudentExcelImportTests
     [Fact]
     public async Task A_file_with_another_heading_in_the_ERN_column_is_refused()
     {
-        var file = WithHeader(await FilledTemplate(["Asha", "", "Patil", "Sunita", "", "555", "Female"]), 6, "Roll No");
+        var file = WithHeader(await FilledTemplate(["Asha", "", "Patil", "Sunita", "", "555", "Female", "E"]), 6, "Roll No");
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => _service.ImportStudentsAsync(Import(file)));
         Assert.Contains("not the student template", ex.Message);
@@ -154,18 +154,18 @@ public sealed class StudentExcelImportTests
     }
 
     [Fact]
-    public async Task Template_has_the_MotherName_column_after_LastName()
+    public async Task Template_has_the_MotherName_column_after_LastName_and_StudentType_last()
     {
         var (bytes, _) = await _service.GenerateExcelTemplateAsync(new StudExcelDto { CourseId = _course, SemesterId = "Sem-1", Pattern = "NEP", AYID = _ay });
         using var workbook = new XLWorkbook(new MemoryStream(bytes));
-        Assert.Equal(["FirstName", "MiddleName", "LastName", "MotherName", "Category", "ERN", "Gender"],
-            Enumerable.Range(1, 7).Select(c => workbook.Worksheet(1).Cell(2, c).GetString()));
+        Assert.Equal(["FirstName", "MiddleName", "LastName", "MotherName", "Category", "ERN", "Gender", "StudentType"],
+            Enumerable.Range(1, 8).Select(c => workbook.Worksheet(1).Cell(2, c).GetString()));
     }
 
     [Fact]
     public async Task Mother_name_is_saved_with_the_imported_student()
     {
-        var file = await FilledTemplate(["Asha", "", "Patil", "  Sunita Ramesh ", "", "", "Female"]);
+        var file = await FilledTemplate(["Asha", "", "Patil", "  Sunita Ramesh ", "", "", "Female", "E"]);
 
         Assert.True(Success(await _service.ImportStudentsAsync(Import(file))));
         Assert.Equal("Sunita Ramesh", (await _context.StudentMasters.SingleAsync()).MotherName);
@@ -175,9 +175,9 @@ public sealed class StudentExcelImportTests
     public async Task A_row_without_the_mother_name_is_reported_and_nothing_is_imported()
     {
         var file = await FilledTemplate(
-            ["Asha", "", "Patil", "Sunita", "", "", "Female"],
-            ["Ravi", "", "Shah", "", "", "", "Male"],
-            ["Mina", "", "Rao", new string('x', 51), "", "", "Female"]);
+            ["Asha", "", "Patil", "Sunita", "", "", "Female", "E"],
+            ["Ravi", "", "Shah", "", "", "", "Male", "E"],
+            ["Mina", "", "Rao", new string('x', 51), "", "", "Female", "E"]);
 
         var result = await _service.ImportStudentsAsync(Import(file));
 
@@ -203,8 +203,8 @@ public sealed class StudentExcelImportTests
     [Fact]
     public async Task Columns_are_found_by_heading_not_by_position()
     {
-        var file = RawFile(["gender", " ERN ", "MotherName", "LastName", "FirstName", "Category", "MiddleName"],
-            ["Female", "777", "Sunita", "Patil", "Asha", "obc", "R"]);
+        var file = RawFile(["gender", " ERN ", "MotherName", "LastName", "FirstName", "Category", "MiddleName", "studenttype"],
+            ["Female", "777", "Sunita", "Patil", "Asha", "obc", "R", "m"]);
 
         Assert.True(Success(await _service.ImportStudentsAsync(Import(file))));
         var student = await _context.StudentMasters.SingleAsync();
@@ -215,7 +215,7 @@ public sealed class StudentExcelImportTests
     [Fact]
     public async Task Saving_a_student_without_the_mother_name_is_refused()
     {
-        var dto = new Savedata { CourseId = _course, SemesterId = "Sem-1", Pattern = "NEP", AYID = _ay, FirstName = "Asha", LastName = "Patil", Gender = "Female", MotherName = "  " };
+        var dto = new Savedata { CourseId = _course, SemesterId = "Sem-1", Pattern = "NEP", AYID = _ay, FirstName = "Asha", LastName = "Patil", Gender = "Female", MotherName = "  ", StudentType = "E" };
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => _service.SaveStudentAsync(dto));
         Assert.Equal("Enter the mother's name.", ex.Message);
@@ -228,11 +228,11 @@ public sealed class StudentExcelImportTests
         var id = await _service.SaveStudentAsync(new Savedata
         {
             CourseId = _course, SemesterId = "Sem-1", Pattern = "NEP", AYID = _ay,
-            FirstName = "Asha", LastName = "Patil", Gender = "Female", MotherName = "  Sunita ",
+            FirstName = "Asha", LastName = "Patil", Gender = "Female", MotherName = "  Sunita ", StudentType = "E",
         });
         Assert.Equal("Sunita", (await _service.GetStudentByIdAsync(id, _ay)).MotherName);
 
-        var edit = new Savedata { StudentId = id, CourseId = _course, SemesterId = "Sem-1", Pattern = "NEP", AYID = _ay, FirstName = "Asha", LastName = "Patil", Gender = "Female", MotherName = "" };
+        var edit = new Savedata { StudentId = id, CourseId = _course, SemesterId = "Sem-1", Pattern = "NEP", AYID = _ay, FirstName = "Asha", LastName = "Patil", Gender = "Female", MotherName = "", StudentType = "E" };
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => _service.UpdateStudentAsync(edit));
         Assert.Equal("Enter the mother's name.", ex.Message);
 
@@ -242,9 +242,84 @@ public sealed class StudentExcelImportTests
     }
 
     [Fact]
+    public async Task Student_type_is_stored_as_a_letter_whether_typed_as_letter_or_word()
+    {
+        var file = await FilledTemplate(
+            ["Asha", "", "Patil", "Sunita", "", "", "Female", " d "],
+            ["Ravi", "", "Shah", "Sunita", "", "", "Male", "Engineering"],
+            ["Mina", "", "Rao", "Sunita", "", "", "Female", "mca"]);
+
+        Assert.True(Success(await _service.ImportStudentsAsync(Import(file))));
+        var types = await _context.StudentMasters.OrderBy(s => s.StudentId).Select(s => s.StudentType).ToListAsync();
+        Assert.Equal(["D", "E", "M"], types);
+    }
+
+    [Fact]
+    public async Task A_row_without_or_with_a_wrong_student_type_is_reported_and_nothing_is_imported()
+    {
+        var file = await FilledTemplate(
+            ["Asha", "", "Patil", "Sunita", "", "", "Female", "E"],
+            ["Ravi", "", "Shah", "Sunita", "", "", "Male", ""],
+            ["Mina", "", "Rao", "Sunita", "", "", "Female", "X"]);
+
+        var result = await _service.ImportStudentsAsync(Import(file));
+
+        Assert.False(Success(result));
+        var errors = Errors(result);
+        Assert.Contains("Row 4: student type is required (E, D or M).", errors);
+        Assert.Contains("Row 5: student type must be E, D or M.", errors);
+        Assert.DoesNotContain(errors, e => e.StartsWith("Row 3:"));
+        Assert.Equal(0, await _context.StudentMasters.CountAsync());
+    }
+
+    [Fact]
+    public async Task A_template_without_the_StudentType_column_is_refused_with_a_clear_message()
+    {
+        var file = RawFile(["FirstName", "MiddleName", "LastName", "MotherName", "Category", "ERN", "Gender"],
+            ["Asha", "", "Patil", "Sunita", "", "555", "Female"]);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => _service.ImportStudentsAsync(Import(file)));
+        Assert.Equal("This template has no StudentType column. Download the template again.", ex.Message);
+        Assert.Equal(0, await _context.StudentMasters.CountAsync());
+    }
+
+    [Theory]
+    [InlineData("E", "E")]
+    [InlineData(" diploma ", "D")]
+    [InlineData("MCA", "M")]
+    [InlineData("", null)]
+    [InlineData(null, null)]
+    [InlineData("X", null)]
+    [InlineData("Engg", null)]
+    public void Student_type_input_is_normalised(string? input, string? expected) =>
+        Assert.Equal(expected, StudentMasterService.NormalizeStudentType(input));
+
+    [Fact]
+    public async Task Saving_or_editing_a_student_without_a_valid_type_is_refused()
+    {
+        var dto = new Savedata { CourseId = _course, SemesterId = "Sem-1", Pattern = "NEP", AYID = _ay, FirstName = "Asha", LastName = "Patil", Gender = "Female", MotherName = "Sunita", StudentType = " " };
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => _service.SaveStudentAsync(dto));
+        Assert.Equal("Choose the student type (Engineering, Diploma or MCA).", ex.Message);
+        Assert.Equal(0, await _context.StudentMasters.CountAsync());
+
+        dto.StudentType = "diploma";
+        var id = await _service.SaveStudentAsync(dto);
+
+        var edit = new Savedata { StudentId = id, CourseId = _course, SemesterId = "Sem-1", Pattern = "NEP", AYID = _ay, FirstName = "Asha", LastName = "Patil", Gender = "Female", MotherName = "Sunita", StudentType = "Z" };
+        ex = await Assert.ThrowsAsync<InvalidOperationException>(() => _service.UpdateStudentAsync(edit));
+        Assert.Equal("Choose the student type (Engineering, Diploma or MCA).", ex.Message);
+        Assert.Equal("D", (await _service.GetStudentByIdAsync(id, _ay)).StudentType);
+
+        edit.StudentType = "m";
+        await _service.UpdateStudentAsync(edit);
+        Assert.Equal("M", (await _service.GetStudentByIdAsync(id, _ay)).StudentType);
+        Assert.Equal("M", (await _service.SearchStudentsAsync(new Searchbyname { StudentPRN = "", StudentId = id }, _ay)).Single().StudentType);
+    }
+
+    [Fact]
     public async Task Import_without_a_pattern_is_refused()
     {
-        var file = await FilledTemplate(["Asha", "", "Patil", "Sunita", "", "", "Female"]);
+        var file = await FilledTemplate(["Asha", "", "Patil", "Sunita", "", "", "Female", "E"]);
         var dto = Import(file);
         dto.Pattern = "";
 
@@ -254,7 +329,7 @@ public sealed class StudentExcelImportTests
     [Fact]
     public async Task Saving_a_student_without_a_pattern_is_refused()
     {
-        var dto = new Savedata { CourseId = _course, SemesterId = "Sem-1", AYID = _ay, FirstName = "Asha", LastName = "Patil", MotherName = "Sunita", Gender = "Female", StudentPRN = "9" };
+        var dto = new Savedata { CourseId = _course, SemesterId = "Sem-1", AYID = _ay, FirstName = "Asha", LastName = "Patil", MotherName = "Sunita", StudentType = "E", Gender = "Female", StudentPRN = "9" };
 
         var ex = await Assert.ThrowsAnyAsync<Exception>(() => _service.SaveStudentAsync(dto));
         Assert.Contains("pattern", ex.Message);
@@ -274,7 +349,7 @@ public sealed class StudentExcelImportTests
         await _service.SaveStudentAsync(new Savedata
         {
             CourseId = course, SemesterId = "Sem-1", Pattern = "NEP", AYID = _ay,
-            FirstName = "A", LastName = "B", MotherName = "M", Gender = "Male", StudentPRN = prn,
+            FirstName = "A", LastName = "B", MotherName = "M", StudentType = "E", Gender = "Male", StudentPRN = prn,
         });
     [Fact]
     public async Task Ids_are_year_digits_and_a_running_five_digit_number()
@@ -308,7 +383,7 @@ public sealed class StudentExcelImportTests
     {
         Assert.Equal("2600001", await Save(_course, "1"));
 
-        var file = await FilledTemplate(["Asha", "", "Patil", "Sunita", "", "", "Female"], ["Ravi", "", "Shah", "Sunita", "", "", "Male"]);
+        var file = await FilledTemplate(["Asha", "", "Patil", "Sunita", "", "", "Female", "E"], ["Ravi", "", "Shah", "Sunita", "", "", "Male", "E"]);
         Assert.True(Success(await _service.ImportStudentsAsync(Import(file))));
 
         Assert.Equal("Asha", (await _context.StudentMasters.SingleAsync(s => s.StudentId == "2600002")).FirstName);
@@ -327,7 +402,7 @@ public sealed class StudentExcelImportTests
         var id = await _service.SaveStudentAsync(new Savedata
         {
             CourseId = _course, SemesterId = "Sem-1", Pattern = "NEP", AYID = ay2,
-            FirstName = "A", LastName = "B", MotherName = "M", Gender = "Male", StudentPRN = "2",
+            FirstName = "A", LastName = "B", MotherName = "M", StudentType = "E", Gender = "Male", StudentPRN = "2",
         });
         Assert.Equal("2700001", id);
     }

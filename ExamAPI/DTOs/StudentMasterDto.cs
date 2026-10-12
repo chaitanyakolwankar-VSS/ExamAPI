@@ -13,6 +13,8 @@ namespace ExamAPI.DTOs
         public string? MiddleName { get; set; }
         public string? LastName { get; set; }
         public string? MotherName { get; set; }
+        /// <summary>"E" Engineering, "D" Diploma, "M" MCA.</summary>
+        public string? StudentType { get; set; }
         public string? Gender { get; set; }
         public string? Category { get; set; }
         public string? StudentPRN { get; set; }
@@ -32,6 +34,8 @@ namespace ExamAPI.DTOs
         public string?MiddleName { get; set; }
         public required string LastName { get; set; }
         public string? MotherName { get; set; }
+        /// <summary>"E" Engineering, "D" Diploma, "M" MCA.</summary>
+        public string? StudentType { get; set; }
         public string? StudentPRN { get; set; }
         public string? SemesterId { get; set; }
         public Guid AYID { get; set; }

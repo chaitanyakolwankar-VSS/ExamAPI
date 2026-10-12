@@ -87,6 +87,7 @@ namespace ExamAPI.Services.StudentMasters
                     LastName = sm.LastName,
                     MiddleName = sm.MiddleName,
                     MotherName = sm.MotherName,
+                    StudentType = sm.StudentType,
                     StudentName = sm.FirstName + " " + (sm.MiddleName ?? "") + " " + sm.LastName,
                     SemesterId = se.SemesterId,
                     StudentPRN = sm.StudentPRN,
@@ -132,6 +133,7 @@ namespace ExamAPI.Services.StudentMasters
                     MiddleName = x.sm.MiddleName,
                     LastName = x.sm.LastName,
                     MotherName = x.sm.MotherName,
+                    StudentType = x.sm.StudentType,
                     StudentName = x.sm.FirstName + " " + (x.sm.MiddleName ?? "") + " " + x.sm.LastName,
                     SemesterId = x.se.SemesterId,
                     Pattern = x.se.Pattern,
@@ -163,6 +165,7 @@ namespace ExamAPI.Services.StudentMasters
                     MiddleName = sm.MiddleName,
                     LastName = sm.LastName,
                     MotherName = sm.MotherName,
+                    StudentType = sm.StudentType,
                     Gender = sm.Gender,
                     Category = sm.Category,
                     StudentPRN = sm.StudentPRN,
@@ -185,6 +188,7 @@ namespace ExamAPI.Services.StudentMasters
             if (string.IsNullOrWhiteSpace(dto.Pattern))
                 throw new InvalidOperationException("Select the pattern (e.g. NEP).");
             var motherName = CleanMotherName(dto.MotherName);
+            var studentType = NormalizeStudentType(dto.StudentType) ?? throw new InvalidOperationException(StudentTypeRequired);
             var pnrExists = await _context.StudentMasters
                 .AnyAsync(x => x.StudentPRN == dto.StudentPRN && x.StudentId != dto.StudentId && !x.IsDeleted);
 
@@ -198,6 +202,7 @@ namespace ExamAPI.Services.StudentMasters
             student.MiddleName = dto.MiddleName;
             student.LastName = dto.LastName;
             student.MotherName = motherName;
+            student.StudentType = studentType;
             student.Category = dto.Category;
             student.StudentPRN = dto.StudentPRN;
             student.Gender = dto.Gender;
@@ -252,9 +257,21 @@ namespace ExamAPI.Services.StudentMasters
             return name;
         }
 
+        private const string StudentTypeRequired = "Choose the student type (Engineering, Diploma or MCA).";
+
+        /// <summary>"E", "D" or "M" for a student type given as the letter or the word in any case ("diploma" -> "D"); null when blank or anything else.</summary>
+        public static string? NormalizeStudentType(string? value) => (value ?? "").Trim().ToUpperInvariant() switch
+        {
+            "E" or "ENGINEERING" => "E",
+            "D" or "DIPLOMA" => "D",
+            "M" or "MCA" => "M",
+            _ => null,
+        };
+
         public async Task<string> SaveStudentAsync(Savedata dto)
         {
             var motherName = CleanMotherName(dto.MotherName);
+            var studentType = NormalizeStudentType(dto.StudentType) ?? throw new InvalidOperationException(StudentTypeRequired);
             using var transaction = await _context.Database.BeginTransactionAsync();
 
             try
@@ -292,6 +309,7 @@ namespace ExamAPI.Services.StudentMasters
                     MiddleName = dto.MiddleName,
                     LastName = dto.LastName,
                     MotherName = motherName,
+                    StudentType = studentType,
                     Category = dto.Category,
                     StudentPRN=dto.StudentPRN,
                     Gender = dto.Gender,
@@ -402,7 +420,7 @@ namespace ExamAPI.Services.StudentMasters
             return await _storage.SaveAsync(imageBytes, ExamAPI.Services.Files.FileStorage.StudentsFolder, fileName);
         }
         /// <summary>Columns of the student template, in order. Row 1 is a title, row 2 these headings, data from row 3.</summary>
-        private static readonly string[] TemplateHeaders = { "FirstName", "MiddleName", "LastName", "MotherName", "Category", "ERN", "Gender" };
+        private static readonly string[] TemplateHeaders = { "FirstName", "MiddleName", "LastName", "MotherName", "Category", "ERN", "Gender", "StudentType" };
         // Templates downloaded before the ERN rename say "PRN" in that column; still accept them.
         private const string LegacyErnHeader = "PRN";
         private const int TemplateRows = 1000;
@@ -468,10 +486,18 @@ namespace ExamAPI.Services.StudentMasters
             gender.ErrorTitle = "Gender";
             gender.ErrorMessage = "Choose Male or Female.";
 
+            var studentType = sheet.Range(3, TemplateColumn("StudentType"), TemplateRows + 2, TemplateColumn("StudentType")).CreateDataValidation();
+            studentType.List("\"E,D,M\"", true);
+            studentType.ShowInputMessage = true;
+            studentType.InputTitle = "Student type";
+            studentType.InputMessage = "E = Engineering, D = Diploma, M = MCA";
+            studentType.ErrorTitle = "Student type";
+            studentType.ErrorMessage = "Enter E (Engineering), D (Diploma) or M (MCA).";
+
             // ERN: highlight a number typed twice in this sheet.
             sheet.Range(3, TemplateColumn("ERN"), TemplateRows + 2, TemplateColumn("ERN")).AddConditionalFormat().WhenIsDuplicate().Fill.SetBackgroundColor(XLColor.LightPink);
 
-            double[] widths = { 18, 18, 18, 18, 14, 20, 10 };
+            double[] widths = { 18, 18, 18, 18, 14, 20, 10, 12 };
             for (int i = 0; i < widths.Length; i++) sheet.Column(i + 1).Width = widths[i];
 
             using var stream = new MemoryStream();
@@ -522,19 +548,21 @@ namespace ExamAPI.Services.StudentMasters
                     if (heading.Equals(LegacyErnHeader, StringComparison.OrdinalIgnoreCase)) heading = "ERN";
                     columns.TryAdd(heading, c);
                 }
-                if (TemplateHeaders.Any(h => h != "MotherName" && !columns.ContainsKey(h)))
+                if (TemplateHeaders.Any(h => h != "MotherName" && h != "StudentType" && !columns.ContainsKey(h)))
                     throw new InvalidOperationException("This is not the student template. Download it again with the Excel button.");
                 if (!columns.ContainsKey("MotherName"))
                     throw new InvalidOperationException("This template has no MotherName column. Download the template again.");
+                if (!columns.ContainsKey("StudentType"))
+                    throw new InvalidOperationException("This template has no StudentType column. Download the template again.");
 
                 // Read every filled row first; nothing is saved unless all rows are valid.
-                var rows = new List<(int Row, string First, string Middle, string Last, string Mother, string Category, string Prn, string Gender)>();
+                var rows = new List<(int Row, string First, string Middle, string Last, string Mother, string Category, string Prn, string Gender, string Type)>();
                 int lastRow = sheet.LastRowUsed()?.RowNumber() ?? 0;
                 for (int r = 3; r <= lastRow; r++)
                 {
                     string Cell(string header) => sheet.Cell(r, columns[header]).GetFormattedString().Trim();
-                    var row = (r, Cell("FirstName"), Cell("MiddleName"), Cell("LastName"), Cell("MotherName"), Cell("Category"), Cell("ERN"), Cell("Gender"));
-                    if (row.Item2 == "" && row.Item3 == "" && row.Item4 == "" && row.Item5 == "" && row.Item6 == "" && row.Item7 == "" && row.Item8 == "")
+                    var row = (r, Cell("FirstName"), Cell("MiddleName"), Cell("LastName"), Cell("MotherName"), Cell("Category"), Cell("ERN"), Cell("Gender"), Cell("StudentType"));
+                    if (row.Item2 == "" && row.Item3 == "" && row.Item4 == "" && row.Item5 == "" && row.Item6 == "" && row.Item7 == "" && row.Item8 == "" && row.Item9 == "")
                         continue; // empty row
                     rows.Add(row);
                 }
@@ -548,7 +576,7 @@ namespace ExamAPI.Services.StudentMasters
                 var prnsInFile = new HashSet<string>();
                 var errors = new List<string>();
 
-                foreach (var (row, first, middle, last, mother, category, prn, gender) in rows)
+                foreach (var (row, first, middle, last, mother, category, prn, gender, type) in rows)
                 {
                     if (first == "" || last == "")
                         errors.Add($"Row {row}: first name and last name are required.");
@@ -558,6 +586,10 @@ namespace ExamAPI.Services.StudentMasters
                         errors.Add($"Row {row}: a value is longer than 50 characters.");
                     if (!string.Equals(gender, "Male", StringComparison.OrdinalIgnoreCase) && !string.Equals(gender, "Female", StringComparison.OrdinalIgnoreCase))
                         errors.Add($"Row {row}: gender must be Male or Female.");
+                    if (type == "")
+                        errors.Add($"Row {row}: student type is required (E, D or M).");
+                    else if (NormalizeStudentType(type) == null)
+                        errors.Add($"Row {row}: student type must be E, D or M.");
                     if (category != "" && CanonicalCategory(category) == null)
                         errors.Add($"Row {row}: category \"{category}\" is not in the list (OPEN, OBC, SC, ST, ...).");
                     if (prn != "")
@@ -577,7 +609,7 @@ namespace ExamAPI.Services.StudentMasters
                 using var transaction = await _context.Database.BeginTransactionAsync();
                 try
                 {
-                    foreach (var (_, first, middle, last, mother, category, prn, gender) in rows)
+                    foreach (var (_, first, middle, last, mother, category, prn, gender, type) in rows)
                     {
                         var studentId = FormatStudentId(prefix, numberPart);
                         numberPart++;
@@ -591,6 +623,7 @@ namespace ExamAPI.Services.StudentMasters
                             MiddleName = middle == "" ? null : middle,
                             LastName = last,
                             MotherName = mother,
+                            StudentType = NormalizeStudentType(type),
                             Category = category == "" ? null : CanonicalCategory(category),
                             StudentPRN = prn == "" ? null : prn,
                             Gender = string.Equals(gender, "Male", StringComparison.OrdinalIgnoreCase) ? "Male" : "Female",

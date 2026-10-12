@@ -26,6 +26,10 @@ namespace ExamAPI.Models
         [MaxLength(50)]
         public string? MotherName { get; set; }
 
+        /// <summary>E = Engineering, D = Diploma (direct second-year admission), M = MCA. Null for students saved before this was asked.</summary>
+        [MaxLength(1)]
+        public string? StudentType { get; set; }
+
         [MaxLength(255)]
         [EmailAddress]
         public string? Email { get; set; }
