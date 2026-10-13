@@ -529,7 +529,7 @@ namespace ExamAPI.Services.AtktRevalExam
                 {
                     StdMstId = student.StdMstId,
                     StudentId = student.StudentId,
-                    StudentName = BuildName(student),
+                    StudentName = StudentNames.Display(student),
                     SeatNo = target?.SeatNo ?? source?.SeatNo,
                     SourceMarksId = source?.MarksId,
                     SourceExamId = source?.ExamId,
@@ -739,10 +739,6 @@ namespace ExamAPI.Services.AtktRevalExam
             return attempt.StudentMarks?.Any(head => !head.IsDeleted &&
                 (head.Marks.HasValue || head.RawMarks.HasValue || head.IsAbsent)) == true;
         }
-
-        private static string BuildName(StudentMaster s) =>
-            string.Join(" ", new[] { s.FirstName, s.MiddleName, s.LastName }
-                .Where(part => !string.IsNullOrWhiteSpace(part)));
 
         private static int ParseInt(string? value) => int.TryParse(value, out var parsed) ? parsed : 0;
 

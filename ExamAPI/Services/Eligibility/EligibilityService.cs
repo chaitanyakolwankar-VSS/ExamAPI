@@ -2,6 +2,7 @@
 using ExamAPI.Data;
 using ExamAPI.DTOs;
 using ExamAPI.Models;
+using ExamAPI.Services.Common;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Transactions;
@@ -29,7 +30,10 @@ namespace ExamAPI.Services.Eligibility
                     {
                         StdMstId=sel.x.mm.StdMstId,
                         StudentId= sel.x.mm.StudentID,
-                        StudentName=sel.s.FirstName+" "+sel.s.MiddleName+" "+sel.s.LastName
+                        sel.s.LastName,
+                        sel.s.FirstName,
+                        sel.s.MiddleName,
+                        sel.s.MotherName
                     });
                 var StudentList = new List<EligibilityStudents>();
                 foreach (var student in students)
@@ -38,7 +42,7 @@ namespace ExamAPI.Services.Eligibility
                     {
                         SerialNo = "",
                         StudentId = student.StudentId,
-                        StudentName = student.StudentName,
+                        StudentName = StudentNames.Display(student.LastName, student.FirstName, student.MiddleName, student.MotherName),
                         semesters = new Dictionary<int, SemesterData>()
                     };
 

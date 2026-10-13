@@ -4,6 +4,7 @@ using DocumentFormat.OpenXml.EMMA;
 using ExamAPI.Data;
 using ExamAPI.DTOs;
 using ExamAPI.Models;
+using ExamAPI.Services.Common;
 using Microsoft.EntityFrameworkCore;
 using System.Collections;
 using System.Data;
@@ -88,7 +89,6 @@ namespace ExamAPI.Services.StudentMasters
                     MiddleName = sm.MiddleName,
                     MotherName = sm.MotherName,
                     StudentType = sm.StudentType,
-                    StudentName = sm.FirstName + " " + (sm.MiddleName ?? "") + " " + sm.LastName,
                     SemesterId = se.SemesterId,
                     StudentPRN = sm.StudentPRN,
                     Dyslexia = sm.Dyslexia,
@@ -97,6 +97,7 @@ namespace ExamAPI.Services.StudentMasters
                 }
             ).ToListAsync();
 
+            foreach (var row in data) row.StudentName = StudentNames.Display(row.LastName, row.FirstName, row.MiddleName, row.MotherName);
             return data;
         }
         public async Task<List<FetchData>> SearchStudentsAsync(Searchbyname model, Guid ayid)
@@ -134,7 +135,6 @@ namespace ExamAPI.Services.StudentMasters
                     LastName = x.sm.LastName,
                     MotherName = x.sm.MotherName,
                     StudentType = x.sm.StudentType,
-                    StudentName = x.sm.FirstName + " " + (x.sm.MiddleName ?? "") + " " + x.sm.LastName,
                     SemesterId = x.se.SemesterId,
                     Pattern = x.se.Pattern,
                     StudentPRN = x.sm.StudentPRN,
@@ -144,6 +144,7 @@ namespace ExamAPI.Services.StudentMasters
                 })
                 .ToListAsync();
 
+            foreach (var row in data) row.StudentName = StudentNames.Display(row.LastName, row.FirstName, row.MiddleName, row.MotherName);
             return data;
         }
         public async Task<Savedata> GetStudentByIdAsync(string studentId, Guid ayid)

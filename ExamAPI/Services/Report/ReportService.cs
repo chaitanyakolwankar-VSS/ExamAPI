@@ -197,7 +197,7 @@ namespace ExamAPI.Services.Report
                 var marksMaster = studentGroup.FirstOrDefault(m => m.ExamId == request.ExamId) ?? studentGroup.First();
 
                 var student = marksMaster.Student;
-                var studentName = student != null ? $"{student.FirstName} {student.LastName}" : "N/A";
+                var studentName = student != null ? StudentNames.Display(student) : "N/A";
                 if (marksMaster.QuotaType == "LD") studentName = "~" + studentName;
 
                 double? calculatedCgpi = marksMaster.CGPI.HasValue ? (double)marksMaster.CGPI.Value : null;
@@ -627,7 +627,7 @@ namespace ExamAPI.Services.Report
                 CollegeBanner = branding.Banner,
                 ControllerSignature = branding.ControllerSignature,
                 PrincipalSignature = branding.PrincipalSignature,
-                StudentName = student != null ? ((marksMaster.QuotaType == "LD" ? "~" : "") + $"{student.FirstName} {student.LastName}") : "N/A",
+                StudentName = student != null ? ((marksMaster.QuotaType == "LD" ? "~" : "") + StudentNames.Display(student)) : "N/A",
                 SeatNo = marksMaster.SeatNo ?? "N/A",
                 PRN = student?.StudentPRN ?? "N/A",
                 StudentId = marksMaster.StudentID ?? "N/A",
@@ -781,7 +781,7 @@ namespace ExamAPI.Services.Report
                     CollegeBanner = branding.Banner,
                     ControllerSignature = branding.ControllerSignature,
                     PrincipalSignature = branding.PrincipalSignature,
-                    StudentName = student != null ? ((marksMaster.QuotaType == "LD" ? "~" : "") + $"{student.FirstName} {student.LastName}") : "N/A",
+                    StudentName = student != null ? ((marksMaster.QuotaType == "LD" ? "~" : "") + StudentNames.Display(student)) : "N/A",
                     SeatNo = marksMaster.SeatNo ?? "N/A",
                     PRN = student?.StudentPRN ?? "N/A",
                     StudentId = marksMaster.StudentID ?? "N/A",

@@ -24,8 +24,15 @@ namespace ExamAPI.Services.AssignSeatNo
                 if (await IsRevaluationAsync(dto.ExamId))
                     return new List<AssignSeatNoStudents>();
 
-                var students = _context.MarksMasters.Join(_context.StudentMasters, mm => mm.StdMstId, sm => sm.StdMstId, (mm, sm) => new {mm,sm}).Where(a=>a.mm.SemesterId==dto.Semester && a.mm.ExamId==dto.ExamId && a.mm.AcademicYearAYID==dto.Ayid && a.mm.Pattern == dto.Pattern).Select( s=>new AssignSeatNoStudents { MarksId = s.mm.MarksId, StudentId = s.mm.StudentID, StudentName = s.sm.FirstName + ' ' + s.sm.MiddleName + ' ' + s.sm.LastName,SeatNo=s.mm.SeatNo ??"" ,QuotaType= s.mm.QuotaType ?? "" } ).OrderBy(x => x.StudentId);
-                return students.ToList();
+                var students = _context.MarksMasters.Join(_context.StudentMasters, mm => mm.StdMstId, sm => sm.StdMstId, (mm, sm) => new {mm,sm}).Where(a=>a.mm.SemesterId==dto.Semester && a.mm.ExamId==dto.ExamId && a.mm.AcademicYearAYID==dto.Ayid && a.mm.Pattern == dto.Pattern).OrderBy(a => a.mm.StudentID).Select(s => new { s.mm.MarksId, s.mm.StudentID, s.sm.LastName, s.sm.FirstName, s.sm.MiddleName, s.sm.MotherName, SeatNo = s.mm.SeatNo ?? "", QuotaType = s.mm.QuotaType ?? "" }).ToList();
+                return students.Select(s => new AssignSeatNoStudents
+                {
+                    MarksId = s.MarksId,
+                    StudentId = s.StudentID,
+                    StudentName = StudentNames.Display(s.LastName, s.FirstName, s.MiddleName, s.MotherName),
+                    SeatNo = s.SeatNo,
+                    QuotaType = s.QuotaType
+                }).ToList();
             }
             catch (Exception ex)
             {

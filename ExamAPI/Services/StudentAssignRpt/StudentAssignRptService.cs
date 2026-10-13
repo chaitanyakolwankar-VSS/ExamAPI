@@ -3,6 +3,7 @@ using DocumentFormat.OpenXml.Wordprocessing;
 using ExamAPI.Data;
 using ExamAPI.DTOs;
 using ExamAPI.Models;
+using ExamAPI.Services.Common;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileSystemGlobbing.Internal;
 using Parlot.Fluent;
@@ -33,19 +34,30 @@ namespace ExamAPI.Services.StudentAssignRpt
                         join smk in _context.StudentMarks on mm.MarksId equals smk.MarksId
                         join subm in _context.SubjectMasters on smk.SubjectId equals subm.SubjectId
                         where subm.CourseId == request.CourseId && subm.Pattern == request.Pattern && subm.SemId == request.Semester && mm.ExamId == request.ExamId
-                        select new StudentAssignRptResDto
+                        select new
                         {
-                            SubjectCode = subm.SubjectCode,
+                            subm.SubjectCode,
                             SubjectName = subm.Name,
-                            StudentID = mm.StudentID,
-                            SeatNo = mm.SeatNo,
-                            Name = sm.FirstName + " " + sm.LastName
+                            mm.StudentID,
+                            mm.SeatNo,
+                            sm.LastName,
+                            sm.FirstName,
+                            sm.MiddleName,
+                            sm.MotherName
                         };
-            return await query
+            var rows = await query
         .Distinct()
         .OrderByDescending(x => x.StudentID)
         .AsNoTracking()
         .ToListAsync();
+            return rows.Select(r => new StudentAssignRptResDto
+            {
+                SubjectCode = r.SubjectCode,
+                SubjectName = r.SubjectName,
+                StudentID = r.StudentID,
+                SeatNo = r.SeatNo,
+                Name = StudentNames.Display(r.LastName, r.FirstName, r.MiddleName, r.MotherName)
+            }).ToList();
         }
 
 
@@ -68,27 +80,45 @@ namespace ExamAPI.Services.StudentAssignRpt
                       && subm.Pattern == request.Pattern
                       && subm.SemId == request.Semester
                       && mm.ExamId == request.ExamId
-                select new StudentCreditRptResponseDto
+                select new
                 {
-                    SubjectCode = subm.SubjectCode,
+                    subm.SubjectCode,
                     SubjectName = subm.Name,
-                    TotalCredits = subcm.TotalCredits,
-                    Head = sc.Head,
-                    PassingStrategy = subcm.PassingStrategy,
-                    PassPercentage = subcm.PassPercentage,
-                    HeadType = sc.HeadType,
-                    HeadOutOf = sc.HeadOutOf,
-                    HeadPass = sc.HeadPass,
-                    StudentID = mm.StudentID,
-                    SeatNo = mm.SeatNo,
-                    Name = sm.FirstName + " " + sm.LastName
+                    subcm.TotalCredits,
+                    sc.Head,
+                    subcm.PassingStrategy,
+                    subcm.PassPercentage,
+                    sc.HeadType,
+                    sc.HeadOutOf,
+                    sc.HeadPass,
+                    mm.StudentID,
+                    mm.SeatNo,
+                    sm.LastName,
+                    sm.FirstName,
+                    sm.MiddleName,
+                    sm.MotherName
                 };
 
-            var rows = await query
+            var found = await query
                 .Distinct()
                 .OrderByDescending(x => x.StudentID)
                 .AsNoTracking()
                 .ToListAsync();
+            var rows = found.Select(r => new StudentCreditRptResponseDto
+            {
+                SubjectCode = r.SubjectCode,
+                SubjectName = r.SubjectName,
+                TotalCredits = r.TotalCredits,
+                Head = r.Head,
+                PassingStrategy = r.PassingStrategy,
+                PassPercentage = r.PassPercentage,
+                HeadType = r.HeadType,
+                HeadOutOf = r.HeadOutOf,
+                HeadPass = r.HeadPass,
+                StudentID = r.StudentID,
+                SeatNo = r.SeatNo,
+                Name = StudentNames.Display(r.LastName, r.FirstName, r.MiddleName, r.MotherName)
+            }).ToList();
 
             // Combined passing has no per-head pass mark: the pass value is a percentage of the subject total.
             foreach (var row in rows.Where(r => r.PassingStrategy == PassingStrategies.Combined && r.PassPercentage.HasValue))

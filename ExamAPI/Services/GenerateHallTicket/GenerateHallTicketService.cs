@@ -2,6 +2,7 @@
 using ExamAPI.DTOs;
 using ExamAPI.Services.Lookup;
 using ExamAPI.Models;
+using ExamAPI.Services.Common;
 using Microsoft.EntityFrameworkCore;
 using static Microsoft.EntityFrameworkCore.DbLoggerCategory;
 
@@ -101,6 +102,7 @@ namespace ExamAPI.Services.GenerateHallTicket
                     a.sm.FirstName,
                     a.sm.MiddleName,
                     a.sm.LastName,
+                    a.sm.MotherName,
                     Center = "",
                     Seat = a.mm.SeatNo,
                     StudentId = a.sm.StudentId,
@@ -118,8 +120,8 @@ namespace ExamAPI.Services.GenerateHallTicket
 
                     studentsData.Add(new StudentHallTicketData
                     {
-                        // Join only the parts that exist so a missing middle name leaves no double space.
-                        name = string.Join(" ", new[] { Student.FirstName, Student.MiddleName, Student.LastName }.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => p!.Trim())),
+                        // Last, first, middle, mother; blank parts are skipped.
+                        name = StudentNames.Display(Student.LastName, Student.FirstName, Student.MiddleName, Student.MotherName),
                         centre = Student.Center,
                         seat = Student.Seat,
                         Studentid=Student.StudentId,

@@ -19,14 +19,22 @@ namespace ExamAPI.Services.StudentPromotion
 
         public async Task<List<SingleStudentData>> GetStudentData(SingleStudentDataRequest dto)
         {
-            var student = _context.StudentEligibilities.Join(_context.StudentMasters, m => m.StdMstId, e => e.StdMstId, (m, e) => new { m, e }).Join(_context.CourseMasters, c => c.m.CourseId, cm => cm.CourseId, (c, cm) => new { c, cm }).Join(_context.AcademicYears, a => a.c.m.AYID, ay => ay.AYID, (a, ay) => new { a, ay }).Where(w => w.a.c.m.StudentId == dto.StudentId).Select(s => new SingleStudentData { StudentId = s.a.c.e.StudentId, StudentName = s.a.c.e.FirstName + ' ' + s.a.c.e.MiddleName + ' ' + s.a.c.e.LastName, AcademicYear = s.ay.FullDuration, Branch = s.a.cm.Name, Semester = s.a.c.m.SemesterId == "Sem-1"? "Sem-1,Sem-2" : s.a.c.m.SemesterId == "Sem-3"? "Sem-3,Sem-4": s.a.c.m.SemesterId == "Sem-5"? "Sem-5,Sem-6": s.a.c.m.SemesterId });
+            var student = _context.StudentEligibilities.Join(_context.StudentMasters, m => m.StdMstId, e => e.StdMstId, (m, e) => new { m, e }).Join(_context.CourseMasters, c => c.m.CourseId, cm => cm.CourseId, (c, cm) => new { c, cm }).Join(_context.AcademicYears, a => a.c.m.AYID, ay => ay.AYID, (a, ay) => new { a, ay }).Where(w => w.a.c.m.StudentId == dto.StudentId).Select(s => new { s.a.c.e.StudentId, s.a.c.e.LastName, s.a.c.e.FirstName, s.a.c.e.MiddleName, s.a.c.e.MotherName, AcademicYear = s.ay.FullDuration, Branch = s.a.cm.Name, SemesterId = s.a.c.m.SemesterId });
 
-            return await student.ToListAsync();
+            var rows = await student.ToListAsync();
+            return rows.Select(r => new SingleStudentData
+            {
+                StudentId = r.StudentId,
+                StudentName = StudentNames.Display(r.LastName, r.FirstName, r.MiddleName, r.MotherName),
+                AcademicYear = r.AcademicYear,
+                Branch = r.Branch,
+                Semester = r.SemesterId == "Sem-1" ? "Sem-1,Sem-2" : r.SemesterId == "Sem-3" ? "Sem-3,Sem-4" : r.SemesterId == "Sem-5" ? "Sem-5,Sem-6" : r.SemesterId
+            }).ToList();
         }
         public async Task<EligibilityStudentResponse> GetAssignedStudent(EligibilityStudentsAssign dto)
         {
-            var assignedStudent1 =  _context.StudentEligibilities.Join(_context.StudentMasters, e => e.StdMstId, m => m.StdMstId, (e, m) => new { e, m }).Where(x => x.e.CourseId == dto.CourseId && x.e.Pattern == dto.Pattern && x.e.SemesterId == dto.Semester && x.e.AYID == dto.Ayid).Select(s => new EligibilityAssignedStudent { StdMstId = s.e.StdMstId, StudentId = s.m.StudentId, StudentName = s.m.FirstName + ' ' + s.m.MiddleName + ' ' + s.m.LastName, Eligibility = s.e.IsEligible });
-            var assignedStudent = await _context.StudentEligibilities.Join(_context.StudentMasters, e => e.StdMstId, m => m.StdMstId, (e, m) => new {e,m}).Where(x=>x.e.CourseId==dto.CourseId && x.e.Pattern == dto.Pattern && x.e.SemesterId==dto.Semester && x.e.AYID == dto.Ayid ).Select(s=>new EligibilityAssignedStudent { StdMstId=s.e.StdMstId,StudentId=s.m.StudentId,StudentName=s.m.FirstName+' '+s.m.MiddleName+' '+s.m.LastName,Eligibility=s.e.IsEligible }).ToListAsync();
+            var assignedStudent = await _context.StudentEligibilities.Join(_context.StudentMasters, e => e.StdMstId, m => m.StdMstId, (e, m) => new {e,m}).Where(x=>x.e.CourseId==dto.CourseId && x.e.Pattern == dto.Pattern && x.e.SemesterId==dto.Semester && x.e.AYID == dto.Ayid ).Select(s=>new { s.e.StdMstId, s.m.StudentId, s.m.LastName, s.m.FirstName, s.m.MiddleName, s.m.MotherName, Eligibility = s.e.IsEligible }).ToListAsync();
+            var assignedStudents = assignedStudent.Select(s => new EligibilityAssignedStudent { StdMstId = s.StdMstId, StudentId = s.StudentId, StudentName = StudentNames.Display(s.LastName, s.FirstName, s.MiddleName, s.MotherName), Eligibility = s.Eligibility }).ToList();
 
             var excludeStudents = _context.StudentEligibilities.Where(x => x.AYID == dto.Ayid).Select(s => s.StdMstId.Value);
         
@@ -41,18 +49,12 @@ namespace ExamAPI.Services.StudentPromotion
                                               .Select(i => $"Sem-{i}")
                                               .ToList();
 
-            var UnassignedStudents1 = await _context.StudentEligibilities.Join(_context.StudentMasters, s => s.StdMstId, sm => sm.StdMstId, (s, sm) => new { s, sm }).Join(_context.StudentsOverallResults.Where(r => previousSemesters.Contains(r.SemesterId)), x => x.s.StdMstId, r => r.StdMstId, (x, r) => new { x.s, x.sm, r }).Where(w => w.s.SemesterId == PreviousAcademicSemester && w.s.CourseId == dto.CourseId && w.s.AYID == dto.PreviousAyid && w.s.Pattern==dto.Pattern && w.s.IsEligible==false && !excludeStudents.Contains(w.s.StdMstId.Value)).GroupBy(g => new { g.s.StdMstId, g.sm.StudentId, g.sm.FirstName, g.sm.MiddleName, g.sm.LastName }).Select(g => new EligibilityAssignedStudent { StdMstId = g.Key.StdMstId, StudentId = g.Key.StudentId, StudentName = (g.Key.FirstName ?? "") + " " + (g.Key.MiddleName ?? "") + " " + (g.Key.LastName ?? ""), Eligibility = g.Sum(x => Convert.ToDouble(x.r.CreditGradePoint)) >= (0.5 * g.Sum(x => Convert.ToDouble(x.r.Credits))) ? true : false ,Credits= g.Sum(x => Convert.ToDouble(x.r.Credits)).ToString(),CreditGradePoint = g.Sum(x => Convert.ToDouble(x.r.CreditGradePoint)).ToString() }).ToListAsync();
 
             var UnassignedStudents = await _context.StudentEligibilities.Join(_context.StudentMasters, s => s.StdMstId, sm => sm.StdMstId, (s, sm) => new { s, sm }).Join(_context.StudentsOverallResults.Where(r => previousSemesters.Contains(r.SemesterId)), x => x.s.StdMstId, r => r.StdMstId, (x, r) => new { x.s, x.sm, r }).Where(w => w.s.SemesterId == PreviousAcademicSemester && w.s.CourseId == dto.CourseId && w.s.AYID == dto.PreviousAyid && w.s.Pattern == dto.Pattern && w.s.IsEligible == false && !excludeStudents.Contains(w.s.StdMstId.Value)).GroupBy(g => new { g.s.StdMstId, g.sm.StudentId, g.sm.FirstName, g.sm.MiddleName, g.sm.LastName }).Select(g => new EligibilityAssignedStudent
             {
                 StdMstId = g.Key.StdMstId,
 
-                StudentId = g.Key.StudentId,
 
-                StudentName =
-        (g.Key.FirstName ?? "") + " " +
-        (g.Key.MiddleName ?? "") + " " +
-        (g.Key.LastName ?? ""),
 
                 Eligibility =
         g.Sum(x => Convert.ToDouble(x.r.CreditGradePoint))
@@ -90,9 +92,19 @@ namespace ExamAPI.Services.StudentPromotion
             })
 .ToListAsync();
 
+            var unassignedIds = UnassignedStudents.Where(u => u.StdMstId != null).Select(u => u.StdMstId!.Value).ToList();
+            var names = await _context.StudentMasters.Where(m => unassignedIds.Contains(m.StdMstId))
+                .Select(m => new { m.StdMstId, m.LastName, m.FirstName, m.MiddleName, m.MotherName })
+                .ToDictionaryAsync(m => m.StdMstId);
+            foreach (var u in UnassignedStudents)
+            {
+                if (u.StdMstId != null && names.TryGetValue(u.StdMstId.Value, out var n))
+                    u.StudentName = StudentNames.Display(n.LastName, n.FirstName, n.MiddleName, n.MotherName);
+            }
+
             return new EligibilityStudentResponse
             {
-                AssignedStudents = assignedStudent,
+                AssignedStudents = assignedStudents,
                 UnassignedStudents = UnassignedStudents
             };
         }

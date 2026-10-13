@@ -534,7 +534,7 @@ namespace ExamAPI.Services.Result
                 var results = marksRecords.Select(mm => new ResultDataDto
                 {
                     StudentId = mm.StudentID ?? mm.Student?.StudentId ?? "N/A",
-                    StudentName = mm.Student != null ? $"{mm.Student.FirstName} {mm.Student.LastName}" : "N/A",
+                    StudentName = mm.Student != null ? StudentNames.Display(mm.Student) : "N/A",
                     SeatNo = mm.SeatNo ?? "N/A",
                     // Combined grace is awarded against the subject total, not onto a head, so it
                     // has to be added back here for the grid to agree with the marksheet.

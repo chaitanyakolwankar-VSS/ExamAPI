@@ -1,6 +1,7 @@
 using ExamAPI.Data;
 using ExamAPI.DTOs;
 using ExamAPI.Models;
+using ExamAPI.Services.Common;
 using ExamAPI.Services.Result;
 using ExamAPI.Services.Result.Engine;
 using Microsoft.EntityFrameworkCore;
@@ -65,7 +66,7 @@ namespace ExamAPI.Services.MarksEntry
                     {
                         MarksId = mm.MarksId,
                         StudentId = mm.StudentID ?? "N/A",
-                        StudentName = mm.Student != null ? $"{mm.Student.FirstName} {mm.Student.LastName}" : "N/A",
+                        StudentName = mm.Student != null ? StudentNames.Display(mm.Student) : "N/A",
                         SeatNo = mm.SeatNo ?? "N/A",
                         Rank = mm.Rank ?? 0,
                         PassingStrategy = creditMaster?.PassingStrategy ?? PassingStrategies.HeadWise,
