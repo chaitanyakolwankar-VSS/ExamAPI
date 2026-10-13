@@ -34,7 +34,7 @@ namespace ExamAPI.Services.Eligibility
                         sel.s.FirstName,
                         sel.s.MiddleName,
                         sel.s.MotherName
-                    });
+                    }).ToList(); // materialise: the loop below runs more queries, which needs MARS if this is still streaming
                 var StudentList = new List<EligibilityStudents>();
                 foreach (var student in students)
                 {

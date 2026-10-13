@@ -108,7 +108,7 @@ namespace ExamAPI.Services.GenerateHallTicket
                     StudentId = a.sm.StudentId,
                     Photo = a.sm.PhotoUrl,
                     Sign = a.sm.SignUrl
-                });
+                }).ToList(); // materialise: the loop below runs more queries, which needs MARS if this is still streaming
                 foreach (var Student in HallTicketStudents)
                 {
                     var StudentSubjects = _context.StudentMarks

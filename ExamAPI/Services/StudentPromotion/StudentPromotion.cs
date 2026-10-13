@@ -53,7 +53,7 @@ namespace ExamAPI.Services.StudentPromotion
             var UnassignedStudents = await _context.StudentEligibilities.Join(_context.StudentMasters, s => s.StdMstId, sm => sm.StdMstId, (s, sm) => new { s, sm }).Join(_context.StudentsOverallResults.Where(r => previousSemesters.Contains(r.SemesterId)), x => x.s.StdMstId, r => r.StdMstId, (x, r) => new { x.s, x.sm, r }).Where(w => w.s.SemesterId == PreviousAcademicSemester && w.s.CourseId == dto.CourseId && w.s.AYID == dto.PreviousAyid && w.s.Pattern == dto.Pattern && w.s.IsEligible == false && !excludeStudents.Contains(w.s.StdMstId.Value)).GroupBy(g => new { g.s.StdMstId, g.sm.StudentId, g.sm.FirstName, g.sm.MiddleName, g.sm.LastName }).Select(g => new EligibilityAssignedStudent
             {
                 StdMstId = g.Key.StdMstId,
-
+                StudentId = g.Key.StudentId,
 
 
                 Eligibility =
