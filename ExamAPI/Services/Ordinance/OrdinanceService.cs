@@ -79,11 +79,28 @@ namespace ExamAPI.Services.Ordinance
 
             if (existingPattern == null || existingPattern.IsDeleted) return false;
 
-            existingPattern.PatternName = patternDto.PatternName;
+            var oldName = existingPattern.PatternName;
+            var newName = patternDto.PatternName?.Trim() ?? "";
+            if (newName == "") throw new InvalidOperationException("Enter the pattern name.");
+            if (!string.Equals(oldName, newName, StringComparison.Ordinal)
+                && await _context.PatternMasters.AnyAsync(p => p.PatternId != existingPattern.PatternId && p.PatternName == newName))
+                throw new InvalidOperationException($"A pattern named \"{newName}\" already exists.");
+
+            existingPattern.PatternName = newName;
             existingPattern.Description = patternDto.Description;
             existingPattern.UpdatedAt = DateTime.UtcNow;
-
             _context.PatternMasters.Update(existingPattern);
+
+            // Subjects, enrolments, marks and declared results store the pattern by name, so a rename has to
+            // follow it everywhere (this college only, via the tenant filter) or they all drop out of every list.
+            if (!string.Equals(oldName, newName, StringComparison.Ordinal))
+            {
+                foreach (var s in await _context.SubjectMasters.Where(x => x.Pattern == oldName).ToListAsync()) s.Pattern = newName;
+                foreach (var e in await _context.StudentEligibilities.Where(x => x.Pattern == oldName).ToListAsync()) e.Pattern = newName;
+                foreach (var m in await _context.MarksMasters.Where(x => x.Pattern == oldName).ToListAsync()) m.Pattern = newName;
+                foreach (var d in await _context.DeclareResults.Where(x => x.Pattern == oldName).ToListAsync()) d.Pattern = newName;
+            }
+
             await _context.SaveChangesAsync();
             return true;
         }

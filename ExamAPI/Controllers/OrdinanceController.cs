@@ -66,9 +66,17 @@ namespace ExamAPI.Controllers
             if (!ModelState.IsValid) return BadRequest(new ApiResponseDto<object> { Success = false, Message = "Invalid data.", Data = ModelState });
             if (id != patternDto.PatternId) return BadRequest(new ApiResponseDto<object> { Success = false, Message = "Pattern ID in URL and body do not match." });
             
-            var result = await _ordinanceService.UpdatePatternAsync(patternDto);
+            bool result;
+            try
+            {
+                result = await _ordinanceService.UpdatePatternAsync(patternDto);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new ApiResponseDto<object> { Success = false, Message = ex.Message });
+            }
             if (!result) return NotFound(new ApiResponseDto<object> { Success = false, Message = "Pattern not found." });
-            
+
             return Ok(new ApiResponseDto<object> { Success = true, Message = "Pattern updated successfully." });
         }
 
