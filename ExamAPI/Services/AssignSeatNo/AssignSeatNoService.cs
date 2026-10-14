@@ -24,7 +24,8 @@ namespace ExamAPI.Services.AssignSeatNo
                 if (await IsRevaluationAsync(dto.ExamId))
                     return new List<AssignSeatNoStudents>();
 
-                var students = _context.MarksMasters.Join(_context.StudentMasters, mm => mm.StdMstId, sm => sm.StdMstId, (mm, sm) => new {mm,sm}).Where(a=>a.mm.SemesterId==dto.Semester && a.mm.ExamId==dto.ExamId && a.mm.AcademicYearAYID==dto.Ayid && a.mm.Pattern == dto.Pattern).OrderBy(a => a.mm.StudentID).Select(s => new { s.mm.MarksId, s.mm.StudentID, s.sm.LastName, s.sm.FirstName, s.sm.MiddleName, s.sm.MotherName, SeatNo = s.mm.SeatNo ?? "", QuotaType = s.mm.QuotaType ?? "" }).ToList();
+                var students = _context.MarksMasters.Join(_context.StudentMasters, mm => mm.StdMstId, sm => sm.StdMstId, (mm, sm) => new {mm,sm}).Where(a=>a.mm.SemesterId==dto.Semester && a.mm.ExamId==dto.ExamId && a.mm.AcademicYearAYID==dto.Ayid && a.mm.Pattern == dto.Pattern).Select(s => new { s.mm.MarksId, s.mm.StudentID, s.sm.LastName, s.sm.FirstName, s.sm.MiddleName, s.sm.MotherName, SeatNo = s.mm.SeatNo ?? "", QuotaType = s.mm.QuotaType ?? "" }).ToList();
+                // Alphabetical by the name as shown (last, first, middle, mother); Generate Seat Number numbers the rows in this order.
                 return students.Select(s => new AssignSeatNoStudents
                 {
                     MarksId = s.MarksId,
@@ -32,7 +33,10 @@ namespace ExamAPI.Services.AssignSeatNo
                     StudentName = StudentNames.Display(s.LastName, s.FirstName, s.MiddleName, s.MotherName),
                     SeatNo = s.SeatNo,
                     QuotaType = s.QuotaType
-                }).ToList();
+                })
+                .OrderBy(s => s.StudentName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(s => s.StudentId, StringComparer.Ordinal)
+                .ToList();
             }
             catch (Exception ex)
             {

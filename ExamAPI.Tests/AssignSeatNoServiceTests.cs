@@ -63,6 +63,25 @@ public sealed class AssignSeatNoServiceTests
     }
 
     [Fact]
+    public async Task Students_are_listed_alphabetically_by_last_name_not_by_student_id()
+    {
+        var exam = new ExamMaster { ExamId = Guid.NewGuid(), Name = "Nov", ExamType = "Regular", IsActive = true, CollegeId = _college };
+        _context.Exams.Add(exam);
+        foreach (var (id, last, first) in new[] { ("2600001", "Patil", "Ravi"), ("2600002", "Ahire", "Sneha"), ("2600003", "patil", "Amit"), ("2600004", "", "Bhavesh") })
+        {
+            var student = new StudentMaster { StdMstId = Guid.NewGuid(), StudentId = id, FirstName = first, LastName = last, CollegeId = _college };
+            _context.StudentMasters.Add(student);
+            _context.MarksMasters.Add(new MarksMaster { MarksId = Guid.NewGuid(), StudentID = id, StdMstId = student.StdMstId, ExamId = exam.ExamId, SemesterId = "Sem-6", Pattern = "NEP", AcademicYearAYID = _ay, CollegeId = _college });
+        }
+        _context.SaveChanges();
+
+        var list = await _service.GetStudents(ListRequest(exam.ExamId));
+
+        // No last name: sorted by the name as shown, which starts with the first name.
+        Assert.Equal(new[] { "2600002", "2600004", "2600003", "2600001" }, list.Select(s => s.StudentId));
+    }
+
+    [Fact]
     public async Task Revaluation_exam_lists_no_students_and_refuses_a_save()
     {
         var (original, _) = ExamWithStudent();
