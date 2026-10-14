@@ -21,6 +21,7 @@ namespace ExamAPI.Services.Exam
             _genericRepository = genericRepository;
         }
 
+        // One Save creates the exam (and its revaluation twin) for every branch of the college; branches that already have it are skipped.
         public async Task<ApiResponseDto<object>> CreateExamAsync(Exams dto)
         {
             // 🔹 Transaction start
@@ -28,51 +29,71 @@ namespace ExamAPI.Services.Exam
 
             try
             {
-                var exam_search = _context.Exams.Where(a => a.CourseId == dto.Courseid && a.Name == dto.Name && a.AcademicYearAYID == dto.Ayid && a.ExamType == dto.ExamType); // per branch: each branch has its own copy of an exam
-                if (exam_search.Any())
+                var branches = await _context.CourseMasters.OrderBy(c => c.Name).Select(c => new { c.CourseId, c.Name }).ToListAsync();
+                var haveIt = (await ExistingBranchIds(dto)).ToHashSet();
+
+                var created = 0;
+                var skipped = new List<string>();
+                foreach (var branch in branches)
+                {
+                    if (haveIt.Contains(branch.CourseId))
+                    {
+                        skipped.Add(branch.Name);
+                        continue;
+                    }
+                    var exam = new ExamMaster
+                    {
+                        // The key is assigned here rather than by the database so the revaluation
+                        // twin below can point at it -- reading exam.ExamId before SaveChangesAsync
+                        // used to store an empty Guid, leaving every reval exam unlinked.
+                        ExamId = Guid.NewGuid(),
+                        CourseId = branch.CourseId,
+                        Name = dto.Name,
+                        ExamType = dto.ExamType,
+                        AcademicYearAYID = dto.Ayid,
+                        IsActive = false,
+                    };
+                    _context.Exams.Add(exam);
+                    if (dto.RevalExam)
+                    {
+                        _context.Exams.Add(new ExamMaster
+                        {
+                            CourseId = branch.CourseId,
+                            Name = dto.Name,
+                            ExamType = dto.ExamType,
+                            AcademicYearAYID = dto.Ayid,
+                            RevaluationForExamId = exam.ExamId,
+                            IsActive = false,
+                        });
+                    }
+                    created++;
+                }
+
+                if (created == 0)
                 {
                     return new ApiResponseDto<object>
                     {
                         Success = false,
-                        Message = "Exam already exists. Please use a different Exam."
+                        Message = "Exam already exists for every branch."
                     };
                 }
-                var exam = new ExamMaster
-                {
-                    // The key is assigned here rather than by the database so the revaluation
-                    // twin below can point at it -- reading exam.ExamId before SaveChangesAsync
-                    // used to store an empty Guid, leaving every reval exam unlinked.
-                    ExamId = Guid.NewGuid(),
-                    CourseId = dto.Courseid,
-                    Name = dto.Name,
-                    ExamType = dto.ExamType,
-                    AcademicYearAYID = dto.Ayid,
-                   IsActive=false,
-                };
 
-                _context.Exams.Add(exam);
-                if (dto.RevalExam)
-                {
-                    var revalexam = new ExamMaster
-                    {
-                        CourseId = dto.Courseid,
-                        Name = dto.Name,
-                        ExamType = dto.ExamType,
-                        AcademicYearAYID = dto.Ayid,
-                        RevaluationForExamId = exam.ExamId,
-                        IsActive = false,
-                    };
-                    _context.Exams.Add(revalexam);
-                }
                 await _context.SaveChangesAsync();
 
                 // 🔹 Commit transaction
                 await transaction.CommitAsync();
 
+                var message = $"Exam created for {created} {(created == 1 ? "branch" : "branches")}";
+                if (skipped.Count > 0)
+                {
+                    message += skipped.Count <= 3
+                        ? $"; already existed for {string.Join(", ", skipped)}"
+                        : $"; already existed for {skipped.Count} other branches";
+                }
                 return new ApiResponseDto<object>
                 {
                     Success = true,
-                    Message = "Exam saved successfully"
+                    Message = message + "."
                 };
             }
             catch (Exception ex)
@@ -87,6 +108,14 @@ namespace ExamAPI.Services.Exam
                 };
             }
         }
+        // Branches (tenant-filtered by the context) that already hold this exam; the revaluation twin does not count.
+        private async Task<List<Guid?>> ExistingBranchIds(Exams dto) =>
+            await _context.Exams
+                .Where(a => a.Name == dto.Name && a.AcademicYearAYID == dto.Ayid && a.ExamType == dto.ExamType && a.RevaluationForExamId == null)
+                .Select(a => a.CourseId)
+                .Distinct()
+                .ToListAsync();
+
         public async Task<ApiResponseDto<object>> DeleteExamAsync(DeleteExam dto)
         {
             using var Transaction = await _context.Database.BeginTransactionAsync();
@@ -138,8 +167,10 @@ namespace ExamAPI.Services.Exam
         {
             try
             {
-                var exam_search = _context.Exams.Where(a => a.CourseId == dto.Courseid && a.Name == dto.Name && a.AcademicYearAYID == dto.Ayid && a.ExamType == dto.ExamType);
-                if (exam_search.Any())
+                // "Exists" only when every branch already has it, so Save stays possible while some branches are missing.
+                var haveIt = (await ExistingBranchIds(dto)).ToHashSet();
+                var branchIds = await _context.CourseMasters.Select(c => c.CourseId).ToListAsync();
+                if (branchIds.Count > 0 && branchIds.All(id => haveIt.Contains(id)))
                 {
                     return new ApiResponseDto<object>
                     {
