@@ -676,6 +676,9 @@ namespace ExamAPI.Services.MarksEntry
                             worksheet.Cell(row, sCol).Style.Fill.BackgroundColor = XLColor.FromArgb(255, 253, 208); // Cream/Light Yellow
                         }
 
+                        // Only the marks of heads the student is appearing for can be typed in (carried-forward heads stay locked).
+                        if (head.IsEnabled) worksheet.Cell(row, sCol).Style.Protection.Locked = false;
+
                         worksheet.Cell(row, sCol + 1).Value = head.StudentMarksId.ToString();
                         sCol += 2;
                     }
@@ -702,6 +705,16 @@ namespace ExamAPI.Services.MarksEntry
                 }
 
                 ExamAPI.Services.Report.ExcelStyles.AutoFit(worksheet, 1, col - 1, 1, row - 1);
+
+                // The hidden ID columns are also written in white, so they stay invisible even if shown.
+                for (int idCol = 5; idCol < col; idCol += 2)
+                    worksheet.Range(6, idCol, Math.Max(6, row - 1), idCol).Style.Font.FontColor = XLColor.White;
+
+                // Everything except the unlocked mark cells is read-only, and no sheet can be added, removed or
+                // renamed. The password is random: nobody needs to unprotect a template, they download a fresh one.
+                var password = Guid.NewGuid().ToString("N");
+                worksheet.Protect(password);
+                workbook.Protect(password);
                 return ExamAPI.Services.Report.ExcelStyles.ToBytes(workbook);
             }
         }

@@ -152,6 +152,13 @@ namespace ExamAPI.Tests
                 Assert.EndsWith("_ID", ws.Cell(6, 5).GetText());
                 Assert.True(ws.Column(5).IsHidden);
                 Assert.Single(ws.DataValidations);
+                // Read-only apart from the mark cells; IDs hidden and white; no sheets can be added.
+                Assert.True(ws.IsProtected);
+                Assert.True(workbook.IsProtected);
+                Assert.False(ws.Cell(7, 4).Style.Protection.Locked);
+                Assert.True(ws.Cell(7, 2).Style.Protection.Locked);
+                Assert.True(ws.Cell(7, 5).Style.Protection.Locked);
+                Assert.Equal(XLColor.White, ws.Cell(7, 5).Style.Font.FontColor);
                 var rowOf = (Guid id) => Enumerable.Range(7, 2).Single(r => ws.Cell(r, 5).GetText() == id.ToString());
                 ws.Cell(rowOf(first.Id), 4).Value = 42;
                 ws.Cell(rowOf(second.Id), 4).Value = "Ab";
