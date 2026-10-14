@@ -13,8 +13,8 @@ using Xunit;
 namespace ExamAPI.Tests;
 
 /// <summary>
-/// Live, 2026-10-14: a subject whose credits were saved twice gave every assigned student both copies' heads,
-/// so marks entry showed 60, 40, 60, 40. Assignment now refuses such a subject and never repeats a head.
+/// Live, 2026-10-14: Save pressed twice on assignment gave 72 Electrical students every head twice,
+/// so marks entry showed 60, 40, 60, 40. Assignment now never gives a student a head they already have.
 /// </summary>
 public sealed class RegularExamAssignTests
 {
@@ -69,16 +69,16 @@ public sealed class RegularExamAssignTests
     }
 
     [Fact]
-    public async Task A_subject_with_credits_saved_twice_is_refused_and_nothing_is_assigned()
+    public async Task A_subject_with_two_credit_entries_gets_both_once_each()
     {
+        // e.g. MCA11 on live: a 50 + 50 entry and a separate 25 entry, saved together.
         AddCredits();
         _context.SaveChanges();
 
-        var res = await _service.SaveRegularExamStudents(Assign());
+        Assert.True((await _service.SaveRegularExamStudents(Assign())).Success);
+        Assert.True((await _service.SaveRegularExamStudents(Assign())).Success);
 
-        Assert.False(res.Success);
-        Assert.Contains("MA101 Mathematics", res.Message);
-        Assert.Empty(_context.StudentMarks);
-        Assert.Empty(_context.MarksMasters);
+        Assert.Equal(4, _context.StudentMarks.Count());
+        Assert.Equal(2, _context.StudentMarks.Select(m => m.CreditsId).Distinct().Count());
     }
 }

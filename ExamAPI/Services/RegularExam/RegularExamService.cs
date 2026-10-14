@@ -117,19 +117,6 @@ namespace ExamAPI.Services.RegularExam
 
    ).ToList();
 
-                // A subject with two credit entries for the year would give every student both copies' heads.
-                var doubled = credits.GroupBy(c => c.SubjectId).Where(g => g.Select(c => c.Credit.CreditsId).Distinct().Count() > 1).Select(g => g.Key).ToList();
-                if (doubled.Any())
-                {
-                    await transaction.RollbackAsync();
-                    var names = await _context.SubjectMasters.Where(s => doubled.Contains(s.SubjectId)).Select(s => s.SubjectCode + " " + s.Name).ToListAsync();
-                    return new ApiResponseDto<object>
-                    {
-                        Success = false,
-                        Message = $"These subjects have their credits saved twice for this academic year: {string.Join(", ", names)}. Delete the extra credit entry in Subject Master first."
-                    };
-                }
-
                 foreach (var student in dto.Students.Where(x => x.Assigned))
                 {
                   
