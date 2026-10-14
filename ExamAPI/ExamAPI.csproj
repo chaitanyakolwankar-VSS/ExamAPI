@@ -26,6 +26,10 @@
     <PackageReference Include="Swashbuckle.AspNetCore" Version="10.0.1" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="ExamAPI.Tests" />
+  </ItemGroup>
+
   <!-- The local settings (demo database, dev keys) never go into a publish: the server keeps its own
        appsettings.Production.json (deploy/appsettings.Production.example.json), which a redeploy leaves alone. -->
   <ItemGroup>

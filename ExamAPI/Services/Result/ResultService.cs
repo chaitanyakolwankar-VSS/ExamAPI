@@ -500,7 +500,7 @@ namespace ExamAPI.Services.Result
         private bool CompareValues(double factValue, string op, string targetValueStr)
             => Engine.RuleConditionEvaluator.Compare(factValue, op, targetValueStr);
 
-        public async Task<ApiResponseDto<IEnumerable<ResultDataDto>>> GetResultsAsync(ProcessResultRequest request, Guid collegeId)
+        public async Task<ResultGridResponseDto> GetResultsAsync(ProcessResultRequest request, Guid collegeId)
         {
             try
             {
@@ -531,6 +531,10 @@ namespace ExamAPI.Services.Result
 
                 var marksRecords = await query.ToListAsync();
 
+                // Same key for the dictionary below and for the subject order the client sorts its columns by.
+                static string SubjectMarkKey(StudentMarks sm) =>
+                    $"{(sm.Subject?.SubjectCode ?? sm.Id.ToString())} - {sm.Subject?.Name ?? "Unknown"}{(string.IsNullOrEmpty(sm.Head) ? string.Empty : $" ({SubjectPassEvaluator.GetHeadLabel(sm)})")}";
+
                 var results = marksRecords.Select(mm => new ResultDataDto
                 {
                     StudentId = mm.StudentID ?? mm.Student?.StudentId ?? "N/A",
@@ -546,7 +550,7 @@ namespace ExamAPI.Services.Result
                     Cgpi = mm.CGPI ?? 0,
                     Remarks = BuildResultRemarks(mm),
                     SubjectMarks = mm.StudentMarks?.ToDictionary(
-                        sm => $"{(sm.Subject?.SubjectCode ?? sm.Id.ToString())} - {sm.Subject?.Name ?? "Unknown"}{(string.IsNullOrEmpty(sm.Head) ? string.Empty : $" ({SubjectPassEvaluator.GetHeadLabel(sm)})")}",
+                        SubjectMarkKey,
                         sm => {
                             var markStr = sm.IsAbsent ? "AB" : sm.Marks?.ToString() ?? "0";
                             var symbol = sm.Grace != null ? new string(sm.Grace.Where(c => !char.IsDigit(c)).ToArray()) : "";
@@ -561,12 +565,29 @@ namespace ExamAPI.Services.Result
                         r.Percentage = Math.Round((r.TotalMarks / r.OutOf) * 100, 2);
                 }
 
-                return new ApiResponseDto<IEnumerable<ResultDataDto>> { Success = true, Data = results };
+                // Every key used by any row, in subject order (Subject Master order, then code), heads of a subject together.
+                var subjectOrder = marksRecords
+                    .SelectMany(mm => mm.StudentMarks ?? Enumerable.Empty<StudentMarks>())
+                    .GroupBy(SubjectMarkKey)
+                    .Select(g => g.First())
+                    .InSubjectOrder(sm => sm.Subject?.SortOrder, sm => sm.Subject?.SubjectCode ?? sm.Id.ToString(), sm => sm.Subject?.Name)
+                    .ThenBy(sm => string.IsNullOrEmpty(sm.Head) ? string.Empty : SubjectPassEvaluator.GetHeadLabel(sm), StringComparer.OrdinalIgnoreCase)
+                    .Select(SubjectMarkKey)
+                    .ToList();
+
+                return new ResultGridResponseDto { Success = true, Data = results, SubjectOrder = subjectOrder };
             }
             catch (Exception ex)
             {
-                return new ApiResponseDto<IEnumerable<ResultDataDto>> { Success = false, Message = $"Error fetching results: {ExamAPI.Services.Common.SafeError.Message(ex)}" };
+                return new ResultGridResponseDto { Success = false, Message = $"Error fetching results: {ExamAPI.Services.Common.SafeError.Message(ex)}" };
             }
+        }
+
+        private static Dictionary<string, int> IndexOf(IEnumerable<string> keys)
+        {
+            var index = new Dictionary<string, int>();
+            foreach (var key in keys) index.TryAdd(key, index.Count);
+            return index;
         }
 
         public async Task<byte[]> ExportResultsExcelAsync(ProcessResultRequest request, Guid collegeId)
@@ -574,6 +595,7 @@ namespace ExamAPI.Services.Result
             var resultsResponse = await GetResultsAsync(request, collegeId);
             if (!resultsResponse.Success || resultsResponse.Data == null) return Array.Empty<byte>();
 
+            var orderIndex = IndexOf(resultsResponse.SubjectOrder);
             var results = resultsResponse.Data.ToList();
 
             // Gather all subject heads
@@ -593,7 +615,8 @@ namespace ExamAPI.Services.Result
                     return new { Key = k, Subject = match.Groups[1].Value, Head = match.Groups[2].Value };
                 }
                 return new { Key = k, Subject = k, Head = "" };
-            }).OrderBy(x => x.Subject).ThenBy(x => x.Head).ToList();
+            }).OrderBy(x => orderIndex.TryGetValue(x.Key, out var i) ? i : int.MaxValue)
+              .ThenBy(x => x.Subject, StringComparer.OrdinalIgnoreCase).ThenBy(x => x.Head, StringComparer.OrdinalIgnoreCase).ToList();
 
             var subjectsGrouped = subjectHeads.GroupBy(x => x.Subject)
                 .Select(g => new { Subject = g.Key, Heads = g.ToList() })
@@ -787,7 +810,10 @@ namespace ExamAPI.Services.Result
             var results = resultsResponse.Data.ToList();
             if (!results.Any()) return Array.Empty<byte>();
 
-            var subjectIds = results.SelectMany(r => r.SubjectMarks.Keys).Distinct().OrderBy(id => id).ToList();
+            var pdfOrderIndex = IndexOf(resultsResponse.SubjectOrder);
+            var subjectIds = results.SelectMany(r => r.SubjectMarks.Keys).Distinct()
+                .OrderBy(id => pdfOrderIndex.TryGetValue(id, out var i) ? i : int.MaxValue)
+                .ThenBy(id => id, StringComparer.OrdinalIgnoreCase).ToList();
 
             var pdf = Document.Create(container =>
             {

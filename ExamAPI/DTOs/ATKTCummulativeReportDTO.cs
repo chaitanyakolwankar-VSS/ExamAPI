@@ -39,5 +39,7 @@
         public string SubjectName { get; set; }
         public string SeatNo { get; set; }
         public string SubjectCriteria { get; set; }
+        public string SubjectCode { get; set; }
+        public int? SortOrder { get; set; }
     }
 }

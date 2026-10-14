@@ -32,9 +32,9 @@ namespace ExamAPI.Services.Report
         private Task<CollegeBrandingInfo> GetBrandingAsync(Guid collegeId)
             => CollegeBranding.LoadAsync(_context, _storage, collegeId);
 
-        /// <summary>Printed subjects in subject-code order, so every student's gazette columns / marksheet rows line up.</summary>
-        private static List<SubjectMarksDto> SortBySubjectCode(IEnumerable<SubjectMarksDto> subjects)
-            => subjects.OrderBy(s => s.SubjectCode, StringComparer.OrdinalIgnoreCase).ToList();
+        /// <summary>Printed subjects in subject order (Subject Master order, then code), so every student's gazette columns / marksheet rows line up.</summary>
+        internal static List<SubjectMarksDto> SortBySubjectOrder(IEnumerable<SubjectMarksDto> subjects)
+            => subjects.InSubjectOrder(s => s.SortOrder, s => s.SubjectCode, s => s.SubjectName).ToList();
 
         /// <summary>"Sem-6" / "6" print as "Semester 6"; anything else (e.g. "Semester 6", "Trimester 2") is left as typed, never "Semester Sem-6".</summary>
         internal static string SemesterLabel(string? semId)
@@ -58,7 +58,7 @@ namespace ExamAPI.Services.Report
         /// Builds one printed subject: head marks come from StudentMarks, but the verdict
         /// (grade, grade point, subject-level grace) comes from the computed StudentSubjectResult.
         /// </summary>
-        private static SubjectMarksDto? BuildSubjectMarks(IEnumerable<StudentMarks> studentMarks, StudentSubjectResult? subjectResult)
+        internal static SubjectMarksDto? BuildSubjectMarks(IEnumerable<StudentMarks> studentMarks, StudentSubjectResult? subjectResult)
         {
             var marksList = studentMarks
                 .Where(sm => !sm.IsDeleted)
@@ -77,6 +77,7 @@ namespace ExamAPI.Services.Report
             {
                 SubjectCode = subject.SubjectCode,
                 SubjectName = subject.Name,
+                SortOrder = subject.SortOrder,
                 Credits = double.TryParse(firstSm.CreditMaster?.TotalCredits, out var credits) ? credits : 0,
                 GradePoint = subjectResult?.GradePoint ?? 0,
                 Grade = string.IsNullOrWhiteSpace(subjectResult?.Grade) ? "F" : subjectResult!.Grade!,
@@ -279,7 +280,7 @@ namespace ExamAPI.Services.Report
                     if (subDto.GradePoint > 0) creditsEarned += subDto.Credits;
                 }
 
-                studentDto.Subjects = SortBySubjectCode(studentDto.Subjects);
+                studentDto.Subjects = SortBySubjectOrder(studentDto.Subjects);
 
                 studentDto.TotalObtained = totalObtained;
                 studentDto.TotalMax = totalMax;
@@ -422,7 +423,7 @@ namespace ExamAPI.Services.Report
                 .SelectMany(s => s.Subjects)
                 .GroupBy(s => s.SubjectCode)
                 .Select(g => g.First())
-                .OrderBy(s => s.SubjectCode)
+                .InSubjectOrder(s => s.SortOrder, s => s.SubjectCode, s => s.SubjectName)
                 .ToList();
 
             foreach (var chunk in studentChunks)
@@ -664,7 +665,7 @@ namespace ExamAPI.Services.Report
                 if (subDto.GradePoint > 0) creditsEarned += subDto.Credits;
             }
 
-            reportDto.Subjects = SortBySubjectCode(reportDto.Subjects);
+            reportDto.Subjects = SortBySubjectOrder(reportDto.Subjects);
 
             reportDto.TotalObtained = totalObtained;
             reportDto.TotalMax = totalMax;
@@ -818,7 +819,7 @@ namespace ExamAPI.Services.Report
                     if (subDto.GradePoint > 0) creditsEarned += subDto.Credits;
                 }
 
-                reportDto.Subjects = SortBySubjectCode(reportDto.Subjects);
+                reportDto.Subjects = SortBySubjectOrder(reportDto.Subjects);
 
                 reportDto.TotalObtained = totalObtained;
                 reportDto.TotalMax = totalMax;

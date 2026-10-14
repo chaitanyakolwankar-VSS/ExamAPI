@@ -1,3 +1,4 @@
+using ExamAPI.Services.Common;
 using ExamAPI.Models;
 using ExamAPI.DTOs;
 using QuestPDF.Fluent;
@@ -214,7 +215,7 @@ namespace ExamAPI.Services.Report.Documents
                             .SelectMany(s => s.Subjects)
                             .GroupBy(s => s.SubjectCode)
                             .Select(g => g.First())
-                            .OrderBy(s => s.SubjectCode)
+                            .InSubjectOrder(s => s.SortOrder, s => s.SubjectCode, s => s.SubjectName)
                             .ToList();
                             
                         var subjectText = string.Join("  |  ", distinctSubjects.Select(s => $"{s.SubjectCode}: {s.SubjectName ?? "-"}"));

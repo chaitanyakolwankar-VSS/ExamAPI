@@ -1,3 +1,4 @@
+using ExamAPI.Services.Common;
 using ExamAPI.Data;
 using ExamAPI.DTOs;
 using ExamAPI.Models;
@@ -128,7 +129,7 @@ public sealed class StatisticalReportService : IStatisticalReportService
 
         var rows = reportingResults
             .GroupBy(item => item.Result.SubjectId)
-            .OrderBy(group => group.First().Result.Subject?.SubjectCode ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+            .InSubjectOrder(group => group.First().Result.Subject?.SortOrder, group => group.First().Result.Subject?.SubjectCode, group => group.First().Result.Subject?.Name)
             .Select((group, index) =>
             {
                 var passed = group.Where(item => item.Result.IsPassed).ToList();

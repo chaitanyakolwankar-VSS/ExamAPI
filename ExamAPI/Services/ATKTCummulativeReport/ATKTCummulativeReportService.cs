@@ -46,8 +46,9 @@ namespace ExamAPI.Services.ATKTCummulativeReport
         {
             try
             {
-                var result = _context.StudentMarks.Join(_context.MarksMasters, sm => sm.MarksId, mm => mm.MarksId, (sm, mm) => new { sm, mm }).Join(_context.SubjectCredits, x => new { x.sm.CreditsId, x.sm.Head }, sc => new { sc.CreditsId, sc.Head }, (x, sc) => new { x, sc }).Join(_context.SubjectMasters, a => a.x.sm.SubjectId, sbm => sbm.SubjectId, (a, sbm) => new { a, sbm }).Where(w => w.a.x.mm.ExamId == dto.ExamId && w.a.x.mm.SemesterId == dto.Semester && w.a.x.mm.Pattern == dto.Pattern && w.a.x.mm.AcademicYearAYID == dto.Ayid && w.a.sc.HeadType == dto.HeadType && w.a.x.sm.IsCarryForward == false).Select(s => new AtktReportResponse { SubjectName = s.sbm.Name,SeatNo=s.a.x.mm.SeatNo, SubjectCriteria = s.a.sc.HeadType + " : " + s.a.sc.HeadOutOf + "/" + s.a.sc.HeadPass });
-                return await result.ToListAsync();
+                var result = _context.StudentMarks.Join(_context.MarksMasters, sm => sm.MarksId, mm => mm.MarksId, (sm, mm) => new { sm, mm }).Join(_context.SubjectCredits, x => new { x.sm.CreditsId, x.sm.Head }, sc => new { sc.CreditsId, sc.Head }, (x, sc) => new { x, sc }).Join(_context.SubjectMasters, a => a.x.sm.SubjectId, sbm => sbm.SubjectId, (a, sbm) => new { a, sbm }).Where(w => w.a.x.mm.ExamId == dto.ExamId && w.a.x.mm.SemesterId == dto.Semester && w.a.x.mm.Pattern == dto.Pattern && w.a.x.mm.AcademicYearAYID == dto.Ayid && w.a.sc.HeadType == dto.HeadType && w.a.x.sm.IsCarryForward == false).Select(s => new AtktReportResponse { SubjectName = s.sbm.Name, SubjectCode = s.sbm.SubjectCode, SortOrder = s.sbm.SortOrder,SeatNo=s.a.x.mm.SeatNo, SubjectCriteria = s.a.sc.HeadType + " : " + s.a.sc.HeadOutOf + "/" + s.a.sc.HeadPass });
+                // Subjects in Subject Master order (the client builds its columns in first-seen order), then seat number.
+                return await result.OrderBySubject(r => r.SortOrder, r => r.SubjectCode, r => r.SubjectName).ThenBy(r => r.SeatNo).ToListAsync();
             }
             catch
             {

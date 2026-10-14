@@ -18,6 +18,7 @@
         public string SubjectName { get; set; }
         public string ExamTime { get; set; }
         public string ExamDate { get; set; }
+        public int? SortOrder { get; set; }
     }
     public class SaveTimeTable
     {
@@ -32,6 +33,7 @@
         public string name { get; set; }
         public string date { get; set; }
         public string time { get; set; }
+        public int? SortOrder { get; set; }
     }
     public class StudentHallTicketData
     {

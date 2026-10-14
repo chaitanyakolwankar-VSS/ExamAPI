@@ -25,6 +25,16 @@ namespace ExamAPI.Services.Subject
 
             try
             {
+                // A new subject goes to the end of its branch / pattern / semester (staff can reorder it
+                // on Subject Master). The tenant query filter already limits this to the caller's college.
+                var currentCollege = _context.CurrentCollegeId;
+                var lastOrder = await _context.SubjectMasters
+                    .Where(s => (currentCollege == null || s.CollegeId == currentCollege)
+                                && s.CourseId == dto.CourseID
+                                && s.Pattern == dto.Pattern
+                                && s.SemId == dto.SemId)
+                    .MaxAsync(s => s.SortOrder);
+
                 var subject = new SubjectMaster
                 {
                     SubjectId = Guid.NewGuid(),
@@ -33,7 +43,8 @@ namespace ExamAPI.Services.Subject
                     SemId = dto.SemId,
                     SemName = dto.SemName,
                     Pattern = dto.Pattern,
-                    CourseId = dto.CourseID
+                    CourseId = dto.CourseID,
+                    SortOrder = (lastOrder ?? 0) + 1
                 };
 
                 _context.SubjectMasters.Add(subject);
@@ -58,6 +69,64 @@ namespace ExamAPI.Services.Subject
                 {
                     Success = false,
                     Message = "Error while saving subject",
+                    Data = ExamAPI.Services.Common.SafeError.Message(ex)
+                };
+            }
+        }
+        /// <summary>
+        /// Saves the order numbers staff typed in the Subject Master "set order" pop-up. Only the caller's
+        /// own college's subjects can be touched (tenant filter); numbers must be 1..999; duplicates are
+        /// allowed and fall back to the subject code (see <see cref="SubjectOrder"/>).
+        /// </summary>
+        public async Task<ApiResponseDto<object>> SetSubjectOrderAsync(SetSubjectOrderDto dto)
+        {
+            try
+            {
+                if (dto?.Subjects == null || dto.Subjects.Count == 0)
+                    return new ApiResponseDto<object> { Success = false, Message = "No subjects to order." };
+
+                if (dto.Subjects.Any(i => i.SortOrder < 1 || i.SortOrder > SubjectOrder.MaxOrder))
+                    return new ApiResponseDto<object>
+                    {
+                        Success = false,
+                        Message = $"Order numbers must be between 1 and {SubjectOrder.MaxOrder}."
+                    };
+
+                // A subject listed twice: the last number wins.
+                var wanted = dto.Subjects
+                    .GroupBy(i => i.SubjectId)
+                    .ToDictionary(g => g.Key, g => g.Last().SortOrder);
+
+                var ids = wanted.Keys.ToList();
+                var subjects = await _context.SubjectMasters
+                    .Where(s => ids.Contains(s.SubjectId))
+                    .ToListAsync();
+
+                if (subjects.Count != ids.Count)
+                    return new ApiResponseDto<object>
+                    {
+                        Success = false,
+                        Message = "One or more subjects were not found."
+                    };
+
+                foreach (var subject in subjects)
+                    subject.SortOrder = wanted[subject.SubjectId];
+
+                await _context.SaveChangesAsync();
+
+                return new ApiResponseDto<object>
+                {
+                    Success = true,
+                    Message = $"Order saved for {subjects.Count} subjects.",
+                    Data = null
+                };
+            }
+            catch (Exception ex)
+            {
+                return new ApiResponseDto<object>
+                {
+                    Success = false,
+                    Message = "Error while saving subject order",
                     Data = ExamAPI.Services.Common.SafeError.Message(ex)
                 };
             }

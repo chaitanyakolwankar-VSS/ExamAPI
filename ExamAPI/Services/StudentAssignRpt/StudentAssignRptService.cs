@@ -38,6 +38,7 @@ namespace ExamAPI.Services.StudentAssignRpt
                         {
                             subm.SubjectCode,
                             SubjectName = subm.Name,
+                            subm.SortOrder,
                             mm.StudentID,
                             mm.SeatNo,
                             sm.LastName,
@@ -48,6 +49,7 @@ namespace ExamAPI.Services.StudentAssignRpt
             var rows = await query
         .Distinct()
         .OrderByDescending(x => x.StudentID)
+        .ThenInSubjectOrder(x => x.SortOrder, x => x.SubjectCode, x => x.SubjectName)
         .AsNoTracking()
         .ToListAsync();
             return rows.Select(r => new StudentAssignRptResDto
@@ -84,6 +86,7 @@ namespace ExamAPI.Services.StudentAssignRpt
                 {
                     subm.SubjectCode,
                     SubjectName = subm.Name,
+                    subm.SortOrder,
                     subcm.TotalCredits,
                     sc.Head,
                     subcm.PassingStrategy,
@@ -102,6 +105,8 @@ namespace ExamAPI.Services.StudentAssignRpt
             var found = await query
                 .Distinct()
                 .OrderByDescending(x => x.StudentID)
+                .ThenInSubjectOrder(x => x.SortOrder, x => x.SubjectCode, x => x.SubjectName)
+                .ThenBy(x => x.Head)
                 .AsNoTracking()
                 .ToListAsync();
             var rows = found.Select(r => new StudentCreditRptResponseDto

@@ -119,6 +119,7 @@ namespace ExamAPI.DTOs
         public Guid SubjectId { get; set; }
         public string SubjectCode { get; set; } = string.Empty;
         public string SubjectName { get; set; } = string.Empty;
+        public int? SortOrder { get; set; }
 
         /// <summary>"HeadWise" or "Combined".</summary>
         public string PassingStrategy { get; set; } = PassingStrategies.HeadWise;

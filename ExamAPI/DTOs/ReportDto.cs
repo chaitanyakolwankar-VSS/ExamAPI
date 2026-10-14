@@ -115,6 +115,8 @@ namespace ExamAPI.DTOs
     {
         public string SubjectCode { get; set; } = string.Empty;
         public string SubjectName { get; set; } = string.Empty;
+        /// <summary>Staff-set subject order (Subject Master); reports list subjects by it. Null sorts last.</summary>
+        public int? SortOrder { get; set; }
         public double Credits { get; set; }
 
         // Heads are configured by staff per subject.  A subject is not limited to

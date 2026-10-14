@@ -76,5 +76,7 @@ namespace ExamAPI.DTOs
         public Guid SubjectId { get; set; }
         public string Name { get; set; } = "";
         public string Code { get; set; } = "";
+        /// <summary>Staff-set position within the semester (Subject Master); null when never set.</summary>
+        public int? SortOrder { get; set; }
     }
 }

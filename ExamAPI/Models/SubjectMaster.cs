@@ -35,6 +35,13 @@ namespace ExamAPI.Models
         [ForeignKey(nameof(CourseId))]
         public CourseMaster? Course { get; set; }
 
+        /// <summary>
+        /// Position of the subject within its branch/pattern/semester. Staff set it on Subject Master and
+        /// every list of subjects (marks entry, hall tickets, marksheets, gazette ...) follows it.
+        /// NULL sorts last. See <see cref="ExamAPI.Services.Common.SubjectOrder"/>.
+        /// </summary>
+        public int? SortOrder { get; set; }
+
         // Navigation Properties
         public ICollection<SubjectCreditMaster>? SubjectCreditMasters { get; set; }
     }

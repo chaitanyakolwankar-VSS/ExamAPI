@@ -1567,6 +1567,9 @@ namespace ExamAPI.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
+                    b.Property<int?>("SortOrder")
+                        .HasColumnType("int");
+
                     b.Property<string>("SubjectCode")
                         .IsRequired()
                         .HasMaxLength(20)

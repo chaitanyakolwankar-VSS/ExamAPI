@@ -1,5 +1,6 @@
 using ExamAPI.Data;
 using ExamAPI.DTOs;
+using ExamAPI.Services.Common;
 using ExamAPI.Services.Tenancy;
 using Microsoft.EntityFrameworkCore;
 
@@ -121,8 +122,8 @@ namespace ExamAPI.Services.Lookup
             Guid courseId, string? pattern, string? semester, CancellationToken ct = default)
         {
             return await SubjectsQuery(_context, courseId, pattern, semester).AsNoTracking()
-                .OrderBy(s => s.SubjectCode)
-                .Select(s => new LookupSubjectDto { SubjectId = s.SubjectId, Name = s.Name, Code = s.SubjectCode })
+                .InSubjectOrder()
+                .Select(s => new LookupSubjectDto { SubjectId = s.SubjectId, Name = s.Name, Code = s.SubjectCode, SortOrder = s.SortOrder })
                 .ToListAsync(ct);
         }
     }

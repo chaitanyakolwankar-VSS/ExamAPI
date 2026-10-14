@@ -58,6 +58,7 @@ namespace ExamAPI.Services.GenerateHallTicket
             SubjectId = se.s.SubjectId,
             SubjectCode = se.s.SubjectCode,
             SubjectName = se.s.Name,
+            SortOrder = se.s.SortOrder,
 
             // ✅ timetable hai to value, nahi to blank
             ExamTime = se.tt != null ? se.tt.Time : "",
@@ -66,7 +67,8 @@ namespace ExamAPI.Services.GenerateHallTicket
 
         .Distinct();
 
-                return subjects.ToList();
+                return subjects.ToList()
+                    .InSubjectOrder(s => s.SortOrder, s => s.SubjectCode, s => s.SubjectName).ToList();
             }
             catch (Exception ex)
             {
@@ -115,7 +117,7 @@ namespace ExamAPI.Services.GenerateHallTicket
                         .Join(_context.TimeTables, stdm => stdm.SubjectId, tt => tt.SubjectId, (stdm, tt) => new { stdm, tt })
                         .Join(_context.SubjectMasters, x => x.tt.SubjectId, subm => subm.SubjectId, (x, subm) => new { x, subm })
                         .Where(a => a.x.stdm.MarksId == Student.MarksId && a.x.tt.ExamId == Student.ExamId)
-                        .Select(s => new StudentsHallTicketSubjects { code = s.subm.SubjectCode, name = s.subm.Name, date = s.x.tt.Date, time = s.x.tt.Time })
+                        .Select(s => new StudentsHallTicketSubjects { code = s.subm.SubjectCode, name = s.subm.Name, date = s.x.tt.Date, time = s.x.tt.Time, SortOrder = s.subm.SortOrder })
                         .Distinct();
 
                     studentsData.Add(new StudentHallTicketData
@@ -128,6 +130,7 @@ namespace ExamAPI.Services.GenerateHallTicket
                         photo = Student.Photo,
                         sign = Student.Sign,
                         subjects = StudentSubjects.ToList()
+                            .InSubjectOrder(s => s.SortOrder, s => s.code, s => s.name).ToList()
                     });
                 }
                 // Read-only: Declare Result / Release Hall Ticket list exams straight from ExamMaster and create their

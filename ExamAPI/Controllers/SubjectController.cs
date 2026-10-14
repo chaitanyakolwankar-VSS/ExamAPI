@@ -27,6 +27,16 @@ namespace ExamAPI.Controllers
             var result = await _subjectService.CreateSubjectAsync(request);
             return Ok(result);
         }
+        // SET SUBJECT ORDER (Subject Master "set order" pop-up)
+        [HttpPut("set-order")]
+        public async Task<IActionResult> SetOrder([FromBody] SetSubjectOrderDto dto)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(new { success = false, message = "Invalid data" });
+
+            var result = await _subjectService.SetSubjectOrderAsync(dto);
+            return Ok(new { success = result.Success, message = result.Message });
+        }
         [HttpPost("save-credits")]
         public async Task<IActionResult> SaveCredits([FromBody] SaveCreditsDto dto)
         {

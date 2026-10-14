@@ -82,3 +82,22 @@ namespace ExamAPI.DTOs
     }
 
 }
+
+namespace ExamAPI.DTOs
+{
+    /// <summary>One row of the Subject Master "set order" pop-up.</summary>
+    public class SubjectOrderItemDto
+    {
+        public Guid SubjectId { get; set; }
+
+        /// <summary>1..999. Duplicates are allowed; ties fall back to the subject code.</summary>
+        public int SortOrder { get; set; }
+    }
+
+    /// <summary>PUT /api/Subject/set-order body.</summary>
+    public class SetSubjectOrderDto
+    {
+        [Required]
+        public List<SubjectOrderItemDto> Subjects { get; set; } = new();
+    }
+}

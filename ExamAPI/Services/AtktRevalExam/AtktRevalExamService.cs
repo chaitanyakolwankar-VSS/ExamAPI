@@ -426,7 +426,7 @@ namespace ExamAPI.Services.AtktRevalExam
                 .Where(s => s.CourseId == request.CourseId
                             && s.SemId == request.Semester
                             && s.Pattern == request.Pattern)
-                .OrderBy(s => s.SubjectCode)
+                .InSubjectOrder()
                 .AsNoTracking()
                 .ToListAsync();
 

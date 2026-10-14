@@ -323,6 +323,7 @@ namespace ExamAPI.Services.MarksEntry
                         SubjectId = subjectGroup.Key,
                         SubjectCode = anyMark.Subject?.SubjectCode ?? string.Empty,
                         SubjectName = anyMark.Subject?.Name ?? string.Empty,
+                        SortOrder = anyMark.Subject?.SortOrder,
                         PassingStrategy = creditMaster?.PassingStrategy ?? PassingStrategies.HeadWise,
                         PassPercentage = creditMaster?.PassPercentage,
                         Heads = headConfigs.Select(c => new ResolutionConfigHeadDto
@@ -406,7 +407,7 @@ namespace ExamAPI.Services.MarksEntry
                     {
                         ExamId = request.ExamId,
                         IsLocked = exam?.IsLocked ?? false,
-                        Subjects = subjects.OrderBy(s => s.SubjectCode).ThenBy(s => s.SubjectName).ToList()
+                        Subjects = subjects.InSubjectOrder(s => s.SortOrder, s => s.SubjectCode, s => s.SubjectName).ToList()
                     }
                 };
             }

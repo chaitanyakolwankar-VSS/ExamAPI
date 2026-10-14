@@ -34,3 +34,17 @@ namespace ExamAPI.DTOs
     }
 
 }
+
+namespace ExamAPI.DTOs
+{
+    /// <summary>
+    /// The results grid response: <see cref="ApiResponseDto{T}.Data"/> holds the rows and
+    /// <see cref="SubjectOrder"/> (top level, JSON "subjectOrder") lists every key used in the rows'
+    /// <c>SubjectMarks</c> dictionaries in subject order (Subject Master order, then code, then head),
+    /// ready for the client to order its columns.
+    /// </summary>
+    public class ResultGridResponseDto : ApiResponseDto<IEnumerable<ResultDataDto>>
+    {
+        public List<string> SubjectOrder { get; set; } = new();
+    }
+}
