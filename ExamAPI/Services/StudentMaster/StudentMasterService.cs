@@ -201,7 +201,7 @@ namespace ExamAPI.Services.StudentMasters
 
             student.FirstName = dto.FirstName;
             student.MiddleName = dto.MiddleName;
-            student.LastName = dto.LastName;
+            student.LastName = dto.LastName?.Trim() ?? "";
             student.MotherName = motherName;
             student.StudentType = studentType;
             student.Category = dto.Category;
@@ -308,7 +308,7 @@ namespace ExamAPI.Services.StudentMasters
                     StudentId = studentId,
                     FirstName = dto.FirstName,
                     MiddleName = dto.MiddleName,
-                    LastName = dto.LastName,
+                    LastName = dto.LastName?.Trim() ?? "",
                     MotherName = motherName,
                     StudentType = studentType,
                     Category = dto.Category,
@@ -579,8 +579,8 @@ namespace ExamAPI.Services.StudentMasters
 
                 foreach (var (row, first, middle, last, mother, category, prn, gender, type) in rows)
                 {
-                    if (first == "" || last == "")
-                        errors.Add($"Row {row}: first name and last name are required.");
+                    if (first == "")
+                        errors.Add($"Row {row}: first name is required.");
                     if (mother == "")
                         errors.Add($"Row {row}: mother's name is required.");
                     if (first.Length > 50 || middle.Length > 50 || last.Length > 50 || mother.Length > 50 || category.Length > 50 || prn.Length > 50)

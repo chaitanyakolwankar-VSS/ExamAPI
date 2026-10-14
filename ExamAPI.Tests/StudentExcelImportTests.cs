@@ -88,7 +88,7 @@ public sealed class StudentExcelImportTests
         await _context.SaveChangesAsync();
         var file = await FilledTemplate(
             ["Asha", "", "Patil", "Sunita", "", "111", "Female", "E"],   // ERN already used
-            ["Ravi", "", "", "Sunita", "", "222", "Male", "E"],          // no last name
+            ["Ravi", "", "", "Sunita", "", "222", "Male", "E"],          // no last name: allowed
             ["Mina", "", "Rao", "Sunita", "", "222", "F", "E"],          // ERN twice in file, bad gender
             ["Gen", "", "Eral", "Sunita", "General", "444", "Male", "E"],       // category not in the list
             ["Ok", "", "Student", "Sunita", "obc", "333", "Male", "E"]);
@@ -98,7 +98,7 @@ public sealed class StudentExcelImportTests
         Assert.False(Success(result));
         var errors = Errors(result);
         Assert.Contains(errors, e => e.StartsWith("Row 3: ERN 111") && e.Contains("already belongs"));
-        Assert.Contains(errors, e => e.StartsWith("Row 4:") && e.Contains("last name"));
+        Assert.DoesNotContain(errors, e => e.StartsWith("Row 4:"));
         Assert.Contains(errors, e => e.StartsWith("Row 5: ERN 222") && e.Contains("twice"));
         Assert.Contains(errors, e => e.StartsWith("Row 5:") && e.Contains("Male or Female"));
         Assert.Contains(errors, e => e.StartsWith("Row 6:") && e.Contains("not in the list"));
