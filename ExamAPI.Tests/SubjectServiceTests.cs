@@ -91,6 +91,20 @@ public sealed class SubjectServiceTests
     }
 
     [Fact]
+    public async Task Saving_credits_a_second_time_for_the_same_year_is_refused()
+    {
+        var subjectId = await AddSubject();
+        Assert.True((await _service.SaveCreditAsync(OneCredit(subjectId))).Success);
+
+        var again = await _service.SaveCreditAsync(OneCredit(subjectId));
+
+        Assert.False(again.Success);
+        Assert.Contains("Update Credits", again.Message);
+        Assert.Single(_context.SubjectCreditMasters);
+        Assert.Equal(2, _context.SubjectCredits.Count());
+    }
+
+    [Fact]
     public async Task UpdatedCredits_AreReadBackWithTheNewValues()
     {
         var subjectId = await AddSubject();

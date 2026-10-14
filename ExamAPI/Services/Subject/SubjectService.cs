@@ -159,6 +159,17 @@ namespace ExamAPI.Services.Subject
                         };
                     }
                 }
+                // One credit entry per subject and academic year: a second Save used to add a second copy, and every
+                // student assigned afterwards got both copies' heads (two 60s and two 40s on marks entry).
+                if (await _context.SubjectCreditMasters.AnyAsync(x => x.SubjectId == dto.SubjectId && x.AYID == dto.Ayid))
+                {
+                    return new ApiResponseDto<object>
+                    {
+                        Success = false,
+                        Message = "Credits are already saved for this subject in this academic year. Use Update Credits to change them.",
+                        Data = null
+                    };
+                }
                 foreach (var credit in dto.Credits)
                 {
                     var subjectCredit = new SubjectCreditMaster

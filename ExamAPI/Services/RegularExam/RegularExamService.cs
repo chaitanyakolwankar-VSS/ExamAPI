@@ -115,7 +115,21 @@ namespace ExamAPI.Services.RegularExam
            SubjectId = cm.SubjectId.Value
        }
 
-   );
+   ).ToList();
+
+                // A subject with two credit entries for the year would give every student both copies' heads.
+                var doubled = credits.GroupBy(c => c.SubjectId).Where(g => g.Select(c => c.Credit.CreditsId).Distinct().Count() > 1).Select(g => g.Key).ToList();
+                if (doubled.Any())
+                {
+                    await transaction.RollbackAsync();
+                    var names = await _context.SubjectMasters.Where(s => doubled.Contains(s.SubjectId)).Select(s => s.SubjectCode + " " + s.Name).ToListAsync();
+                    return new ApiResponseDto<object>
+                    {
+                        Success = false,
+                        Message = $"These subjects have their credits saved twice for this academic year: {string.Join(", ", names)}. Delete the extra credit entry in Subject Master first."
+                    };
+                }
+
                 foreach (var student in dto.Students.Where(x => x.Assigned))
                 {
                   
@@ -142,7 +156,12 @@ namespace ExamAPI.Services.RegularExam
                         _context.MarksMasters.Add(entity);
                     }
                     
-                    foreach (var cm in credits)
+                    // A student who already has a head (Save pressed twice) does not get it again.
+                    var existingHeads = StdMstId == null ? new List<(Guid?, string?)>() : _context.StudentMarks
+                        .Where(x => x.MarksId == MarksId).Select(x => new { x.CreditsId, x.Head }).AsEnumerable()
+                        .Select(x => (x.CreditsId, x.Head)).ToList();
+
+                    foreach (var cm in credits.Where(c => !existingHeads.Contains((c.Credit.CreditsId, c.Credit.Head))))
                     {
                         var marksentity = new StudentMarks
                         {
