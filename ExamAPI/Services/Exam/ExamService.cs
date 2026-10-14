@@ -28,7 +28,7 @@ namespace ExamAPI.Services.Exam
 
             try
             {
-                var exam_search = _context.Exams.Where(a => a.Name == dto.Name && a.AcademicYearAYID == dto.Ayid && a.ExamType==dto.ExamType);
+                var exam_search = _context.Exams.Where(a => a.CourseId == dto.Courseid && a.Name == dto.Name && a.AcademicYearAYID == dto.Ayid && a.ExamType == dto.ExamType); // per branch: each branch has its own copy of an exam
                 if (exam_search.Any())
                 {
                     return new ApiResponseDto<object>
@@ -138,7 +138,7 @@ namespace ExamAPI.Services.Exam
         {
             try
             {
-                var exam_search = _context.Exams.Where(a => a.Name == dto.Name && a.AcademicYearAYID == dto.Ayid && a.ExamType == dto.ExamType);
+                var exam_search = _context.Exams.Where(a => a.CourseId == dto.Courseid && a.Name == dto.Name && a.AcademicYearAYID == dto.Ayid && a.ExamType == dto.ExamType);
                 if (exam_search.Any())
                 {
                     return new ApiResponseDto<object>
