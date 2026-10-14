@@ -28,6 +28,13 @@ namespace ExamAPI.Controllers
         }
 
 
+        [HttpGet("get-timetable-all")]
+        public async Task<IActionResult> GetTimeTableAll([FromQuery] Guid examId)
+        {
+            var result = await _GenerateHallTicketService.GetTimeTableAll(examId);
+            return result == null ? NotFound() : Ok(result);
+        }
+
         [HttpGet("get-halltickectstudentsdata")]
         public async Task<IActionResult> HallTickectStudentData([FromQuery] StudentHallTicketDataRequest request)
         {

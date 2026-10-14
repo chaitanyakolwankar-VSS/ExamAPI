@@ -172,6 +172,81 @@ namespace ExamAPI.Services.GenerateHallTicket
             }
         }
 
+        public async Task<TimeTableAllDto?> GetTimeTableAll(Guid examId)
+        {
+            var exam = await _context.Exams.AsNoTracking().FirstOrDefaultAsync(e => e.ExamId == examId);
+            if (exam == null) return null;
+
+            var ayLabel = exam.AcademicYearAYID == null ? "" :
+                await _context.AcademicYears.AsNoTracking().Where(a => a.AYID == exam.AcademicYearAYID)
+                    .Select(a => a.ShortDuration ?? a.FullDuration).FirstOrDefaultAsync() ?? "";
+
+            // Every branch's copy of this exam (same name, type and academic year; revaluation exams only with revaluation exams).
+            var isReval = exam.RevaluationForExamId != null;
+            var copiesQuery = _context.Exams.AsNoTracking()
+                .Where(e => e.Name == exam.Name && e.ExamType == exam.ExamType && e.AcademicYearAYID == exam.AcademicYearAYID);
+            copiesQuery = isReval
+                ? copiesQuery.Where(e => e.RevaluationForExamId != null)
+                : copiesQuery.Where(e => e.RevaluationForExamId == null);
+            var copyIds = await copiesQuery.Select(e => e.ExamId).ToListAsync();
+            if (!copyIds.Contains(exam.ExamId)) copyIds.Add(exam.ExamId);
+
+            var raw = await (
+                from tt in _context.TimeTables.AsNoTracking()
+                join s in _context.SubjectMasters.AsNoTracking() on tt.SubjectId equals s.SubjectId
+                join c in _context.CourseMasters.AsNoTracking() on tt.CourseId equals c.CourseId
+                where tt.ExamId != null && copyIds.Contains(tt.ExamId.Value)
+                      && tt.Date != null && tt.Date != "" && tt.Time != null && tt.Time != ""
+                select new
+                {
+                    Branch = c.Name,
+                    s.Pattern,
+                    s.SemId,
+                    s.SubjectCode,
+                    SubjectName = s.Name,
+                    s.SortOrder,
+                    Date = tt.Date!,
+                    Time = tt.Time!
+                }).ToListAsync();
+
+            static int SemNumber(string? semId)
+            {
+                var digits = new string((semId ?? "").Where(char.IsDigit).ToArray());
+                return int.TryParse(digits, out var n) ? n : int.MaxValue;
+            }
+            string SemLabel(string? semId)
+            {
+                var hit = LookupService.Semesters.FirstOrDefault(x => string.Equals(x.Value, semId, StringComparison.OrdinalIgnoreCase))
+                          ?? LookupService.Semesters.FirstOrDefault(x => x.Number.ToString() == (semId ?? "").Trim());
+                return hit?.Label ?? (semId ?? "");
+            }
+
+            var blocks = raw
+                .GroupBy(r => new { r.Branch, Pattern = r.Pattern ?? "", SemId = r.SemId ?? "" })
+                .OrderBy(g => g.Key.Branch, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(g => SemNumber(g.Key.SemId))
+                .ThenBy(g => g.Key.Pattern, StringComparer.OrdinalIgnoreCase)
+                .Select(g => new TimeTableAllBlock
+                {
+                    BranchName = g.Key.Branch,
+                    Pattern = g.Key.Pattern,
+                    Semester = SemLabel(g.Key.SemId),
+                    Rows = g.InSubjectOrder(r => r.SortOrder, r => r.SubjectCode, r => r.SubjectName)
+                        .Select(r => new TimeTableAllRow { Date = r.Date, Time = r.Time, SubjectCode = r.SubjectCode, SubjectName = r.SubjectName })
+                        .ToList()
+                })
+                .ToList();
+
+            return new TimeTableAllDto
+            {
+                College = await HallTicketCollegeData(),
+                ExamName = exam.Name,
+                ExamType = exam.ExamType ?? "",
+                AcademicYear = ayLabel,
+                Blocks = blocks
+            };
+        }
+
         public async Task<ApiResponseDto<object>> SaveTimeTable(SaveTimeTable dto)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();

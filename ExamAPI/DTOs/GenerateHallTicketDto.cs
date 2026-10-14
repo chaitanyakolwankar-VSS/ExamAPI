@@ -27,6 +27,32 @@
         public List<HallTicketSubjects> TimeTableData { get; set; }
 
     }
+    /// <summary>One time-table row of the print-all view.</summary>
+    public class TimeTableAllRow
+    {
+        public string Date { get; set; } = string.Empty;
+        public string Time { get; set; } = string.Empty;
+        public string SubjectCode { get; set; } = string.Empty;
+        public string SubjectName { get; set; } = string.Empty;
+    }
+    /// <summary>One printed block: a branch + pattern + semester with its rows in subject order.</summary>
+    public class TimeTableAllBlock
+    {
+        public string BranchName { get; set; } = string.Empty;
+        public string Pattern { get; set; } = string.Empty;
+        /// <summary>Label such as "Semester III" (the raw SemId when it is not a known semester).</summary>
+        public string Semester { get; set; } = string.Empty;
+        public List<TimeTableAllRow> Rows { get; set; } = new();
+    }
+    /// <summary>All branches' time tables of one exam, with the same college header data the hall ticket uses.</summary>
+    public class TimeTableAllDto
+    {
+        public HallTicketCollege College { get; set; } = new();
+        public string ExamName { get; set; } = string.Empty;
+        public string ExamType { get; set; } = string.Empty;
+        public string AcademicYear { get; set; } = string.Empty;
+        public List<TimeTableAllBlock> Blocks { get; set; } = new();
+    }
     public class StudentsHallTicketSubjects
     {
         public string code { get; set; }
