@@ -28,5 +28,13 @@ namespace ExamAPI.Models
         public string? UserType { get; set; }    // "Student" or "Staff"
 
         public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+
+        /// <summary>A named event written on purpose (e.g. "TaskLinkSent", "EmailVerified"); null for the automatic row-change entries.</summary>
+        [MaxLength(50)]
+        public string? Event { get; set; }
+
+        /// <summary>What changed, in words (never an OTP, token or password).</summary>
+        [MaxLength(1000)]
+        public string? Details { get; set; }
     }
 }

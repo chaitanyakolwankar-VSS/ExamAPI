@@ -30,9 +30,20 @@ namespace ExamAPI.Models
         [MaxLength(1)]
         public string? StudentType { get; set; }
 
+        /// <summary>Stored trimmed and lower-case; unique per college. Student task links and OTPs go here.</summary>
         [MaxLength(255)]
         [EmailAddress]
         public string? Email { get; set; }
+
+        /// <summary><see cref="EmailVerification"/>: Verified, or Flagged with <see cref="EmailFlagReason"/>. Null = not checked yet.</summary>
+        [MaxLength(20)]
+        public string? EmailStatus { get; set; }
+
+        [MaxLength(200)]
+        public string? EmailFlagReason { get; set; }
+
+        /// <summary>An inactive student (left, cancelled admission) cannot open a task link or sign in with an OTP.</summary>
+        public bool IsActive { get; set; } = true;
 
         [MaxLength(20)]
         [Phone]

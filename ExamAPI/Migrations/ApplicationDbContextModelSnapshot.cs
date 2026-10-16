@@ -80,6 +80,14 @@ namespace ExamAPI.Migrations
                     b.Property<Guid?>("CollegeId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("Details")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("Event")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
                     b.Property<Guid?>("PerformedBy")
                         .HasColumnType("uniqueidentifier");
 
@@ -179,6 +187,58 @@ namespace ExamAPI.Migrations
                     b.HasKey("CollegeId");
 
                     b.ToTable("College");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.CollegeSettings", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AllowedEmailDomains")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<Guid?>("CollegeId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("DailyEmailLimit")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(2000);
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("EmailSenderKey")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("ExamOfficeEmail")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CollegeId")
+                        .IsUnique()
+                        .HasFilter("[CollegeId] IS NOT NULL");
+
+                    b.ToTable("CollegeSettings");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.CourseMaster", b =>
@@ -304,6 +364,74 @@ namespace ExamAPI.Migrations
                     b.HasIndex("CollegeId");
 
                     b.ToTable("DeclareResult");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.EmailQueue", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("int");
+
+                    b.Property<Guid?>("CollegeId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("HtmlBody")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTime?>("LockedUntil")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("NextAttemptAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("Priority")
+                        .HasColumnType("int");
+
+                    b.Property<Guid?>("RefId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("SentAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("Subject")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<string>("TextBody")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ToAddress")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CollegeId", "SentAt");
+
+                    b.HasIndex("Status", "Priority", "NextAttemptAt");
+
+                    b.ToTable("EmailQueue");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.ExamMaster", b =>
@@ -588,6 +716,42 @@ namespace ExamAPI.Migrations
                     b.HasIndex("StdMstId");
 
                     b.ToTable("MarksMaster");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.OtpChallenge", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("int");
+
+                    b.Property<byte[]>("CodeHash")
+                        .HasColumnType("binary(32)");
+
+                    b.Property<Guid?>("CollegeId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("TaskLinkId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("UsedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CollegeId");
+
+                    b.HasIndex("TaskLinkId", "CreatedAt");
+
+                    b.ToTable("OtpChallenge");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.PasswordResetOTP", b =>
@@ -1210,6 +1374,14 @@ namespace ExamAPI.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("nvarchar(255)");
 
+                    b.Property<string>("EmailFlagReason")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("EmailStatus")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
                     b.Property<string>("FirstName")
                         .IsRequired()
                         .HasMaxLength(50)
@@ -1218,6 +1390,9 @@ namespace ExamAPI.Migrations
                     b.Property<string>("Gender")
                         .HasMaxLength(10)
                         .HasColumnType("nvarchar(10)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
 
                     b.Property<bool>("IsDeleted")
                         .ValueGeneratedOnAdd()
@@ -1267,11 +1442,65 @@ namespace ExamAPI.Migrations
 
                     b.HasKey("StdMstId");
 
+                    b.HasIndex("CollegeId", "Email")
+                        .IsUnique()
+                        .HasFilter("[Email] IS NOT NULL AND [IsDeleted] = 0");
+
                     b.HasIndex("CollegeId", "StudentId")
                         .IsUnique()
                         .HasFilter("[CollegeId] IS NOT NULL");
 
                     b.ToTable("StudentMaster");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.StudentSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CollegeId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("EndedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("LastSeenAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<byte[]>("SessionHash")
+                        .IsRequired()
+                        .HasColumnType("binary(32)");
+
+                    b.Property<Guid>("StdMstId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("TaskLinkId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TaskTypeCode")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CollegeId");
+
+                    b.HasIndex("SessionHash")
+                        .IsUnique();
+
+                    b.HasIndex("StdMstId");
+
+                    b.HasIndex("TaskLinkId");
+
+                    b.ToTable("StudentSession");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.StudentSubjectResult", b =>
@@ -1587,6 +1816,197 @@ namespace ExamAPI.Migrations
                     b.ToTable("SubjectMaster");
                 });
 
+            modelBuilder.Entity("ExamAPI.Models.TaskBatch", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("AYID")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CollegeId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CourseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("Deadline")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
+                    b.Property<Guid?>("RefId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("SemesterId")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("TaskTypeCode")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<string>("Title")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CollegeId");
+
+                    b.HasIndex("TaskTypeCode");
+
+                    b.ToTable("TaskBatch");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.TaskLink", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("BatchId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CollegeId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
+                    b.Property<Guid?>("RefId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("SentAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<Guid>("StdMstId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TaskTypeCode")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<byte[]>("TokenHash")
+                        .HasColumnType("binary(32)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("UsedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BatchId");
+
+                    b.HasIndex("CollegeId");
+
+                    b.HasIndex("TaskTypeCode");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique()
+                        .HasFilter("[TokenHash] IS NOT NULL");
+
+                    b.HasIndex("StdMstId", "TaskTypeCode", "Status");
+
+                    b.ToTable("TaskLink");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.TaskType", b =>
+                {
+                    b.Property<string>("Code")
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<string>("ExpiryRule")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<bool>("RequiresOtp")
+                        .HasColumnType("bit");
+
+                    b.HasKey("Code");
+
+                    b.ToTable("TaskType");
+
+                    b.HasData(
+                        new
+                        {
+                            Code = "STUDENT_MASTER",
+                            ExpiryRule = "DIE_ON_DEADLINE",
+                            Name = "Verify student details",
+                            RequiresOtp = true
+                        },
+                        new
+                        {
+                            Code = "HALL_TICKET",
+                            ExpiryRule = "DIE_ON_DEADLINE",
+                            Name = "Download hall ticket",
+                            RequiresOtp = true
+                        },
+                        new
+                        {
+                            Code = "MARKSHEET",
+                            ExpiryRule = "DIE_ON_DEADLINE",
+                            Name = "Download marksheet",
+                            RequiresOtp = true
+                        },
+                        new
+                        {
+                            Code = "ATKT_PAYMENT",
+                            ExpiryRule = "DIE_ON_PAYMENT",
+                            Name = "Pay ATKT exam fee",
+                            RequiresOtp = true
+                        });
+                });
+
             modelBuilder.Entity("ExamAPI.Models.TimeTableMaster", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1766,6 +2186,16 @@ namespace ExamAPI.Migrations
                     b.Navigation("OwningCollege");
                 });
 
+            modelBuilder.Entity("ExamAPI.Models.CollegeSettings", b =>
+                {
+                    b.HasOne("ExamAPI.Models.College", "College")
+                        .WithMany()
+                        .HasForeignKey("CollegeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("College");
+                });
+
             modelBuilder.Entity("ExamAPI.Models.CourseMaster", b =>
                 {
                     b.HasOne("ExamAPI.Models.College", "College")
@@ -1786,6 +2216,14 @@ namespace ExamAPI.Migrations
                         .HasForeignKey("CollegeId");
 
                     b.Navigation("OwningCollege");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.EmailQueue", b =>
+                {
+                    b.HasOne("ExamAPI.Models.College", null)
+                        .WithMany()
+                        .HasForeignKey("CollegeId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("ExamAPI.Models.ExamMaster", b =>
@@ -1861,6 +2299,22 @@ namespace ExamAPI.Migrations
                     b.Navigation("OwningCollege");
 
                     b.Navigation("Student");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.OtpChallenge", b =>
+                {
+                    b.HasOne("ExamAPI.Models.College", null)
+                        .WithMany()
+                        .HasForeignKey("CollegeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ExamAPI.Models.TaskLink", "TaskLink")
+                        .WithMany()
+                        .HasForeignKey("TaskLinkId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("TaskLink");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.PasswordResetOTP", b =>
@@ -2043,6 +2497,28 @@ namespace ExamAPI.Migrations
                     b.Navigation("College");
                 });
 
+            modelBuilder.Entity("ExamAPI.Models.StudentSession", b =>
+                {
+                    b.HasOne("ExamAPI.Models.College", null)
+                        .WithMany()
+                        .HasForeignKey("CollegeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ExamAPI.Models.StudentMaster", null)
+                        .WithMany()
+                        .HasForeignKey("StdMstId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ExamAPI.Models.TaskLink", "TaskLink")
+                        .WithMany()
+                        .HasForeignKey("TaskLinkId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("TaskLink");
+                });
+
             modelBuilder.Entity("ExamAPI.Models.StudentSubjectResult", b =>
                 {
                     b.HasOne("ExamAPI.Models.SubjectCreditMaster", "CreditMaster")
@@ -2124,6 +2600,51 @@ namespace ExamAPI.Migrations
                     b.Navigation("Course");
 
                     b.Navigation("OwningCollege");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.TaskBatch", b =>
+                {
+                    b.HasOne("ExamAPI.Models.College", null)
+                        .WithMany()
+                        .HasForeignKey("CollegeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ExamAPI.Models.TaskType", null)
+                        .WithMany()
+                        .HasForeignKey("TaskTypeCode")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.TaskLink", b =>
+                {
+                    b.HasOne("ExamAPI.Models.TaskBatch", "Batch")
+                        .WithMany()
+                        .HasForeignKey("BatchId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ExamAPI.Models.College", null)
+                        .WithMany()
+                        .HasForeignKey("CollegeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ExamAPI.Models.StudentMaster", "Student")
+                        .WithMany()
+                        .HasForeignKey("StdMstId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ExamAPI.Models.TaskType", "TaskType")
+                        .WithMany()
+                        .HasForeignKey("TaskTypeCode")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Batch");
+
+                    b.Navigation("Student");
+
+                    b.Navigation("TaskType");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.TimeTableMaster", b =>

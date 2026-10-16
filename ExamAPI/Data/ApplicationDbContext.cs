@@ -100,6 +100,17 @@ namespace ExamAPI.Data
         // =========================================
         public DbSet<DeclareResult> DeclareResults { get; set; }
 
+        // =========================================
+        // 9. Student access (task links, OTP, email queue)
+        // =========================================
+        public DbSet<TaskType> TaskTypes { get; set; }
+        public DbSet<TaskBatch> TaskBatches { get; set; }
+        public DbSet<TaskLink> TaskLinks { get; set; }
+        public DbSet<OtpChallenge> OtpChallenges { get; set; }
+        public DbSet<StudentSession> StudentSessions { get; set; }
+        public DbSet<EmailQueue> EmailQueue { get; set; }
+        public DbSet<CollegeSettings> CollegeSettings { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -205,6 +216,8 @@ namespace ExamAPI.Data
             modelBuilder.Entity<AcademicYear>()
                 .Property(a => a.CollegeId)
                 .IsRequired();
+
+            StudentAccessModel.Configure(modelBuilder);
 
             // =========================================================
             // GLOBAL CONFIGURATION
@@ -397,7 +410,9 @@ namespace ExamAPI.Data
                     RecordId = recordId,
                     PerformedBy = currentUserId,
                     UserType = userType,
-                    Timestamp = DateTime.UtcNow
+                    Timestamp = DateTime.UtcNow,
+                    // Added after the stamping above, so set here: without a college the tenant filter hides the entry.
+                    CollegeId = (entity as ICollegeScoped)?.CollegeId ?? currentCollegeId
                 });
             }
 
