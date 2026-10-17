@@ -75,6 +75,7 @@ builder.Services.AddScoped<ExamAPI.Services.ReleaseHallTicket.IReleaseHallticket
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<ExamAPI.Services.Lookup.ILookupService, ExamAPI.Services.Lookup.LookupService>();
 builder.Services.AddScoped<IStudentAssignRptService, StudentAssignRptService>();
+builder.Services.AddScoped<ExamAPI.Services.StudentAccess.IStudentEmailReviewService, ExamAPI.Services.StudentAccess.StudentEmailReviewService>();
 builder.Services.AddOrdinanceEngine();
 builder.Services.AddHttpClient();
 builder.Services.AddHostedService<ExamAPI.Services.Common.KeepAliveService>(); // KeepAlive:Url, see the class
