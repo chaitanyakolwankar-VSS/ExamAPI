@@ -55,6 +55,11 @@ namespace ExamAPI.Data
             settings.HasOne(s => s.College).WithMany().HasForeignKey(s => s.CollegeId).OnDelete(DeleteBehavior.Restrict);
             settings.HasIndex(s => s.CollegeId).IsUnique();
             settings.Property(s => s.DailyEmailLimit).HasDefaultValue(2000);
+
+            // One account per college; the platform default (CollegeId null) is kept single by EmailAccountService.
+            var account = modelBuilder.Entity<EmailAccount>();
+            account.HasOne<College>().WithMany().HasForeignKey(a => a.CollegeId).OnDelete(DeleteBehavior.Restrict);
+            account.HasIndex(a => a.CollegeId).IsUnique();
         }
     }
 }

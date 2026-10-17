@@ -1,4 +1,6 @@
 using ExamAPI.Services.Auth;
+using ExamAPI.Services.Email;
+using ExamAPI.Services.Tenancy;
 using ExamAPI.Services.StudentAccess;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -14,8 +16,39 @@ namespace ExamAPI.Controllers
     public class StudentEmailsController : ControllerBase
     {
         private readonly IStudentEmailReviewService _service;
+        private readonly IEmailAccountResolver _accounts;
+        private readonly IEmailOutbox _outbox;
+        private readonly ICurrentUser _user;
 
-        public StudentEmailsController(IStudentEmailReviewService service) => _service = service;
+        public StudentEmailsController(IStudentEmailReviewService service, IEmailAccountResolver accounts, IEmailOutbox outbox, ICurrentUser user)
+        {
+            _service = service;
+            _accounts = accounts;
+            _outbox = outbox;
+            _user = user;
+        }
+
+        /// <summary>
+        /// Whether this college can send email (its own account, the platform default, or none) and today's count.
+        /// Never the account itself; staff are told to ask the platform admin when it is missing.
+        /// </summary>
+        [HttpGet("sender-status")]
+        public async Task<IActionResult> SenderStatus()
+        {
+            if (_user.CollegeId is not Guid collegeId)
+                return Ok(new { configured = false, source = EmailAccountSources.None, limit = 0, sentToday = 0, queued = 0 });
+            string source;
+            try
+            {
+                (_, source) = await _accounts.ForCollegeAsync(collegeId);
+            }
+            catch (System.Security.Cryptography.CryptographicException)
+            {
+                source = EmailAccountSources.None; // a password the server can no longer read counts as not set up
+            }
+            var today = await _outbox.DailyStatusAsync(collegeId);
+            return Ok(new { configured = source != EmailAccountSources.None, source, limit = today.Limit, sentToday = today.SentToday, queued = today.Queued });
+        }
 
         /// <summary>Students of a year (optionally a branch and semester) with their email state, and the counts.</summary>
         [HttpGet]

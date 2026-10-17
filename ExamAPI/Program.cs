@@ -76,6 +76,15 @@ builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<ExamAPI.Services.Lookup.ILookupService, ExamAPI.Services.Lookup.LookupService>();
 builder.Services.AddScoped<IStudentAssignRptService, StudentAssignRptService>();
 builder.Services.AddScoped<ExamAPI.Services.StudentAccess.IStudentEmailReviewService, ExamAPI.Services.StudentAccess.StudentEmailReviewService>();
+// Student email (step 4): accounts set on the platform page (passwords encrypted with a key from Jwt:Key), an outbox
+// in the database and a background sender (EmailQueue:Enabled, EmailQueue:IntervalSeconds).
+builder.Services.AddSingleton<ExamAPI.Services.Email.ISecretProtector>(sp => new ExamAPI.Services.Email.SecretProtector(sp.GetRequiredService<IConfiguration>()["Jwt:Key"]!));
+builder.Services.AddSingleton<ExamAPI.Services.Email.IEmailSender, ExamAPI.Services.Email.SmtpEmailSender>();
+builder.Services.AddScoped<ExamAPI.Services.Email.IEmailAccountResolver, ExamAPI.Services.Email.EmailAccountResolver>();
+builder.Services.AddScoped<ExamAPI.Services.Email.IEmailAccountService, ExamAPI.Services.Email.EmailAccountService>();
+builder.Services.AddScoped<ExamAPI.Services.Email.IEmailOutbox, ExamAPI.Services.Email.EmailOutbox>();
+builder.Services.AddScoped<ExamAPI.Services.Email.EmailQueueProcessor>();
+builder.Services.AddHostedService<ExamAPI.Services.Email.EmailQueueWorker>();
 builder.Services.AddOrdinanceEngine();
 builder.Services.AddHttpClient();
 builder.Services.AddHostedService<ExamAPI.Services.Common.KeepAliveService>(); // KeepAlive:Url, see the class

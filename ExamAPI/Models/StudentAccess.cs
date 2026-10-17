@@ -228,7 +228,7 @@ namespace ExamAPI.Models
         public DateTime? SentAt { get; set; }
     }
 
-    /// <summary>Per-college settings for student email. Sender credentials live in config (Email:Senders:{EmailSenderKey}), never here.</summary>
+    /// <summary>Per-college settings for student email, set by the college admin. The sending account is an <see cref="EmailAccount"/>.</summary>
     public class CollegeSettings : BaseEntity, ICollegeScoped
     {
         [Key]
@@ -246,11 +246,50 @@ namespace ExamAPI.Models
         [MaxLength(255)]
         public string? ExamOfficeEmail { get; set; }
 
-        /// <summary>Name of the config section with this college's sender (host, port, user, password, from).</summary>
-        [MaxLength(50)]
-        public string? EmailSenderKey { get; set; }
-
         public int DailyEmailLimit { get; set; } = 2000;
+    }
+
+    /// <summary>
+    /// The mail account emails are sent from (e.g. a Google account with an app password). Set by the platform
+    /// admin only: one per college, and one platform default (CollegeId null) used by colleges without their own.
+    /// Not college-scoped on purpose: colleges never read it; only the platform screens and the sender do.
+    /// </summary>
+    public class EmailAccount
+    {
+        [Key]
+        public Guid Id { get; set; }
+
+        /// <summary>Null = the platform default.</summary>
+        public Guid? CollegeId { get; set; }
+
+        /// <summary><see cref="EmailProviders"/>; another provider (an HTTPS mail API) can be added later.</summary>
+        [MaxLength(20)]
+        public string Provider { get; set; } = EmailProviders.Smtp;
+
+        [MaxLength(255)]
+        public required string Host { get; set; }
+        public int Port { get; set; } = 587;
+        public bool UseStartTls { get; set; } = true;
+
+        [MaxLength(255)]
+        public required string Username { get; set; }
+
+        /// <summary>Encrypted with a key derived from the server's Jwt:Key (SecretProtector); never sent to a screen.</summary>
+        [MaxLength(1000)]
+        public string? PasswordProtected { get; set; }
+
+        [MaxLength(255)]
+        public required string FromAddress { get; set; }
+        [MaxLength(100)]
+        public string? FromName { get; set; }
+
+        public DateTime UpdatedAt { get; set; }
+        public Guid? UpdatedBy { get; set; }
+    }
+
+    public static class EmailProviders
+    {
+        public const string Smtp = "SMTP";
     }
 
     public static class EmailVerification

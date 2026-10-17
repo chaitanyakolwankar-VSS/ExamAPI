@@ -113,6 +113,7 @@ namespace ExamAPI.Data
         public DbSet<StudentSession> StudentSessions { get; set; }
         public DbSet<EmailQueue> EmailQueue { get; set; }
         public DbSet<CollegeSettings> CollegeSettings { get; set; }
+        public DbSet<EmailAccount> EmailAccounts { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
