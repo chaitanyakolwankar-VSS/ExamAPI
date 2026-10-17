@@ -19,7 +19,9 @@ namespace ExamAPI.Services.StudentMasters
         Task<string> DeleteStudentAsync(string studentId);
         Task<(byte[] FileBytes, string FileName)> GenerateExcelTemplateAsync( StudExcelDto dto);
 
-        Task<object> ImportStudentsAsync(StudentImportDto dto);
+        Task<StudentImportResult> ImportStudentsAsync(StudentImportDto dto);
+        Task<(byte[] FileBytes, string FileName)> GenerateEmailSheetAsync(StudExcelDto dto);
+        Task<StudentImportResult> ImportEmailsAsync(StudentImportDto dto);
         Task<List<ExamDetailsResultDto>> GetExamDetailsAsync(string studentId);
         Task<string> RestoreExamAsync(string studentId, Guid marksId);
         Task<string> DeleteExamAsync(string studentId, Guid marksId);

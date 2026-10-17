@@ -138,6 +138,39 @@ namespace ExamAPI.Controllers
                 return BadRequest(new { success = false, message = ExamAPI.Services.Common.SafeError.Message(ex), errors = Array.Empty<string>() });
             }
         }
+        /// <summary>Excel of a class's saved students where staff fill in only the Email column.</summary>
+        [HttpGet("DownloadEmailSheet")]
+        public async Task<IActionResult> DownloadEmailSheet([FromQuery] StudExcelDto dto)
+        {
+            try
+            {
+                var (fileBytes, fileName) = await _service.GenerateEmailSheetAsync(dto);
+                return File(fileBytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName + ".xlsx");
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { success = false, message = ExamAPI.Services.Common.SafeError.Message(ex) });
+            }
+        }
+
+        /// <summary>
+        /// Reads the filled-in email sheet (Preview = true: only answers what would change per row).
+        /// Answers { success, saved, message, errors[], rows[] }.
+        /// </summary>
+        [HttpPost("ImportEmails")]
+        [RequestSizeLimit(5 * 1024 * 1024)]
+        public async Task<IActionResult> ImportEmails([FromForm] StudentImportDto dto)
+        {
+            try
+            {
+                return Ok(await _service.ImportEmailsAsync(dto));
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { success = false, message = ExamAPI.Services.Common.SafeError.Message(ex), errors = Array.Empty<string>() });
+            }
+        }
+
         [HttpPost("ExamDetails")]
         public async Task<IActionResult> ExamDetails(string studentId)
         {

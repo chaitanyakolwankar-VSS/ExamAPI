@@ -33,6 +33,9 @@ namespace ExamAPI.Data
         /// </summary>
         public Guid? CurrentCollegeId => _currentUser?.CollegeId;
 
+        /// <summary>The signed-in user, for audit entries written on purpose (AuditLog.Event).</summary>
+        public Guid? CurrentUserId => _currentUser?.UserId;
+
         // =========================================
         // 0. PasswordReset and OTP for User Master
         // =========================================

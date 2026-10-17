@@ -5,6 +5,7 @@ using ExamAPI.Data;
 using ExamAPI.DTOs;
 using ExamAPI.Models;
 using ExamAPI.Services.Common;
+using ExamAPI.Services.StudentAccess;
 using Microsoft.EntityFrameworkCore;
 using System.Collections;
 using System.Data;
@@ -172,7 +173,10 @@ namespace ExamAPI.Services.StudentMasters
                     StudentPRN = sm.StudentPRN,
                     PhotoUrl = sm.PhotoUrl,
                     SignUrl = sm.SignUrl,
-                    Dyslexia = sm.Dyslexia
+                    Dyslexia = sm.Dyslexia,
+                    Email = sm.Email,
+                    EmailStatus = sm.EmailStatus,
+                    EmailFlagReason = sm.EmailFlagReason
                 }
             ).FirstOrDefaultAsync();
 
@@ -190,12 +194,33 @@ namespace ExamAPI.Services.StudentMasters
                 throw new InvalidOperationException("Select the pattern (e.g. NEP).");
             var motherName = CleanMotherName(dto.MotherName);
             var studentType = NormalizeStudentType(dto.StudentType) ?? throw new InvalidOperationException(StudentTypeRequired);
+            // Only a typed ERN can clash: a blank one used to match every other student without an ERN.
             var pnrExists = await _context.StudentMasters
-                .AnyAsync(x => x.StudentPRN == dto.StudentPRN && x.StudentId != dto.StudentId && !x.IsDeleted);
+                .AnyAsync(x => !string.IsNullOrWhiteSpace(dto.StudentPRN) && x.StudentPRN == dto.StudentPRN && x.StudentId != dto.StudentId && !x.IsDeleted);
 
             if (pnrExists)
             {
                 throw new InvalidOperationException("ERN already exists.");
+            }
+
+            // Email: optional here (students saved before it was asked have none); checked like the import.
+            var email = StudentEmail.Normalize(dto.Email);
+            if (email != (student.Email ?? ""))
+            {
+                await CheckSingleEmailAsync(email, required: false, student.StudentId);
+                var old = student.Email;
+                StudentEmail.Apply(student, email, await StudentEmail.AllowedDomainsAsync(_context));
+                _context.AuditLogs.Add(new AuditLog
+                {
+                    Id = Guid.NewGuid(),
+                    Action = "UPDATE",
+                    TableName = nameof(Models.StudentMaster),
+                    RecordId = student.StdMstId.ToString(),
+                    PerformedBy = _context.CurrentUserId,
+                    UserType = "Staff",
+                    Event = "EmailSet",
+                    Details = $"Student {student.StudentId}: email {old ?? "(none)"} -> {(email == "" ? "(none)" : email)} on Student Master."
+                });
             }
             // 2️⃣ Update basic fields
 
@@ -269,10 +294,21 @@ namespace ExamAPI.Services.StudentMasters
             _ => null,
         };
 
+        /// <summary>Throws with what to fix when a normalized email cannot be saved for this student (null = a new one).</summary>
+        private async Task CheckSingleEmailAsync(string email, bool required, string? ownStudentId)
+        {
+            var owners = await StudentEmail.OwnersAsync(_context, new[] { email });
+            var problem = EmailProblem(email, required, new HashSet<string>(), owners, ownStudentId);
+            if (problem != null)
+                throw new InvalidOperationException(char.ToUpperInvariant(problem[0]) + problem[1..]);
+        }
+
         public async Task<string> SaveStudentAsync(Savedata dto)
         {
             var motherName = CleanMotherName(dto.MotherName);
             var studentType = NormalizeStudentType(dto.StudentType) ?? throw new InvalidOperationException(StudentTypeRequired);
+            var email = StudentEmail.Normalize(dto.Email);
+            await CheckSingleEmailAsync(email, required: true, ownStudentId: null);
             using var transaction = await _context.Database.BeginTransactionAsync();
 
             try
@@ -296,7 +332,7 @@ namespace ExamAPI.Services.StudentMasters
                 string studentId = await GenerateStudentIdAsync(dto.AYID);
 
                 var pnrExists = await _context.StudentMasters
-                    .AnyAsync(x => x.StudentPRN == dto.StudentPRN && x.StudentId != dto.StudentId && !x.IsDeleted);
+                    .AnyAsync(x => !string.IsNullOrWhiteSpace(dto.StudentPRN) && x.StudentPRN == dto.StudentPRN && x.StudentId != dto.StudentId && !x.IsDeleted);
 
                 if (pnrExists)
                     throw new InvalidOperationException("ERN already exists");
@@ -318,6 +354,7 @@ namespace ExamAPI.Services.StudentMasters
                     CreatedAt = DateTime.UtcNow,
                     IsDeleted = false
                 };
+                StudentEmail.Apply(studentMaster, email, await StudentEmail.AllowedDomainsAsync(_context));
 
                 // ✅ HANDLE IMAGE AFTER OBJECT CREATION
                 if (!string.IsNullOrWhiteSpace(dto.PhotoUrl) && dto.PhotoUrl.StartsWith("data:image"))
@@ -421,7 +458,7 @@ namespace ExamAPI.Services.StudentMasters
             return await _storage.SaveAsync(imageBytes, ExamAPI.Services.Files.FileStorage.StudentsFolder, fileName);
         }
         /// <summary>Columns of the student template, in order. Row 1 is a title, row 2 these headings, data from row 3.</summary>
-        private static readonly string[] TemplateHeaders = { "FirstName", "MiddleName", "LastName", "MotherName", "Category", "ERN", "Gender", "StudentType" };
+        private static readonly string[] TemplateHeaders = { "FirstName", "MiddleName", "LastName", "MotherName", "Category", "ERN", "Gender", "StudentType", "Email" };
         // Templates downloaded before the ERN rename say "PRN" in that column; still accept them.
         private const string LegacyErnHeader = "PRN";
         private const int TemplateRows = 1000;
@@ -498,7 +535,15 @@ namespace ExamAPI.Services.StudentMasters
             // ERN: highlight a number typed twice in this sheet.
             sheet.Range(3, TemplateColumn("ERN"), TemplateRows + 2, TemplateColumn("ERN")).AddConditionalFormat().WhenIsDuplicate().Fill.SetBackgroundColor(XLColor.LightPink);
 
-            double[] widths = { 18, 18, 18, 18, 14, 20, 10, 12 };
+            var email = sheet.Range(3, TemplateColumn("Email"), TemplateRows + 2, TemplateColumn("Email"));
+            email.AddConditionalFormat().WhenIsDuplicate().Fill.SetBackgroundColor(XLColor.LightPink);
+            var emailHint = email.CreateDataValidation();
+            emailHint.AllowedValues = XLAllowedValues.AnyValue;
+            emailHint.ShowInputMessage = true;
+            emailHint.InputTitle = "Email";
+            emailHint.InputMessage = "Required. The student's own address: task links and OTPs are sent here.";
+
+            double[] widths = { 18, 18, 18, 18, 14, 20, 10, 12, 32 };
             for (int i = 0; i < widths.Length; i++) sheet.Column(i + 1).Width = widths[i];
 
             using var stream = new MemoryStream();
@@ -510,7 +555,7 @@ namespace ExamAPI.Services.StudentMasters
             return (stream.ToArray(), fileName);
         }
 
-        public async Task<object> ImportStudentsAsync(StudentImportDto dto)
+        public async Task<StudentImportResult> ImportStudentsAsync(StudentImportDto dto)
         {
             if (dto.File == null || dto.File.Length == 0)
                 throw new InvalidOperationException("Choose the filled-in template (.xlsx).");
@@ -549,21 +594,23 @@ namespace ExamAPI.Services.StudentMasters
                     if (heading.Equals(LegacyErnHeader, StringComparison.OrdinalIgnoreCase)) heading = "ERN";
                     columns.TryAdd(heading, c);
                 }
-                if (TemplateHeaders.Any(h => h != "MotherName" && h != "StudentType" && !columns.ContainsKey(h)))
+                if (TemplateHeaders.Any(h => h != "MotherName" && h != "StudentType" && h != "Email" && !columns.ContainsKey(h)))
                     throw new InvalidOperationException("This is not the student template. Download it again with the Excel button.");
                 if (!columns.ContainsKey("MotherName"))
                     throw new InvalidOperationException("This template has no MotherName column. Download the template again.");
                 if (!columns.ContainsKey("StudentType"))
                     throw new InvalidOperationException("This template has no StudentType column. Download the template again.");
+                if (!columns.ContainsKey("Email"))
+                    throw new InvalidOperationException("This template has no Email column (email is now required). Download the template again.");
 
                 // Read every filled row first; nothing is saved unless all rows are valid.
-                var rows = new List<(int Row, string First, string Middle, string Last, string Mother, string Category, string Prn, string Gender, string Type)>();
+                var rows = new List<(int Row, string First, string Middle, string Last, string Mother, string Category, string Prn, string Gender, string Type, string Email)>();
                 int lastRow = sheet.LastRowUsed()?.RowNumber() ?? 0;
                 for (int r = 3; r <= lastRow; r++)
                 {
                     string Cell(string header) => sheet.Cell(r, columns[header]).GetFormattedString().Trim();
-                    var row = (r, Cell("FirstName"), Cell("MiddleName"), Cell("LastName"), Cell("MotherName"), Cell("Category"), Cell("ERN"), Cell("Gender"), Cell("StudentType"));
-                    if (row.Item2 == "" && row.Item3 == "" && row.Item4 == "" && row.Item5 == "" && row.Item6 == "" && row.Item7 == "" && row.Item8 == "" && row.Item9 == "")
+                    var row = (r, Cell("FirstName"), Cell("MiddleName"), Cell("LastName"), Cell("MotherName"), Cell("Category"), Cell("ERN"), Cell("Gender"), Cell("StudentType"), StudentEmail.Normalize(Cell("Email")));
+                    if (row.Item2 == "" && row.Item3 == "" && row.Item4 == "" && row.Item5 == "" && row.Item6 == "" && row.Item7 == "" && row.Item8 == "" && row.Item9 == "" && row.Item10 == "")
                         continue; // empty row
                     rows.Add(row);
                 }
@@ -574,49 +621,77 @@ namespace ExamAPI.Services.StudentMasters
                     .Where(s => !s.IsDeleted && s.StudentPRN != null && s.StudentPRN != "")
                     .Select(s => s.StudentPRN!)
                     .ToHashSetAsync();
+                var emailOwners = await StudentEmail.OwnersAsync(_context, rows.Select(r => r.Email));
+                var allowedDomains = await StudentEmail.AllowedDomainsAsync(_context);
                 var prnsInFile = new HashSet<string>();
+                var emailsInFile = new HashSet<string>();
                 var errors = new List<string>();
+                var results = new List<ImportRowResult>();
 
-                foreach (var (row, first, middle, last, mother, category, prn, gender, type) in rows)
+                foreach (var (row, first, middle, last, mother, category, prn, gender, type, email) in rows)
                 {
+                    var rowErrors = new List<string>();
                     if (first == "")
-                        errors.Add($"Row {row}: first name is required.");
+                        rowErrors.Add("first name is required.");
                     if (mother == "")
-                        errors.Add($"Row {row}: mother's name is required.");
+                        rowErrors.Add("mother's name is required.");
                     if (first.Length > 50 || middle.Length > 50 || last.Length > 50 || mother.Length > 50 || category.Length > 50 || prn.Length > 50)
-                        errors.Add($"Row {row}: a value is longer than 50 characters.");
+                        rowErrors.Add("a value is longer than 50 characters.");
                     if (!string.Equals(gender, "Male", StringComparison.OrdinalIgnoreCase) && !string.Equals(gender, "Female", StringComparison.OrdinalIgnoreCase))
-                        errors.Add($"Row {row}: gender must be Male or Female.");
+                        rowErrors.Add("gender must be Male or Female.");
                     if (type == "")
-                        errors.Add($"Row {row}: student type is required (E, D or M).");
+                        rowErrors.Add("student type is required (E, D or M).");
                     else if (NormalizeStudentType(type) == null)
-                        errors.Add($"Row {row}: student type must be E, D or M.");
+                        rowErrors.Add("student type must be E, D or M.");
                     if (category != "" && CanonicalCategory(category) == null)
-                        errors.Add($"Row {row}: category \"{category}\" is not in the list (OPEN, OBC, SC, ST, ...).");
+                        rowErrors.Add($"category \"{category}\" is not in the list (OPEN, OBC, SC, ST, ...).");
                     if (prn != "")
                     {
                         if (existingPrns.Contains(prn))
-                            errors.Add($"Row {row}: ERN {prn} already belongs to a student.");
+                            rowErrors.Add($"ERN {prn} already belongs to a student.");
                         else if (!prnsInFile.Add(prn))
-                            errors.Add($"Row {row}: ERN {prn} appears twice in this file.");
+                            rowErrors.Add($"ERN {prn} appears twice in this file.");
                     }
+                    var emailError = EmailProblem(email, required: true, emailsInFile, emailOwners, ownStudentId: null);
+                    if (emailError != null) rowErrors.Add(emailError);
+
+                    errors.AddRange(rowErrors.Select(e => $"Row {row}: {e}"));
+                    var flag = emailError == null ? StudentEmail.FlagReason(email, allowedDomains) : null;
+                    results.Add(new ImportRowResult
+                    {
+                        Row = row,
+                        Name = StudentNames.Display(last, first, middle, mother),
+                        Email = email,
+                        Status = rowErrors.Count > 0 ? ImportRowStatuses.Error : flag != null ? ImportRowStatuses.Flagged : ImportRowStatuses.Ok,
+                        Note = rowErrors.Count > 0 ? string.Join(" ", rowErrors) : flag
+                    });
                 }
 
+                var flagged = results.Count(r => r.Status == ImportRowStatuses.Flagged);
                 if (errors.Count > 0)
-                    return new { Success = false, Message = $"Nothing was imported. Fix {errors.Count} problem(s) and import again.", Errors = errors };
+                    return new StudentImportResult { Success = false, Message = $"Nothing was imported. Fix {errors.Count} problem(s) and import again.", Errors = errors, Rows = results };
+                if (dto.Preview)
+                    return new StudentImportResult
+                    {
+                        Success = true,
+                        Message = $"{rows.Count} student(s) ready to import{(flagged > 0 ? $"; {flagged} email(s) flagged for checking" : "")}. Check the list, then press Save.",
+                        Rows = results
+                    };
 
                 var (prefix, numberPart) = await NextStudentIdAsync(academicYear.AYID);
 
                 using var transaction = await _context.Database.BeginTransactionAsync();
                 try
                 {
-                    foreach (var (_, first, middle, last, mother, category, prn, gender, type) in rows)
+                    var resultIndex = 0;
+                    foreach (var (_, first, middle, last, mother, category, prn, gender, type, email) in rows)
                     {
                         var studentId = FormatStudentId(prefix, numberPart);
                         numberPart++;
                         var stdMstId = Guid.NewGuid();
+                        results[resultIndex++].StudentId = studentId;
 
-                        _context.StudentMasters.Add(new Models.StudentMaster
+                        var student = new Models.StudentMaster
                         {
                             StdMstId = stdMstId,
                             StudentId = studentId,
@@ -631,7 +706,9 @@ namespace ExamAPI.Services.StudentMasters
                             Dyslexia = false,
                             CreatedAt = DateTime.UtcNow,
                             IsDeleted = false
-                        });
+                        };
+                        StudentEmail.Apply(student, email, allowedDomains);
+                        _context.StudentMasters.Add(student);
                         _context.StudentEligibilities.Add(new StudentEligibility
                         {
                             Id = Guid.NewGuid(),
@@ -648,7 +725,13 @@ namespace ExamAPI.Services.StudentMasters
 
                     await _context.SaveChangesAsync();
                     await transaction.CommitAsync();
-                    return new { Success = true, Message = $"{rows.Count} student(s) imported.", Errors = new List<string>() };
+                    return new StudentImportResult
+                    {
+                        Success = true,
+                        Saved = true,
+                        Message = $"{rows.Count} student(s) imported{(flagged > 0 ? $"; {flagged} email(s) flagged for checking" : "")}.",
+                        Rows = results
+                    };
                 }
                 catch
                 {
@@ -657,6 +740,233 @@ namespace ExamAPI.Services.StudentMasters
                 }
             }
         }
+        /// <summary>
+        /// What is wrong with an (already normalized) email, or null when it can be saved. Records it in
+        /// <paramref name="emailsInFile"/> so a second row with the same email is caught.
+        /// </summary>
+        private static string? EmailProblem(string email, bool required, HashSet<string> emailsInFile, Dictionary<string, string> owners, string? ownStudentId)
+        {
+            if (email == "")
+                return required ? "email is required." : null;
+            if (!StudentEmail.IsValid(email))
+                return $"\"{email}\" is not a valid email address.";
+            if (!emailsInFile.Add(email))
+                return $"email {email} appears twice in this file.";
+            if (owners.TryGetValue(email, out var owner) && owner != ownStudentId)
+                return $"email {email} already belongs to student {owner}.";
+            return null;
+        }
+
+        private const string EmailSheetTitle = "STUDENT EMAILS";
+        private static readonly string[] EmailSheetHeaders = { "StudentId", "Name", "ERN", "Email" };
+
+        /// <summary>The students of a class, by name, as the email sheet lists them.</summary>
+        private Task<List<Models.StudentMaster>> ClassStudentsAsync(Guid courseId, string semesterId, string pattern, Guid ayid) =>
+            (from se in _context.StudentEligibilities
+             join sm in _context.StudentMasters on se.StudentId equals sm.StudentId
+             where se.CourseId == courseId && se.SemesterId == semesterId && se.Pattern == pattern && se.AYID == ayid
+             select sm).Distinct().ToListAsync();
+
+        /// <summary>
+        /// Excel of a class's saved students for staff to fill in emails: Student ID, name and ERN are locked,
+        /// only the Email column can be typed in (and no sheets added). Existing emails are filled in.
+        /// </summary>
+        public async Task<(byte[] FileBytes, string FileName)> GenerateEmailSheetAsync(StudExcelDto dto)
+        {
+            var course = await _context.CourseMasters.Where(c => c.CourseId == dto.CourseId).Select(c => c.Name).FirstOrDefaultAsync();
+            var academicYear = await _context.AcademicYears.Where(a => a.AYID == dto.AYID).Select(a => a.ShortDuration).FirstOrDefaultAsync();
+            if (string.IsNullOrEmpty(course))
+                throw new InvalidOperationException("Select a branch.");
+            if (string.IsNullOrEmpty(academicYear))
+                throw new InvalidOperationException("Select an academic year.");
+            if (string.IsNullOrWhiteSpace(dto.SemesterId) || string.IsNullOrWhiteSpace(dto.Pattern))
+                throw new InvalidOperationException("Select the semester and the pattern.");
+
+            var students = (await ClassStudentsAsync(dto.CourseId, dto.SemesterId, dto.Pattern, dto.AYID))
+                .Select(s => new { s.StudentId, Name = StudentNames.Display(s), s.StudentPRN, s.Email })
+                .OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase).ThenBy(s => s.StudentId, StringComparer.Ordinal)
+                .ToList();
+            if (students.Count == 0)
+                throw new InvalidOperationException("No students are saved in this branch, semester and pattern yet.");
+
+            using var workbook = ExamAPI.Services.Report.ExcelStyles.NewWorkbook();
+            var sheet = workbook.Worksheets.Add("Emails");
+            sheet.Cell(1, 1).Value = $"{EmailSheetTitle}  |  {course}  |  {dto.SemesterId}  |  {dto.Pattern}  |  {academicYear}";
+            sheet.Range(1, 1, 1, EmailSheetHeaders.Length).Merge();
+            sheet.Cell(1, 1).Style.Font.Bold = true;
+            sheet.Cell(1, 1).Style.Font.FontSize = 13;
+            for (int i = 0; i < EmailSheetHeaders.Length; i++)
+            {
+                var cell = sheet.Cell(2, i + 1);
+                cell.Value = EmailSheetHeaders[i];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#E8EEF9");
+            }
+            sheet.SheetView.FreezeRows(2);
+
+            int row = 3;
+            foreach (var s in students)
+            {
+                sheet.Cell(row, 1).Value = s.StudentId;
+                sheet.Cell(row, 2).Value = s.Name;
+                sheet.Cell(row, 3).Value = s.StudentPRN ?? "";
+                sheet.Cell(row, 4).Value = s.Email ?? "";
+                row++;
+            }
+            var emails = sheet.Range(3, 4, row - 1, 4);
+            emails.Style.NumberFormat.Format = "@";
+            emails.Style.Fill.BackgroundColor = XLColor.FromArgb(255, 253, 208); // the column to fill in
+            emails.Style.Protection.Locked = false;
+            emails.AddConditionalFormat().WhenIsDuplicate().Fill.SetBackgroundColor(XLColor.LightPink);
+            ExamAPI.Services.Report.ExcelStyles.ThinBorders(sheet.Range(2, 1, row - 1, EmailSheetHeaders.Length).Style, XLColor.Gray);
+
+            double[] widths = { 12, 40, 20, 36 };
+            for (int i = 0; i < widths.Length; i++) sheet.Column(i + 1).Width = widths[i];
+
+            // Random password: nobody needs to unprotect it, they download a fresh sheet.
+            var password = Guid.NewGuid().ToString("N");
+            sheet.Protect(password);
+            workbook.Protect(password);
+
+            using var stream = new MemoryStream();
+            workbook.SaveAs(stream);
+            var fileName = string.Concat($"Student emails {course} {dto.SemesterId} {dto.Pattern} {academicYear}".Split(Path.GetInvalidFileNameChars()));
+            return (stream.ToArray(), fileName);
+        }
+
+        /// <summary>
+        /// Reads the filled-in email sheet: matches each row by Student ID to a student of the selected class and
+        /// sets the email. A blank email leaves the student as is. All rows are checked first and nothing is saved
+        /// unless every row is right; with Preview only the per-row result is answered.
+        /// </summary>
+        public async Task<StudentImportResult> ImportEmailsAsync(StudentImportDto dto)
+        {
+            if (dto.File == null || dto.File.Length == 0)
+                throw new InvalidOperationException("Choose the filled-in email sheet (.xlsx).");
+            if (dto.CourseId == Guid.Empty || string.IsNullOrWhiteSpace(dto.SemesterId) || string.IsNullOrWhiteSpace(dto.Pattern))
+                throw new InvalidOperationException("Select the branch, semester and pattern first.");
+
+            using var stream = new MemoryStream();
+            await dto.File.CopyToAsync(stream);
+            XLWorkbook workbook;
+            try
+            {
+                stream.Position = 0;
+                workbook = new XLWorkbook(stream);
+            }
+            catch
+            {
+                throw new InvalidOperationException("The file could not be read. Use the downloaded email sheet.");
+            }
+
+            using (workbook)
+            {
+                var sheet = workbook.Worksheet(1);
+                var columns = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                int lastColumn = sheet.Row(2).LastCellUsed()?.Address.ColumnNumber ?? 0;
+                for (int c = 1; c <= lastColumn; c++)
+                    columns.TryAdd(sheet.Cell(2, c).GetString().Trim(), c);
+                if (!columns.ContainsKey("StudentId") || !columns.ContainsKey("Email"))
+                    throw new InvalidOperationException("This is not the email sheet. Download it again with the button.");
+
+                var classStudents = (await ClassStudentsAsync(dto.CourseId, dto.SemesterId, dto.Pattern, dto.AYID))
+                    .ToDictionary(s => s.StudentId, StringComparer.OrdinalIgnoreCase);
+
+                var rows = new List<(int Row, string StudentId, string Email)>();
+                int lastRow = sheet.LastRowUsed()?.RowNumber() ?? 0;
+                for (int r = 3; r <= lastRow; r++)
+                {
+                    var id = sheet.Cell(r, columns["StudentId"]).GetFormattedString().Trim();
+                    var email = StudentEmail.Normalize(sheet.Cell(r, columns["Email"]).GetFormattedString());
+                    if (id == "" && email == "") continue;
+                    rows.Add((r, id, email));
+                }
+                if (rows.Count == 0)
+                    throw new InvalidOperationException("The sheet has no students.");
+
+                var owners = await StudentEmail.OwnersAsync(_context, rows.Select(r => r.Email));
+                var allowedDomains = await StudentEmail.AllowedDomainsAsync(_context);
+                var idsInFile = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var emailsInFile = new HashSet<string>();
+                var errors = new List<string>();
+                var results = new List<ImportRowResult>();
+                var changes = new List<(Models.StudentMaster Student, string Email)>();
+
+                foreach (var (row, id, email) in rows)
+                {
+                    var result = new ImportRowResult { Row = row, StudentId = id, Email = email };
+                    results.Add(result);
+                    string? problem = null;
+                    if (id == "")
+                        problem = "the Student ID is empty.";
+                    else if (!classStudents.TryGetValue(id, out var student))
+                        problem = $"student {id} is not in this branch, semester and pattern.";
+                    else if (!idsInFile.Add(id))
+                        problem = $"student {id} appears twice in this file.";
+                    else
+                    {
+                        result.Name = StudentNames.Display(student);
+                        problem = EmailProblem(email, required: false, emailsInFile, owners, student.StudentId);
+                        if (problem == null)
+                        {
+                            if (email == "")
+                            {
+                                result.Status = ImportRowStatuses.Skipped;
+                                result.Note = "No email typed in; left as is.";
+                            }
+                            else if (email == student.Email)
+                            {
+                                result.Status = ImportRowStatuses.Unchanged;
+                            }
+                            else
+                            {
+                                var flag = StudentEmail.FlagReason(email, allowedDomains);
+                                result.Status = flag != null ? ImportRowStatuses.Flagged : ImportRowStatuses.Ok;
+                                result.Note = flag ?? (student.Email == null ? null : $"Replaces {student.Email}.");
+                                changes.Add((student, email));
+                            }
+                        }
+                    }
+                    if (problem != null)
+                    {
+                        result.Status = ImportRowStatuses.Error;
+                        result.Note = problem;
+                        errors.Add($"Row {row}: {problem}");
+                    }
+                }
+
+                var flagged = results.Count(r => r.Status == ImportRowStatuses.Flagged);
+                var flaggedText = flagged > 0 ? $"; {flagged} flagged for checking" : "";
+                if (errors.Count > 0)
+                    return new StudentImportResult { Success = false, Message = $"Nothing was saved. Fix {errors.Count} problem(s) and upload again.", Errors = errors, Rows = results };
+                if (changes.Count == 0)
+                    return new StudentImportResult { Success = true, Message = "No email changes in this sheet.", Rows = results };
+                if (dto.Preview)
+                    return new StudentImportResult { Success = true, Message = $"{changes.Count} email(s) ready to save{flaggedText}. Check the list, then press Save.", Rows = results };
+
+                using var transaction = await _context.Database.BeginTransactionAsync();
+                foreach (var (student, email) in changes)
+                {
+                    var old = student.Email;
+                    StudentEmail.Apply(student, email, allowedDomains);
+                    _context.AuditLogs.Add(new AuditLog
+                    {
+                        Id = Guid.NewGuid(),
+                        Action = "UPDATE",
+                        TableName = nameof(Models.StudentMaster),
+                        RecordId = student.StdMstId.ToString(),
+                        PerformedBy = _context.CurrentUserId,
+                        UserType = "Staff",
+                        Event = "EmailSet",
+                        Details = $"Student {student.StudentId}: email {old ?? "(none)"} -> {email} from the email sheet."
+                    });
+                }
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+                return new StudentImportResult { Success = true, Saved = true, Message = $"{changes.Count} email(s) saved{flaggedText}.", Rows = results };
+            }
+        }
+
         public async Task<string> DeleteStudentAsync(string studentId)
         {
             var student = await _context.StudentMasters

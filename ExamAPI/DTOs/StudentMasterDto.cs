@@ -24,6 +24,12 @@ namespace ExamAPI.DTOs
         public string? SemesterId { get; set; }
         public string? Pattern { get; set; }
         public Guid AYID { get; set; }
+
+        /// <summary>Required for a new student; task links and OTPs are sent here.</summary>
+        public string? Email { get; set; }
+        /// <summary>Read only: Verified, Flagged or null (not checked yet), and why it is flagged.</summary>
+        public string? EmailStatus { get; set; }
+        public string? EmailFlagReason { get; set; }
     }
 
     public class FetchData
@@ -96,6 +102,43 @@ namespace ExamAPI.DTOs
         public string Pattern { get; set; }
         public Guid AYID { get; set; }
 
+        /// <summary>True: only check the file and answer what would happen per row; nothing is saved.</summary>
+        public bool Preview { get; set; }
+    }
+
+    /// <summary>What an import does (or would do) with one row of the sheet.</summary>
+    public class ImportRowResult
+    {
+        public int Row { get; set; }
+        public string? StudentId { get; set; }
+        public string Name { get; set; } = "";
+        public string Email { get; set; } = "";
+        /// <summary><see cref="ImportRowStatuses"/>.</summary>
+        public string Status { get; set; } = ImportRowStatuses.Ok;
+        public string? Note { get; set; }
+    }
+
+    public static class ImportRowStatuses
+    {
+        public const string Ok = "OK";
+        /// <summary>Saved, but staff should check the email (e.g. outside the college's domains).</summary>
+        public const string Flagged = "Flagged";
+        public const string Error = "Error";
+        /// <summary>Email sheet: the student already has this email.</summary>
+        public const string Unchanged = "Unchanged";
+        /// <summary>Email sheet: no email typed in; the student is left as is.</summary>
+        public const string Skipped = "Skipped";
+    }
+
+    /// <summary>Answer of an import or email-sheet upload. Saved is false for a preview and whenever there are errors.</summary>
+    public class StudentImportResult
+    {
+        public bool Success { get; set; }
+        public bool Saved { get; set; }
+        public string Message { get; set; } = "";
+        /// <summary>One line per problem, e.g. "Row 5: gender must be Male or Female."</summary>
+        public List<string> Errors { get; set; } = new();
+        public List<ImportRowResult> Rows { get; set; } = new();
     }
 
     public class ImportResultDto
