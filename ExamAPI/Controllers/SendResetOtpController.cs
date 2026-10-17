@@ -29,8 +29,15 @@ namespace ExamAPI.Controllers
         public async Task<IActionResult> SendResetOtp(
 SendResetOtpDTO dto)
         {
-            await _passwordResetService
-                .SendResetOtpAsync(dto.UserID);
+            try
+            {
+                await _passwordResetService.SendResetOtpAsync(dto.UserID);
+            }
+            catch (InvalidOperationException ex)
+            {
+                // E.g. no platform default email account yet: say so instead of a bare server error.
+                return BadRequest(new { message = ex.Message });
+            }
 
             return Ok("OTP Generated");
         }

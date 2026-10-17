@@ -49,7 +49,7 @@ It creates only the database `GradeSphereApp`, its tables and the Engineering + 
    - `ConnectionStrings` → `Server=` the SQL Server as the web server sees it (its LAN address, add `,port` or `\instance` if it is not the default), `User Id=` the login from step 2, `Password=` its password.
    - `Bootstrap` → `PlatformAdminEmail` and `PlatformAdminPassword`: the platform admin, the login that adds colleges.
    - `Storage:UploadsRoot` must be the uploads folder's exact path (written as `D:\\website\\GradeSphereApp\\GradeSphereUplodes` — double backslashes in this file).
-   - Leave `Jwt` as it is; `EmailSettings` stays empty until email is set up (section 6).
+   - Leave `Jwt` as it is (it also encrypts the email passwords saved on the platform page: if it is ever changed, type those passwords in again).
 3. Optional, recommended for the first start: create `GradeSphereApi\logs` and in `GradeSphereApi\web.config` set `stdoutLogEnabled="true"` — any start-up error is then written there.
 
 ## 4. IIS
@@ -107,13 +107,16 @@ Or by hand in IIS Manager: two app pools (*No Managed Code*), *Add Application* 
 
 **If the health page shows an error (500.x):** read the newest file in `GradeSphereApi\logs`. Most common: wrong `Server=`, login name or password in `appsettings.Production.json`, or the login was not given on the `>>>` line.
 
-## 6. Email for password reset (later)
+## 6. Email (staff password reset, student links and OTPs)
 
-Gmail: turn on 2-Step Verification on the sending account, create an **App Password** (Google Account → Security → App passwords), then in `appsettings.Production.json`:
+Nothing in `appsettings.Production.json`: the platform admin sets it up on the website.
 
-```json
-"EmailSettings": { "SmtpServer": "smtp.gmail.com", "Port": 587, "SenderEmail": "<account>@gmail.com", "Password": "<16-character app password>", "SenderName": "GradeSphere" }
-```
+1. On the Google account that will send: turn on 2-Step Verification, then create an **App password** (Google Account → Security → App passwords).
+2. Platform → **Colleges** → **Default email sender**: the Gmail address, the app password, a sender name → **Save account** → **Send a test**. Every college without its own account and every staff password reset uses it.
+3. Optional, per college: Platform → the college → **Email sender** (its own Google account).
+4. A free Gmail account sends about 500 emails a day: set each college's **Daily email limit** (Student Master → Check emails → Email settings) to match.
+
+Emails are sent by the API itself from a queue in the database (every 15 seconds); keep the app pool AlwaysRunning (section 4) so it also runs when nobody is signed in. `EmailQueue:Enabled: false` in the settings file turns it off.
 
 ## Installing a new version
 

@@ -1,41 +1,52 @@
-﻿using ExamAPI.Models;
-using Microsoft.Extensions.Options;
-using System.Net;
-using System.Net.Mail;
+﻿using System.Net;
+using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 
 namespace ExamAPI.Services.Email
 {
-    public class EmailService : IEmailService
+    /// <summary>
+    /// Staff emails (password reset OTP): sent at once through the platform default account set on the platform
+    /// page -- the same place as the student email accounts. Throws <see cref="InvalidOperationException"/> with
+    /// what to do when no default account is set up.
+    /// </summary>
+    public partial class EmailService : IEmailService
     {
-        private readonly EmailSettings _emailSettings;
-        public EmailService(IOptions<EmailSettings> options)
-        {
-            _emailSettings = options.Value;
+        private readonly IEmailAccountResolver _accounts;
+        private readonly IEmailSender _sender;
 
+        public EmailService(IEmailAccountResolver accounts, IEmailSender sender)
+        {
+            _accounts = accounts;
+            _sender = sender;
         }
+
+        [GeneratedRegex("<[^>]+>")]
+        private static partial Regex Tags();
+
+        [GeneratedRegex(@"[ \t]*\n\s*")]
+        private static partial Regex BlankLines();
+
+        [GeneratedRegex(@"[ \t]{2,}")]
+        private static partial Regex Spaces();
+
         public async Task SendEmailAsync(string toEmail, string subject, string body)
         {
-            using (var client = new SmtpClient(_emailSettings.SmtpServer, _emailSettings.Port))
+            EmailAccountSettings? account;
+            try
             {
-                client.Credentials = new NetworkCredential(_emailSettings.SenderEmail, _emailSettings.Password);
-                client.EnableSsl = true;
-                var mailMessage = new MailMessage
-                {
-                    From = new MailAddress(_emailSettings.SenderEmail, string.IsNullOrWhiteSpace(_emailSettings.SenderName) ? "GradeSphere" : _emailSettings.SenderName),
-                    Subject = subject,
-                    Body = body,
-                    IsBodyHtml = true
-                };
-
-                mailMessage.ReplyToList.Add(
-          new MailAddress("no-reply@vivacollege.org", "Do Not Reply")
-      );
-                mailMessage.Headers.Add("X-Auto-Response-Suppress", "OOF, AutoReply, All");
-                mailMessage.Headers.Add("Auto-Submitted", "auto-generated");
-                mailMessage.Headers.Add("Precedence", "bulk");
-                mailMessage.To.Add(toEmail);
-                await client.SendMailAsync(mailMessage);
+                account = await _accounts.DefaultAsync();
             }
+            catch (CryptographicException)
+            {
+                throw new InvalidOperationException(EmailQueueProcessor.UnreadablePassword);
+            }
+            if (account == null)
+                throw new InvalidOperationException("Email is not set up yet: the platform admin has to add the default email account.");
+
+            var plain = WebUtility.HtmlDecode(Tags().Replace(body.Replace("<br>", "\n").Replace("</p>", "\n"), " "));
+            var text = BlankLines().Replace(Spaces().Replace(plain, " "), "\n").Trim();
+            var html = $"<!doctype html><html><body>{body}</body></html>";
+            await _sender.SendAsync(account, new EmailMessage(toEmail, subject, html, text));
         }
     }
 }

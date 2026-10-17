@@ -169,6 +169,26 @@ public sealed class EmailSendingTests
         Assert.Contains("535", await service.SendTestAsync(_college, "me@gmail.com"));
     }
 
+    [Fact]
+    public async Task Staff_password_reset_mail_uses_the_platform_default_and_says_so_when_there_is_none()
+    {
+        using var context = Context();
+        var staffMail = new EmailService(new EmailAccountResolver(context, _protector), _sender);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => staffMail.SendEmailAsync("staff@viva.in", "Password Reset OTP", "<p>Your OTP is <b>123456</b></p>"));
+        Assert.Contains("platform admin", ex.Message);
+
+        await Accounts(context).SaveAsync(_college, Gmail("viva@gmail.com")); // a college account is not used for staff mail
+        await Assert.ThrowsAsync<InvalidOperationException>(() => staffMail.SendEmailAsync("staff@viva.in", "Password Reset OTP", "<p>x</p>"));
+
+        await Accounts(context).SaveAsync(null, Gmail("platform@gmail.com"));
+        await staffMail.SendEmailAsync("staff@viva.in", "Password Reset OTP", "<p>Your OTP is <b>123456</b></p>");
+        var (account, message) = Assert.Single(_sender.Sent);
+        Assert.Equal("platform@gmail.com", account.Username);
+        Assert.Equal("Your OTP is 123456", message.Text);
+        Assert.Contains("<b>123456</b>", message.Html);
+    }
+
     // ------------------------------------------------------------------ outbox and background sender
 
     private async Task WithAccount(int dailyLimit = 2000, string? examOffice = "exams@viva.in")

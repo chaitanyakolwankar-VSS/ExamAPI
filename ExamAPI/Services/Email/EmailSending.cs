@@ -69,6 +69,9 @@ namespace ExamAPI.Services.Email
     public interface IEmailAccountResolver
     {
         Task<(EmailAccountSettings? Account, string Source)> ForCollegeAsync(Guid? collegeId, CancellationToken ct = default);
+
+        /// <summary>The platform default only (staff emails, a test of the default).</summary>
+        Task<EmailAccountSettings?> DefaultAsync(CancellationToken ct = default);
     }
 
     public static class EmailAccountSources
@@ -97,9 +100,17 @@ namespace ExamAPI.Services.Email
             var own = collegeId == null ? null : accounts.FirstOrDefault(a => a.CollegeId == collegeId);
             var chosen = own ?? accounts.FirstOrDefault(a => a.CollegeId == null);
             if (chosen == null) return (null, EmailAccountSources.None);
-            var password = string.IsNullOrEmpty(chosen.PasswordProtected) ? "" : _protector.Unprotect(chosen.PasswordProtected);
-            return (new EmailAccountSettings(chosen.Provider, chosen.Host, chosen.Port, chosen.UseStartTls, chosen.Username, password, chosen.FromAddress, chosen.FromName),
-                own != null ? EmailAccountSources.College : EmailAccountSources.Default);
+            return (Open(chosen), own != null ? EmailAccountSources.College : EmailAccountSources.Default);
         }
+
+        public async Task<EmailAccountSettings?> DefaultAsync(CancellationToken ct = default)
+        {
+            var account = await _context.EmailAccounts.AsNoTracking().FirstOrDefaultAsync(a => a.CollegeId == null, ct);
+            return account == null ? null : Open(account);
+        }
+
+        private EmailAccountSettings Open(EmailAccount a) =>
+            new(a.Provider, a.Host, a.Port, a.UseStartTls, a.Username,
+                string.IsNullOrEmpty(a.PasswordProtected) ? "" : _protector.Unprotect(a.PasswordProtected), a.FromAddress, a.FromName);
     }
 }

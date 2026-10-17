@@ -26,7 +26,6 @@ builder.Services.AddHttpContextAccessor();
 // Tenant identity, read from the JWT. ApplicationDbContext depends on this to build its
 // global college query filter, so it must be registered before the DbContext.
 builder.Services.AddScoped<ExamAPI.Services.Tenancy.ICurrentUser, ExamAPI.Services.Tenancy.CurrentUser>();
-builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
 
 //  connection string
 builder.Services.AddDbContext<ApplicationDbContext>(options =>

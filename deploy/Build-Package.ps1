@@ -79,7 +79,6 @@ if (-not (Test-Path $settingsOut)) {
         ConnectionStrings = [ordered]@{ DefaultConnection = "Server=$SqlServer;Database=GradeSphereApp;User Id=YOUR_EXISTING_SQL_LOGIN;Password=ITS_PASSWORD;TrustServerCertificate=True;" }
         Jwt               = [ordered]@{ Key = [Convert]::ToBase64String($keyBytes); Issuer = "GradeSphere"; Audience = "GradeSphere" }
         Storage           = [ordered]@{ UploadsRoot = $UploadsRoot }
-        EmailSettings     = [ordered]@{ SmtpServer = ""; Port = 587; SenderEmail = ""; Password = ""; SenderName = "GradeSphere" }
         Cors              = [ordered]@{ AllowedOrigins = @("https://vivacollege.in", "https://www.vivacollege.in") }
         KeepAlive         = [ordered]@{ Url = "https://www.vivacollege.in/gradesphereapi/api/health" }
         Bootstrap         = [ordered]@{ PlatformAdminEmail = ""; PlatformAdminPassword = "" }

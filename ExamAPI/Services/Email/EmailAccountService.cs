@@ -155,7 +155,7 @@ namespace ExamAPI.Services.Email
             try
             {
                 var (account, source) = collegeId == null
-                    ? await DefaultOnlyAsync()
+                    ? (await _resolver.DefaultAsync(), EmailAccountSources.Default)
                     : await _resolver.ForCollegeAsync(collegeId);
                 if (account == null)
                     return EmailQueueProcessor.NoAccount;
@@ -174,14 +174,6 @@ namespace ExamAPI.Services.Email
             {
                 return EmailQueueProcessor.Clean(ex);
             }
-        }
-
-        private async Task<(EmailAccountSettings?, string)> DefaultOnlyAsync()
-        {
-            var a = await FindAsync(null);
-            if (a == null) return (null, EmailAccountSources.None);
-            var password = string.IsNullOrEmpty(a.PasswordProtected) ? "" : _protector.Unprotect(a.PasswordProtected);
-            return (new EmailAccountSettings(a.Provider, a.Host, a.Port, a.UseStartTls, a.Username, password, a.FromAddress, a.FromName), EmailAccountSources.Default);
         }
 
         private void Audit(Guid? collegeId, Guid accountId, string evt, string details) =>
