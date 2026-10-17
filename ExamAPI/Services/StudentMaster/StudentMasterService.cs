@@ -190,8 +190,9 @@ namespace ExamAPI.Services.StudentMasters
                 throw new InvalidOperationException("Select the pattern (e.g. NEP).");
             var motherName = CleanMotherName(dto.MotherName);
             var studentType = NormalizeStudentType(dto.StudentType) ?? throw new InvalidOperationException(StudentTypeRequired);
+            // Only a typed ERN can clash: a blank one used to match every other student without an ERN.
             var pnrExists = await _context.StudentMasters
-                .AnyAsync(x => x.StudentPRN == dto.StudentPRN && x.StudentId != dto.StudentId && !x.IsDeleted);
+                .AnyAsync(x => !string.IsNullOrWhiteSpace(dto.StudentPRN) && x.StudentPRN == dto.StudentPRN && x.StudentId != dto.StudentId && !x.IsDeleted);
 
             if (pnrExists)
             {
@@ -296,7 +297,7 @@ namespace ExamAPI.Services.StudentMasters
                 string studentId = await GenerateStudentIdAsync(dto.AYID);
 
                 var pnrExists = await _context.StudentMasters
-                    .AnyAsync(x => x.StudentPRN == dto.StudentPRN && x.StudentId != dto.StudentId && !x.IsDeleted);
+                    .AnyAsync(x => !string.IsNullOrWhiteSpace(dto.StudentPRN) && x.StudentPRN == dto.StudentPRN && x.StudentId != dto.StudentId && !x.IsDeleted);
 
                 if (pnrExists)
                     throw new InvalidOperationException("ERN already exists");

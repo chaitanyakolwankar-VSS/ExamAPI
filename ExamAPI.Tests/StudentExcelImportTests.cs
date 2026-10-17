@@ -408,6 +408,16 @@ public sealed class StudentExcelImportTests
     }
 
     [Fact]
+    public async Task Several_students_without_an_ERN_can_be_saved_but_a_typed_ERN_is_still_unique()
+    {
+        Assert.Equal("2600001", await Save(_course, null!));
+        Assert.Equal("2600002", await Save(_course, null!));
+        await Save(_course, "77");
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => Save(_course, "77"));
+        Assert.Contains("ERN already exists", ex.Message);
+    }
+
+    [Fact]
     public async Task Saving_without_a_branch_is_refused()
     {
         var ex = await Assert.ThrowsAnyAsync<Exception>(() => Save(Guid.Empty, "1"));
