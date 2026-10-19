@@ -118,6 +118,10 @@ Nothing in `appsettings.Production.json`: the platform admin sets it up on the w
 
 Emails are sent by the API itself from a queue in the database (every 15 seconds); keep the app pool AlwaysRunning (section 4) so it also runs when nobody is signed in. `EmailQueue:Enabled: false` in the settings file turns it off.
 
+**Google Workspace instead of a Gmail app password:** server `smtp-relay.gmail.com`, port 587, STARTTLS; sign-in = the Workspace account, password = its app password; "Send from" may be an alias of that account (e.g. `noreply-gradesphere@…`).
+
+**Student links** (Student Master → Student links) point at the website the staff member is using, accepted only when it is listed in `Cors:AllowedOrigins` (live already lists `https://www.vivacollege.in`). For any other address, set it once in `appsettings.Production.json`: `"StudentAccess": { "AppUrl": "https://www.vivacollege.in/gradesphereapp" }`.
+
 ## Installing a new version
 
 1. Build again on the PC (step 0).

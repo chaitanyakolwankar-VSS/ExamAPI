@@ -1897,10 +1897,18 @@ namespace ExamAPI.Migrations
                     b.Property<DateTime?>("DeletedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("EditableFields")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
                     b.Property<bool>("IsDeleted")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bit")
                         .HasDefaultValue(false);
+
+                    b.Property<string>("LinkBaseUrl")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
 
                     b.Property<Guid?>("RefId")
                         .HasColumnType("uniqueidentifier");
@@ -1958,6 +1966,9 @@ namespace ExamAPI.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bit")
                         .HasDefaultValue(false);
+
+                    b.Property<DateTime?>("OpenedAt")
+                        .HasColumnType("datetime2");
 
                     b.Property<Guid?>("RefId")
                         .HasColumnType("uniqueidentifier");

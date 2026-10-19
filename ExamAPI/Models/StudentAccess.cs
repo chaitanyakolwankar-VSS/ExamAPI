@@ -71,6 +71,45 @@ namespace ExamAPI.Models
         [MaxLength(50)]
         public string? SemesterId { get; set; }
         public Guid? AYID { get; set; }
+
+        /// <summary>Comma-separated <see cref="StudentFields"/> the student may change (Student Master task); the rest are shown read-only.</summary>
+        [MaxLength(500)]
+        public string? EditableFields { get; set; }
+
+        /// <summary>Where the student site is (e.g. https://www.vivacollege.in/gradesphereapp): links are written with it at send time.</summary>
+        [MaxLength(300)]
+        public string? LinkBaseUrl { get; set; }
+    }
+
+    /// <summary>Student Master fields a details link can let the student change. Student ID and the email never are.</summary>
+    public static class StudentFields
+    {
+        public const string FirstName = "firstName";
+        public const string MiddleName = "middleName";
+        public const string LastName = "lastName";
+        public const string MotherName = "motherName";
+        public const string DateOfBirth = "dateOfBirth";
+        public const string Gender = "gender";
+        public const string Category = "category";
+        public const string Phone = "phone";
+        public const string Address = "address";
+        public const string Prn = "prn";
+        public const string Photo = "photo";
+        public const string Signature = "signature";
+
+        public static readonly IReadOnlyList<string> All = new[]
+        {
+            FirstName, MiddleName, LastName, MotherName, DateOfBirth, Gender, Category, Phone, Address, Prn, Photo, Signature,
+        };
+
+        /// <summary>Known fields only, each once, in the order of <see cref="All"/>.</summary>
+        public static List<string> Clean(IEnumerable<string>? fields)
+        {
+            var wanted = new HashSet<string>((fields ?? Array.Empty<string>()).Select(f => f.Trim()), StringComparer.OrdinalIgnoreCase);
+            return All.Where(wanted.Contains).ToList();
+        }
+
+        public static List<string> Parse(string? stored) => Clean((stored ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries));
     }
 
     public static class TaskLinkStatuses
@@ -112,6 +151,9 @@ namespace ExamAPI.Models
 
         public DateTime ExpiresAt { get; set; }
         public DateTime? SentAt { get; set; }
+        /// <summary>First time the student signed in with it (OTP checked).</summary>
+        public DateTime? OpenedAt { get; set; }
+        /// <summary>Last time the student completed the task (details saved, ...).</summary>
         public DateTime? UsedAt { get; set; }
         public DateTime? RevokedAt { get; set; }
     }

@@ -7,6 +7,7 @@ using ExamAPI.Services.PasswordResetOTP;
 using ExamAPI.Services.Result.Engine;
 using ExamAPI.Services.RoleMaster;
 using ExamAPI.Services.StudentAssignRpt;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
@@ -84,6 +85,13 @@ builder.Services.AddScoped<ExamAPI.Services.Email.IEmailAccountService, ExamAPI.
 builder.Services.AddScoped<ExamAPI.Services.Email.IEmailOutbox, ExamAPI.Services.Email.EmailOutbox>();
 builder.Services.AddScoped<ExamAPI.Services.Email.EmailQueueProcessor>();
 builder.Services.AddHostedService<ExamAPI.Services.Email.EmailQueueWorker>();
+// Student access (step 5): task links, 6-digit codes and the student session (its own auth scheme, below).
+builder.Services.AddSingleton<ExamAPI.Services.StudentAccess.IStudentAccessSecrets>(sp => new ExamAPI.Services.StudentAccess.StudentAccessSecrets(sp.GetRequiredService<IConfiguration>()["Jwt:Key"]!));
+builder.Services.AddSingleton<ExamAPI.Services.StudentAccess.StudentSiteUrl>();
+builder.Services.AddScoped<ExamAPI.Services.Email.IEmailBodyRenderer, ExamAPI.Services.StudentAccess.TaskLinkEmailRenderer>();
+builder.Services.AddScoped<ExamAPI.Services.Email.IEmailBodyRenderer, ExamAPI.Services.StudentAccess.OtpEmailRenderer>();
+builder.Services.AddScoped<ExamAPI.Services.StudentAccess.ITaskLinkService, ExamAPI.Services.StudentAccess.TaskLinkService>();
+builder.Services.AddScoped<ExamAPI.Services.StudentAccess.IStudentSignInService, ExamAPI.Services.StudentAccess.StudentSignInService>();
 builder.Services.AddOrdinanceEngine();
 builder.Services.AddHttpClient();
 builder.Services.AddHostedService<ExamAPI.Services.Common.KeepAliveService>(); // KeepAlive:Url, see the class
@@ -120,7 +128,10 @@ builder.Services.AddAuthentication(options =>
         ValidAudience = builder.Configuration["Jwt:Audience"],
         IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
     };
-});
+})
+// Students: not a default scheme, so it only runs on endpoints with the Student policy.
+.AddScheme<AuthenticationSchemeOptions, ExamAPI.Services.StudentAccess.StudentSessionHandler>(
+    ExamAPI.Services.StudentAccess.StudentAccessAuth.Scheme, _ => { });
 // JWT Authentication end
 
 
@@ -137,6 +148,7 @@ builder.Services.AddAuthorization(options =>
 
     // Access model (DEC-17 / DB-05): PlatformAdmin and CollegeAdmin policies.
     options.AddAccessPolicies();
+    ExamAPI.Services.StudentAccess.StudentAccessAuth.AddStudentPolicy(options);
 });
 // Authorization end
 
@@ -171,6 +183,9 @@ builder.Services.AddRateLimiter(options =>
     options.AddPolicy(ExamAPI.Services.Auth.RateLimits.SendOtp, ctx => RateLimitPartition.GetFixedWindowLimiter(
         ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
         _ => new FixedWindowRateLimiterOptions { PermitLimit = 5, Window = TimeSpan.FromMinutes(15), QueueLimit = 0 }));
+    options.AddPolicy(ExamAPI.Services.Auth.RateLimits.StudentAccess, ctx => RateLimitPartition.GetFixedWindowLimiter(
+        ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = 60, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
     options.OnRejected = async (context, ct) =>
         await context.HttpContext.Response.WriteAsJsonAsync(
             new { message = "Too many attempts. Please wait a few minutes and try again." }, ct);
