@@ -227,7 +227,7 @@ namespace ExamAPI.Services.StudentAccess
             var saved = await _storage.SaveAsync(bytes, FileStorage.StudentsFolder, $"{Guid.NewGuid()}_{(field == StudentFields.Photo ? "photo" : "sign")}.png");
             var old = field == StudentFields.Photo ? s.PhotoUrl : s.SignUrl;
             if (field == StudentFields.Photo) s.PhotoUrl = saved; else s.SignUrl = saved;
-            var result = await FinishAsync(user, link, s, new List<(string, string?, string?)> { (field, old == null ? null : "previous", "new picture") });
+            var result = await FinishAsync(user, link, s, new List<(string, string?, string?)> { (field, old, saved) });
             _storage.Delete(old);
             return result;
         }
@@ -249,7 +249,9 @@ namespace ExamAPI.Services.StudentAccess
             {
                 var now = DateTime.UtcNow;
                 link.UsedAt = now;
-                var details = string.Join("; ", changes.Select(c => $"{Labels[c.Field]}: '{c.Old}' -> '{c.New}'"));
+                var details = string.Join("; ", changes.Select(c => c.Field is StudentFields.Photo or StudentFields.Signature
+                    ? $"{Labels[c.Field]}: {(c.Old == null ? "added" : "replaced")}"
+                    : $"{Labels[c.Field]}: '{c.Old}' -> '{c.New}'"));
                 _context.AuditLogs.Add(new AuditLog
                 {
                     Id = Guid.NewGuid(),

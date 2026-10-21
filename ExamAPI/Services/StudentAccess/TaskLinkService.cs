@@ -64,7 +64,7 @@ namespace ExamAPI.Services.StudentAccess
         public string State { get; set; } = "";
         /// <summary>Why an email has not gone (failed, waiting for tomorrow, no account).</summary>
         public string? Note { get; set; }
-        /// <summary>What the student changed last, e.g. "Phone: '' -> '9876543210'" (from the audit log).</summary>
+        /// <summary>What the student changed through this link, newest first, e.g. "Phone: '' -> '9876543210'" (from the audit log).</summary>
         public string? Changes { get; set; }
         public DateTime? SentAt { get; set; }
         public DateTime? OpenedAt { get; set; }
@@ -429,7 +429,7 @@ namespace ExamAPI.Services.StudentAccess
                     .Where(a => a.Event == StudentDetailsService.ChangedEvent && a.RecordId != null && idTexts.Contains(a.RecordId))
                     .Select(a => new { a.RecordId, a.Details, a.Timestamp })
                     .ToListAsync())
-                .GroupBy(a => a.RecordId!).ToDictionary(g => g.Key, g => g.OrderByDescending(a => a.Timestamp).First().Details);
+                .GroupBy(a => a.RecordId!).ToDictionary(g => g.Key, g => string.Join("; ", g.OrderByDescending(a => a.Timestamp).Select(a => a.Details)));
             var mails = (await _context.EmailQueue
                     .Where(m => m.Kind == EmailKinds.TaskLink && m.RefId != null && ids.Contains(m.RefId.Value))
                     .Select(m => new { RefId = m.RefId!.Value, m.Status, m.LastError, m.CreatedAt })
