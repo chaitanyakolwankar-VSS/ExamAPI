@@ -36,6 +36,12 @@ namespace ExamAPI.Data
         /// <summary>The signed-in user, for audit entries written on purpose (AuditLog.Event).</summary>
         public Guid? CurrentUserId => _currentUser?.UserId;
 
+        /// <summary>
+        /// True for the platform administrator. Services use it to decide who may change platform-wide
+        /// template rows (CollegeId == null), which every college can see but only the platform may edit.
+        /// </summary>
+        public bool CurrentIsPlatformAdmin => _currentUser?.IsPlatformAdmin ?? false;
+
         // =========================================
         // 0. PasswordReset and OTP for User Master
         // =========================================

@@ -342,6 +342,15 @@ namespace ExamAPI.Services.Subject
 
                     if (credit.CreditId.HasValue)
                     {
+                        // SubjectCredits is not tenant-filtered, so prove the credit set is this college's first (its parent
+                        // SubjectCreditMaster is filtered); otherwise a CreditId from another college could be read or changed.
+                        var subjectcredits = await _context.SubjectCreditMasters.FirstOrDefaultAsync(a => a.CreditsId == credit.CreditId.Value);
+                        if (subjectcredits == null)
+                        {
+                            await transaction.RollbackAsync();
+                            return new ApiResponseDto<object> { Success = false, Message = "Credits not found.", Data = null };
+                        }
+
                         var find_credit_H1 = await _context.SubjectCredits
       .FirstOrDefaultAsync(a => a.CreditsId == credit.CreditId.Value && a.Head == "H1");
                         if (find_credit_H1 != null)
@@ -422,14 +431,10 @@ namespace ExamAPI.Services.Subject
 
 
                         //Update Credits in SubjectCreditMasters
-                        var subjectcredits = await _context.SubjectCreditMasters.FirstOrDefaultAsync(a => a.CreditsId == credit.CreditId);
-                        if (subjectcredits != null)
-                        {
-                            subjectcredits.TotalCredits = credit.CreditNo;
-                            subjectcredits.PassingStrategy = NormalizePassingStrategy(credit.PassingStrategy);
-                            subjectcredits.PassPercentage = ParsePassPercentage(credit.PassingPercentage);
-                            _context.SubjectCreditMasters.Update(subjectcredits);
-                        }
+                        subjectcredits.TotalCredits = credit.CreditNo;
+                        subjectcredits.PassingStrategy = NormalizePassingStrategy(credit.PassingStrategy);
+                        subjectcredits.PassPercentage = ParsePassPercentage(credit.PassingPercentage);
+                        _context.SubjectCreditMasters.Update(subjectcredits);
                     }
                 }
                 await _context.SaveChangesAsync();
@@ -511,6 +516,15 @@ namespace ExamAPI.Services.Subject
 
             try
             {
+                // Load the subject through the tenant-filtered DbSet first and refuse when it is not this college's:
+                // the id comes from the request body, and a lookup by key alone would reach another college's subject.
+                var subject = await _context.SubjectMasters.FirstOrDefaultAsync(s => s.SubjectId == dto.SubjectId);
+                if (subject == null)
+                {
+                    await transaction.RollbackAsync();
+                    return new ApiResponseDto<object> { Success = false, Message = "Subject not found.", Data = null };
+                }
+
                 // 🔹 1. Get all CreditMaster IDs for subject
                 var creditMasterIds = await _context.SubjectCreditMasters
                     .Where(x => x.SubjectId == dto.SubjectId)

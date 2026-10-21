@@ -115,7 +115,16 @@ namespace ExamAPI.Controllers
             if (!ModelState.IsValid) return BadRequest(new ApiResponseDto<object> { Success = false, Message = "Invalid data.", Data = ModelState });
             if (id != gradeDto.GradeMasterId) return BadRequest(new ApiResponseDto<object> { Success = false, Message = "Grade Master ID in URL and body do not match." });
 
-            var result = await _ordinanceService.UpdateGradeMasterAsync(gradeDto);
+            bool result;
+            try
+            {
+                result = await _ordinanceService.UpdateGradeMasterAsync(gradeDto);
+            }
+            catch (InvalidOperationException ex)
+            {
+                // e.g. a shared template grading scale, which only the platform administrator may change
+                return BadRequest(new ApiResponseDto<object> { Success = false, Message = ex.Message });
+            }
             if (!result) return NotFound(new ApiResponseDto<object> { Success = false, Message = "Grade Master not found." });
 
             return Ok(new ApiResponseDto<object> { Success = true, Message = "Grade Master updated successfully." });
@@ -124,7 +133,15 @@ namespace ExamAPI.Controllers
         [HttpDelete("GradeMasters/{id}")]
         public async Task<IActionResult> DeleteGradeMaster(Guid id)
         {
-            var result = await _ordinanceService.DeleteGradeMasterAsync(id);
+            bool result;
+            try
+            {
+                result = await _ordinanceService.DeleteGradeMasterAsync(id);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new ApiResponseDto<object> { Success = false, Message = ex.Message });
+            }
             if (!result) return NotFound(new ApiResponseDto<object> { Success = false, Message = "Grade Master not found." });
 
             return Ok(new ApiResponseDto<object> { Success = true, Message = "Grade Master deleted successfully." });
@@ -146,9 +163,16 @@ namespace ExamAPI.Controllers
                 return BadRequest(new ApiResponseDto<object> { Success = false, Message = "Invalid data.", Data = ModelState });
             }
 
-            var createdRuleSetDto = await _ordinanceService.CreateRuleSetAsync(ruleSetDto);
-            // Assuming a GetRuleSetById endpoint will be created, for now returning a generic response.
-            return Ok(new ApiResponseDto<RuleSetDto> { Success = true, Data = createdRuleSetDto, Message = "RuleSet created successfully." });
+            try
+            {
+                var createdRuleSetDto = await _ordinanceService.CreateRuleSetAsync(ruleSetDto);
+                // Assuming a GetRuleSetById endpoint will be created, for now returning a generic response.
+                return Ok(new ApiResponseDto<RuleSetDto> { Success = true, Data = createdRuleSetDto, Message = "RuleSet created successfully." });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new ApiResponseDto<object> { Success = false, Message = ex.Message });
+            }
         }
 
         [HttpPut("RuleSets/{id}")]
@@ -157,7 +181,16 @@ namespace ExamAPI.Controllers
             if (!ModelState.IsValid) return BadRequest(new ApiResponseDto<object> { Success = false, Message = "Invalid data.", Data = ModelState });
             if (id != ruleSetDto.RuleSetId) return BadRequest(new ApiResponseDto<object> { Success = false, Message = "RuleSet ID in URL and body do not match." });
 
-            var result = await _ordinanceService.UpdateRuleSetAsync(ruleSetDto);
+            bool result;
+            try
+            {
+                result = await _ordinanceService.UpdateRuleSetAsync(ruleSetDto);
+            }
+            catch (InvalidOperationException ex)
+            {
+                // e.g. a shared template rule set, which only the platform administrator may change
+                return BadRequest(new ApiResponseDto<object> { Success = false, Message = ex.Message });
+            }
             if (!result) return NotFound(new ApiResponseDto<object> { Success = false, Message = "RuleSet not found." });
 
             return Ok(new ApiResponseDto<object> { Success = true, Message = "RuleSet updated successfully." });
@@ -166,7 +199,15 @@ namespace ExamAPI.Controllers
         [HttpDelete("RuleSets/{id}")]
         public async Task<IActionResult> DeleteRuleSet(Guid id)
         {
-            var result = await _ordinanceService.DeleteRuleSetAsync(id);
+            bool result;
+            try
+            {
+                result = await _ordinanceService.DeleteRuleSetAsync(id);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new ApiResponseDto<object> { Success = false, Message = ex.Message });
+            }
             if (!result) return NotFound(new ApiResponseDto<object> { Success = false, Message = "RuleSet not found." });
             
             return Ok(new ApiResponseDto<object> { Success = true, Message = "RuleSet deleted successfully." });
@@ -222,7 +263,15 @@ namespace ExamAPI.Controllers
         [HttpDelete("Rules/{id}")]
         public async Task<IActionResult> DeleteRule(Guid id)
         {
-            var result = await _ordinanceService.DeleteRuleAsync(id);
+            bool result;
+            try
+            {
+                result = await _ordinanceService.DeleteRuleAsync(id);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new ApiResponseDto<object> { Success = false, Message = ex.Message });
+            }
             if (!result) return NotFound(new ApiResponseDto<object> { Success = false, Message = "Rule not found." });
 
             return Ok(new ApiResponseDto<object> { Success = true, Message = "Rule deleted successfully." });

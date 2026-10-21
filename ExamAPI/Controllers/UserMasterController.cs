@@ -4,6 +4,7 @@ using ExamAPI.Services.UsersMaster;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using System.Security.Claims;
 
 namespace ExamAPI.Controllers
@@ -66,9 +67,19 @@ namespace ExamAPI.Controllers
             return Ok(users);
         }
 
+        // A user may act on their own account; acting on someone else's needs a college admin (or the platform admin).
+        // The user id comes from the URL or body, so without this any signed-in user could use it against a colleague.
+        private bool IsSelfOrAdmin(Guid userId) =>
+            (Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var callerId) && callerId == userId)
+            || AccessPolicies.IsCollegeAdmin(User)
+            || AccessPolicies.IsPlatformAdmin(User);
+
         [HttpGet("GetAll/{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
+            if (!IsSelfOrAdmin(id))
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = "You can only view your own user details." });
+
             var user = await _service.GetById(id);
             if (user == null)
                 return NotFound();
@@ -120,8 +131,12 @@ namespace ExamAPI.Controllers
         }
 
         [HttpPost("ChangePassword")]
+        [EnableRateLimiting(RateLimits.SignIn)] // it checks a password, so cap guessing like sign-in
         public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordDTO dto)
         {
+            if (!IsSelfOrAdmin(dto.UserId))
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = "You can only change your own password." });
+
             try
             {
                 await _service.ChangePasswordAsync(dto);

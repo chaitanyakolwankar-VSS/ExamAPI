@@ -1070,9 +1070,17 @@ namespace ExamAPI.Services.StudentMasters
                   .Where(x => x.StudentID == studentId && x.MarksId == marksId && !x.IsDeleted)
         .ToListAsync();
 
+            // StudentMarks has no CollegeId of its own: it is scoped through its parent MarksMaster. Only touch the marks
+            // when the (tenant-filtered) MarksMaster was found for this student in the caller's college, otherwise a
+            // MarksId from another college would soft-delete that college's marks.
+            if (!marksRecords.Any())
+            {
+                return "No records found to delete";
+            }
+
             foreach (var record in marksRecords)
             {
-                record.IsDeleted = true; 
+                record.IsDeleted = true;
             }
             var studentRecord = await _context.StudentMarks
                 .Where(x => x.MarksId == marksId && !x.IsDeleted)

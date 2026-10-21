@@ -80,6 +80,14 @@ namespace ExamAPI.Services.RoleMaster
 
             return result;
         }
+        // A role with no CollegeId is a platform-wide template that every college sees through the query filter; changing
+        // it would change it for every college, so only the platform administrator may.
+        private void EnsureRoleIsNotSharedTemplate(ExamAPI.Models.RoleMaster role)
+        {
+            if (role.CollegeId == null && !_currentUser.IsPlatformAdmin)
+                throw new InvalidOperationException("This is a shared template role and can only be changed by the platform administrator.");
+        }
+
         public async Task<RoleEditDto?> GetRoleByIdAsync(Guid roleId)
         {
             var role = await _context.RoleMasters
@@ -143,6 +151,7 @@ namespace ExamAPI.Services.RoleMaster
             if (role == null)
                 return "Role not found";
 
+            EnsureRoleIsNotSharedTemplate(role);
             EnsureAdminRoleNotTouched(dto.Name, role.Name);
 
             role.Name = dto.Name;
@@ -179,6 +188,7 @@ namespace ExamAPI.Services.RoleMaster
             if (role == null)
                 return "Role not found";
 
+            EnsureRoleIsNotSharedTemplate(role);
             EnsureAdminRoleNotTouched(newName: null, existingName: role.Name);
 
             role.IsDeleted = true;

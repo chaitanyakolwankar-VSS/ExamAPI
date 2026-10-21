@@ -21,6 +21,42 @@ namespace ExamAPI.Services.Ordinance
             _engineRegistry = engineRegistry;
         }
 
+        // Platform-wide template rows (CollegeId == null) are visible to every college through the query filter,
+        // so a college user must not change them: that would change them for every college. Rows of the caller's
+        // own college (the only other rows the filter lets through) are always theirs to change.
+        private const string TemplateRefusal = "This is a shared template and can only be changed by the platform administrator.";
+
+        private void EnsureCanChange(Guid? rowCollegeId)
+        {
+            if (rowCollegeId == null && !_context.CurrentIsPlatformAdmin)
+                throw new InvalidOperationException(TemplateRefusal);
+        }
+
+        /// <summary>
+        /// A rule set the caller may attach rules to or change rules of: loaded through the tenant-filtered RuleSets
+        /// (Rule itself is not filtered), so another college's rule set is "not found". Null when not visible.
+        /// </summary>
+        /// <summary>
+        /// A rule set may only point at a pattern and a grading scale the caller can see (their college's, or a shared
+        /// template grading scale); the ids come from the request, so another college's would otherwise be accepted.
+        /// </summary>
+        private async Task EnsureRuleSetLinksVisibleAsync(Guid? patternId, Guid? gradeMasterId)
+        {
+            if (patternId != null && !await _context.PatternMasters.AnyAsync(p => p.PatternId == patternId))
+                throw new InvalidOperationException("Pattern not found.");
+            if (gradeMasterId != null && !await _context.GradeMasters.AnyAsync(g => g.GradeMasterId == gradeMasterId && !g.IsDeleted))
+                throw new InvalidOperationException("Grade master not found.");
+        }
+
+        private async Task<RuleSet?> FindRuleSetForWriteAsync(Guid? ruleSetId)
+        {
+            if (ruleSetId == null) return null;
+            var ruleSet = await _context.RuleSets.FirstOrDefaultAsync(rs => rs.RuleSetId == ruleSetId && !rs.IsDeleted);
+            if (ruleSet == null) return null;
+            EnsureCanChange(ruleSet.CollegeId);
+            return ruleSet;
+        }
+
         // === Pattern Methods ===
         public async Task<IEnumerable<PatternDto>> GetPatternsAsync()
         {
@@ -192,6 +228,7 @@ namespace ExamAPI.Services.Ordinance
                 .FirstOrDefaultAsync(g => g.GradeMasterId == gradeDto.GradeMasterId);
 
             if (existingGradeMaster == null || existingGradeMaster.IsDeleted) return false;
+            EnsureCanChange(existingGradeMaster.CollegeId); // shared template grading scale: platform admin only
 
             existingGradeMaster.Name = gradeDto.Name;
             existingGradeMaster.Description = gradeDto.Description;
@@ -256,6 +293,7 @@ namespace ExamAPI.Services.Ordinance
                 .FirstOrDefaultAsync(g => g.GradeMasterId == gradeMasterId);
 
             if (existingGradeMaster == null || existingGradeMaster.IsDeleted) return false;
+            EnsureCanChange(existingGradeMaster.CollegeId); // shared template grading scale: platform admin only
 
             existingGradeMaster.IsDeleted = true;
             existingGradeMaster.DeletedAt = DateTime.UtcNow;
@@ -297,6 +335,7 @@ namespace ExamAPI.Services.Ordinance
 
         public async Task<RuleSetDto> CreateRuleSetAsync(RuleSetCreateDto ruleSetDto)
         {
+            await EnsureRuleSetLinksVisibleAsync(ruleSetDto.PatternId, ruleSetDto.GradeMasterId);
             var ruleSet = new RuleSet
             {
                 RuleSetId = Guid.NewGuid(),
@@ -328,6 +367,8 @@ namespace ExamAPI.Services.Ordinance
                 .FirstOrDefaultAsync(rs => rs.RuleSetId == ruleSetDto.RuleSetId);
 
             if (existingRuleSet == null || existingRuleSet.IsDeleted) return false;
+            EnsureCanChange(existingRuleSet.CollegeId); // shared template rule set: platform admin only
+            await EnsureRuleSetLinksVisibleAsync(null, ruleSetDto.GradeMasterId);
 
             existingRuleSet.Name = ruleSetDto.Name;
             existingRuleSet.ExamType = ruleSetDto.ExamType;
@@ -346,6 +387,7 @@ namespace ExamAPI.Services.Ordinance
                 .FirstOrDefaultAsync(rs => rs.RuleSetId == ruleSetId);
 
             if (existingRuleSet == null || existingRuleSet.IsDeleted) return false;
+            EnsureCanChange(existingRuleSet.CollegeId); // shared template rule set: platform admin only
 
             existingRuleSet.IsDeleted = true;
             existingRuleSet.DeletedAt = DateTime.UtcNow;
@@ -358,6 +400,11 @@ namespace ExamAPI.Services.Ordinance
         // === Rule Methods ===
         public async Task<IEnumerable<RuleDto>> GetRulesByRuleSetAsync(Guid ruleSetId)
         {
+            // Rule is not tenant-filtered: only list rules of a rule set this caller can see (own college or a shared
+            // template), so another college's rules are never returned.
+            var visible = await _context.RuleSets.AnyAsync(rs => rs.RuleSetId == ruleSetId && !rs.IsDeleted);
+            if (!visible) return new List<RuleDto>();
+
             var rules = await _context.Rules
                 .Include(r => r.Conditions)
                 .Include(r => r.Actions)
@@ -428,6 +475,12 @@ namespace ExamAPI.Services.Ordinance
         public async Task<RuleDto> CreateRuleAsync(RuleCreateDto ruleDto)
         {
             ValidateActions(ruleDto.Actions);
+
+            // Rule is not tenant-filtered, so check the rule set itself: it must be the caller's college's (or the
+            // caller is the platform admin, for a shared template), otherwise rules could be planted in another college.
+            if (await FindRuleSetForWriteAsync(ruleDto.RuleSetId) == null)
+                throw new InvalidOperationException("RuleSet not found.");
+
             var rule = new Rule
             {
                 RuleId = Guid.NewGuid(),
@@ -508,6 +561,8 @@ namespace ExamAPI.Services.Ordinance
                 .FirstOrDefaultAsync(r => r.RuleId == ruleDto.RuleId);
 
             if (existingRule == null || existingRule.IsDeleted) return false;
+            // Rule is not tenant-filtered: its rule set decides who owns it. Another college's rule is "not found".
+            if (await FindRuleSetForWriteAsync(existingRule.RuleSetId) == null) return false;
 
             // 1. Update Parent Fields
             existingRule.Name = ruleDto.Name;
@@ -640,6 +695,8 @@ namespace ExamAPI.Services.Ordinance
                 .FirstOrDefaultAsync(r => r.RuleId == ruleId);
 
             if (rule == null || rule.IsDeleted) return false;
+            // Rule is not tenant-filtered: its rule set decides who owns it. Another college's rule is "not found".
+            if (await FindRuleSetForWriteAsync(rule.RuleSetId) == null) return false;
 
             // Soft Delete Parent
             rule.IsDeleted = true;

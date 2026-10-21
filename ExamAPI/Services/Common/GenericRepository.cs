@@ -17,7 +17,10 @@ namespace ExamAPI.Services.Common
 
         public async Task DeleteAsync<T>(Guid id) where T : BaseEntity
         {
-            var entity = await _context.Set<T>().FindAsync(id);
+            // Look the row up through the query (FirstOrDefaultAsync), not FindAsync: FindAsync goes by key and
+            // bypasses the global query filters, so an id from another college would soft-delete that college's row.
+            var keyName = _context.Model.FindEntityType(typeof(T))!.FindPrimaryKey()!.Properties[0].Name;
+            var entity = await _context.Set<T>().FirstOrDefaultAsync(e => EF.Property<Guid>(e, keyName) == id);
 
             if (entity != null)
             {
