@@ -272,3 +272,5 @@ app.MapGet("/api/health", () => Results.Ok(new { status = "ok" })).AllowAnonymou
 app.Run();
 
 
+
+public partial class Program { }

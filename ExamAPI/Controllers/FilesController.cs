@@ -47,7 +47,7 @@ namespace ExamAPI.Controllers
 
             var ownedByCollege = !ownedByStudent && await _context.Colleges.AsNoTracking()
                 .AnyAsync(c => variants.Contains(c.LogoUrl!) || variants.Contains(c.LogoBannerUrl!)
-                    || variants.Contains(c.ControllerSignUrl!) || variants.Contains(c.PrincipalSignUrl!), ct);
+                    || variants.Contains(c.ControllerSignUrl!) || variants.Contains(c.PrincipalSignUrl!) || variants.Contains(c.SealUrl!), ct);
 
             if (!ownedByStudent && !ownedByCollege)
                 return NotFound();

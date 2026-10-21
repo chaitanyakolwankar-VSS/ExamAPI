@@ -337,8 +337,8 @@ namespace ExamAPI.Data
             var userIdString = user?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             Guid? currentUserId = userIdString != null ? Guid.Parse(userIdString) : null;
 
-            var role = user?.FindFirst(ClaimTypes.Role)?.Value;
-            var userType = (role == "Student") ? "Student" : "Staff";
+            // A student is someone signed in with the student session, not a staff role that happens to be called "Student".
+            var userType = user?.Identity?.AuthenticationType == ExamAPI.Services.StudentAccess.StudentAccessAuth.Scheme ? "Student" : "Staff";
 
             // Stamp the tenant on every new row, so no service can forget to set it and
             // silently create data that belongs to nobody (and would then be invisible,
