@@ -413,6 +413,63 @@ public sealed class StudentLinkTests
         Assert.Equal((2, false), (Assert.Single(list).Stopped, list[0].IsOpen));
     }
 
+    [Fact]
+    public async Task Resending_to_everyone_not_updated_includes_students_who_opened_but_saved_nothing()
+    {
+        var token = await SendAndGetTokenAsync();
+        await SignInAsync(token);
+        using var context = Context(_college);
+        var batchId = (await context.TaskBatches.SingleAsync()).Id;
+
+        Assert.Equal(2, await Staff(context).RemindAsync(batchId, includeOpened: true));
+    }
+
+    [Fact]
+    public async Task Resending_to_everyone_not_updated_skips_students_who_saved()
+    {
+        await SendAndGetTokenAsync();
+        using var context = Context(_college);
+        var batchId = (await context.TaskBatches.SingleAsync()).Id;
+        (await context.TaskLinks.SingleAsync(l => l.StdMstId == _students["2600001"])).UsedAt = DateTime.UtcNow;
+        await context.SaveChangesAsync();
+
+        Assert.Equal(1, await Staff(context).RemindAsync(batchId, includeOpened: true));
+    }
+
+    // ------------------------------------------------------------------ one student
+
+    private SendLinksRequest One(string student) => new() { AYID = _ay, Days = 14, Student = student, EditableFields = new() { "photo" } };
+
+    [Fact]
+    public async Task One_student_is_found_by_student_id_or_email_and_the_send_is_filed_under_their_class()
+    {
+        using var context = Context(_college);
+        var byId = await Staff(context).SendAsync(One("2600005"), Site);
+        Assert.Equal(1, byId.Queued);
+        Assert.Contains("Neha", byId.Message);
+        var batch = await context.TaskBatches.SingleAsync(b => b.Id == byId.BatchId);
+        Assert.Equal(_civil, batch.CourseId);
+        Assert.Equal("Sem-1", batch.SemesterId);
+        Assert.Contains("(2600005)", batch.Title);
+
+        var byEmail = await Staff(context).SendAsync(One(" NEHA@viva.in "), Site);
+        Assert.Equal(1, byEmail.Queued);
+        Assert.Equal(1, byEmail.Replaced); // the link sent by ID is stopped
+    }
+
+    [Fact]
+    public async Task One_student_sends_say_plainly_why_they_cannot_go()
+    {
+        using var context = Context(_college);
+        Assert.Contains("No student", (await Assert.ThrowsAsync<InvalidOperationException>(() => Staff(context).SendAsync(One("9999999"), Site))).Message);
+        Assert.Contains("no usable email", (await Assert.ThrowsAsync<InvalidOperationException>(() => Staff(context).SendAsync(One("2600003"), Site))).Message);
+        Assert.Contains("inactive", (await Assert.ThrowsAsync<InvalidOperationException>(() => Staff(context).SendAsync(One("2600004"), Site))).Message);
+
+        Student(context, "2600006", "Nisha", "neha@viva.in");
+        await context.SaveChangesAsync();
+        Assert.Contains("Student ID", (await Assert.ThrowsAsync<InvalidOperationException>(() => Staff(context).SendAsync(One("neha@viva.in"), Site))).Message);
+    }
+
     // ------------------------------------------------------------------ the site address
 
     [Fact]

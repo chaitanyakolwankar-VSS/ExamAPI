@@ -47,8 +47,10 @@ namespace ExamAPI.Controllers
         [HttpPost("batches/{id:guid}/stop")]
         public Task<IActionResult> StopBatch(Guid id) => Answer(async () => new { stopped = await _service.StopBatchAsync(id) });
 
+        /// <summary>who=notOpened (default): students who haven't opened their link; who=notUpdated: everyone who hasn't saved yet.</summary>
         [HttpPost("batches/{id:guid}/remind")]
-        public Task<IActionResult> Remind(Guid id) => Answer(async () => new { reminded = await _service.RemindAsync(id) });
+        public Task<IActionResult> Remind(Guid id, [FromQuery] string? who) =>
+            Answer(async () => new { reminded = await _service.RemindAsync(id, string.Equals(who, "notUpdated", StringComparison.OrdinalIgnoreCase)) });
 
         [HttpPost("links/{id:guid}/stop")]
         public Task<IActionResult> StopLink(Guid id) => Answer(() => _service.StopLinkAsync(id));

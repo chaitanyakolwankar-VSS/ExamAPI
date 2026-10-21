@@ -16,8 +16,8 @@ namespace ExamAPI.Services.StudentAccess
         public int Days { get; set; } = TaskLinkService.DefaultDays;
         /// <summary><see cref="StudentFields"/> the students may change; empty = view only.</summary>
         public List<string>? EditableFields { get; set; }
-        /// <summary>Only these students of the class (StudentId); empty = all of them.</summary>
-        public List<string>? StudentIds { get; set; }
+        /// <summary>One student only, by Student ID or email (the branch and semester are then ignored); empty = the whole class.</summary>
+        public string? Student { get; set; }
         /// <summary>Where the student site is, as the staff browser sees it; checked by <see cref="StudentSiteUrl"/>.</summary>
         public string? AppUrl { get; set; }
     }
@@ -101,8 +101,11 @@ namespace ExamAPI.Services.StudentAccess
         Task<LinkBatchDetail> GetBatchAsync(Guid batchId);
         Task<LinkBatchDetail> SetDeadlineAsync(Guid batchId, DateTime date);
         Task<int> StopBatchAsync(Guid batchId);
-        /// <summary>Emails a new link to students who have not opened theirs; answers how many.</summary>
-        Task<int> RemindAsync(Guid batchId);
+        /// <summary>
+        /// Emails the link again (new token) to students who have not opened theirs, or with <paramref name="includeOpened"/>
+        /// to everyone who has not saved anything yet; answers how many.
+        /// </summary>
+        Task<int> RemindAsync(Guid batchId, bool includeOpened = false);
         Task<LinkRow> StopLinkAsync(Guid linkId);
         /// <summary>An open link: emailed again (with a new token). A stopped or closed one: a new link in the same batch.</summary>
         Task<LinkRow> ResendAsync(Guid linkId);
@@ -156,19 +159,31 @@ namespace ExamAPI.Services.StudentAccess
                         join sm in _context.StudentMasters on se.StudentId equals sm.StudentId
                         where se.AYID == request.AYID
                         select new { sm, se.CourseId, se.SemesterId };
-            if (request.CourseId is Guid course && course != Guid.Empty)
-                query = query.Where(x => x.CourseId == course);
-            if (!string.IsNullOrWhiteSpace(request.SemesterId))
-                query = query.Where(x => x.SemesterId == request.SemesterId);
-            var students = (await query.Select(x => x.sm).ToListAsync())
-                .GroupBy(s => s.StdMstId).Select(g => g.First()).ToList();
-            if (request.StudentIds is { Count: > 0 })
+            var single = string.IsNullOrWhiteSpace(request.Student) ? null : request.Student.Trim();
+            if (single != null)
             {
-                var only = new HashSet<string>(request.StudentIds, StringComparer.OrdinalIgnoreCase);
-                students = students.Where(s => only.Contains(s.StudentId)).ToList();
+                var email = single.ToLower();
+                query = query.Where(x => x.sm.StudentId == single || (x.sm.Email != null && x.sm.Email.ToLower() == email));
             }
+            else
+            {
+                if (request.CourseId is Guid course && course != Guid.Empty)
+                    query = query.Where(x => x.CourseId == course);
+                if (!string.IsNullOrWhiteSpace(request.SemesterId))
+                    query = query.Where(x => x.SemesterId == request.SemesterId);
+            }
+            var found = await query.ToListAsync();
+            var students = found.GroupBy(x => x.sm.StdMstId).Select(g => g.First().sm).ToList();
             if (students.Count == 0)
-                throw new InvalidOperationException("No students found for this selection.");
+                throw new InvalidOperationException(single != null
+                    ? $"No student with the ID or email \"{single}\" is enrolled in this academic year."
+                    : "No students found for this selection.");
+            if (single != null && students.Count > 1)
+                throw new InvalidOperationException("More than one student has this email. Use the Student ID instead.");
+
+            // A one-student send is filed under that student's class, so it shows with the class's sends.
+            var courseId = single != null ? found[0].CourseId : request.CourseId is Guid c && c != Guid.Empty ? c : null;
+            var semesterId = single != null ? found[0].SemesterId : string.IsNullOrWhiteSpace(request.SemesterId) ? null : request.SemesterId;
 
             var result = new SendLinksResult();
             var targets = new List<StudentMaster>();
@@ -180,9 +195,13 @@ namespace ExamAPI.Services.StudentAccess
                 else targets.Add(s);
             }
             if (targets.Count == 0)
-                throw new InvalidOperationException("None of these students has a usable email. Fix them under Check emails first.");
+                throw new InvalidOperationException(single == null
+                    ? "None of these students has a usable email. Fix them under Check emails first."
+                    : result.Inactive > 0 ? "This student is marked inactive." : "This student has no usable email. Fix it under Check emails first.");
 
-            var title = $"{taskType.Name} — {await ClassNameAsync(request.CourseId, request.SemesterId)}";
+            var title = single != null
+                ? $"{taskType.Name} — {StudentNames.Display(students[0])} ({students[0].StudentId})"
+                : $"{taskType.Name} — {await ClassNameAsync(courseId, semesterId)}";
             var batch = new TaskBatch
             {
                 Id = Guid.NewGuid(),
@@ -190,8 +209,8 @@ namespace ExamAPI.Services.StudentAccess
                 TaskTypeCode = taskType.Code,
                 Title = title.Length > 200 ? title[..200] : title,
                 Deadline = deadline,
-                CourseId = request.CourseId is Guid c && c != Guid.Empty ? c : null,
-                SemesterId = string.IsNullOrWhiteSpace(request.SemesterId) ? null : request.SemesterId,
+                CourseId = courseId,
+                SemesterId = semesterId,
                 AYID = request.AYID,
                 EditableFields = string.Join(',', editable),
                 LinkBaseUrl = linkBaseUrl,
@@ -220,7 +239,9 @@ namespace ExamAPI.Services.StudentAccess
                 + $"skipped {result.NoEmail} without email, {result.Flagged} flagged, {result.Inactive} inactive; replaced {result.Replaced}.");
             await _context.SaveChangesAsync();
 
-            result.Message = $"Links are on their way to {targets.Count} student{(targets.Count == 1 ? "" : "s")}."
+            result.Message = (single != null
+                    ? $"The link is on its way to {StudentNames.Display(targets[0])}."
+                    : $"Links are on their way to {targets.Count} student{(targets.Count == 1 ? "" : "s")}.")
                 + (result.GoTomorrow > 0 ? $" Today's email limit is reached for {result.GoTomorrow}; they go out tomorrow." : "");
             return result;
         }
@@ -271,14 +292,15 @@ namespace ExamAPI.Services.StudentAccess
             return links.Count;
         }
 
-        public async Task<int> RemindAsync(Guid batchId)
+        public async Task<int> RemindAsync(Guid batchId, bool includeOpened = false)
         {
             var batch = await FindBatchAsync(batchId);
             var collegeId = CollegeId;
             await EnsureSenderAsync(collegeId);
             var now = DateTime.UtcNow;
             var links = await _context.TaskLinks.Include(l => l.Student)
-                .Where(l => l.BatchId == batchId && l.Status == TaskLinkStatuses.Active && l.ExpiresAt > now && l.OpenedAt == null)
+                .Where(l => l.BatchId == batchId && l.Status == TaskLinkStatuses.Active && l.ExpiresAt > now
+                    && (includeOpened ? l.UsedAt == null : l.OpenedAt == null))
                 .ToListAsync();
             var ids = links.Select(l => l.Id).ToList();
             var waiting = await _context.EmailQueue
@@ -293,7 +315,7 @@ namespace ExamAPI.Services.StudentAccess
             }
             if (count > 0)
             {
-                Audit(collegeId, batch.Id, "TaskLinksReminded", $"{batch.Title}: reminder to {count} students who had not opened their link.");
+                Audit(collegeId, batch.Id, "TaskLinksReminded", $"{batch.Title}: link emailed again to {count} students who had not {(includeOpened ? "updated" : "opened")} it.");
                 await _context.SaveChangesAsync();
             }
             return count;
