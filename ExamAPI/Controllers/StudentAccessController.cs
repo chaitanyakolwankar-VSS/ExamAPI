@@ -24,7 +24,7 @@ namespace ExamAPI.Controllers
             public string? Token { get; set; }
         }
 
-        public class VerifyRequest
+        public class CodeCheckRequest
         {
             public string? Token { get; set; }
             public string? Code { get; set; }
@@ -43,7 +43,7 @@ namespace ExamAPI.Controllers
         [AllowAnonymous]
         [EnableRateLimiting(RateLimits.StudentAccess)]
         [HttpPost("verify")]
-        public Task<IActionResult> Verify([FromBody] VerifyRequest request) => Answer(() => _service.VerifyAsync(request.Token, request.Code));
+        public Task<IActionResult> Verify([FromBody] CodeCheckRequest request) => Answer(() => _service.VerifyAsync(request.Token, request.Code));
 
         [Authorize(Policy = StudentAccessAuth.Policy)]
         [HttpGet("me")]
