@@ -64,6 +64,8 @@ namespace ExamAPI.Services.StudentAccess
         public string State { get; set; } = "";
         /// <summary>Why an email has not gone (failed, waiting for tomorrow, no account).</summary>
         public string? Note { get; set; }
+        /// <summary>What the student changed last, e.g. "Phone: '' -> '9876543210'" (from the audit log).</summary>
+        public string? Changes { get; set; }
         public DateTime? SentAt { get; set; }
         public DateTime? OpenedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
@@ -422,6 +424,12 @@ namespace ExamAPI.Services.StudentAccess
                 .Join(_context.StudentMasters, l => l.StdMstId, s => s.StdMstId, (l, s) => new { l, s })
                 .ToListAsync();
             var ids = links.Select(x => x.l.Id).ToList();
+            var idTexts = ids.Select(i => i.ToString()).ToList();
+            var changes = (await _context.AuditLogs
+                    .Where(a => a.Event == StudentDetailsService.ChangedEvent && a.RecordId != null && idTexts.Contains(a.RecordId))
+                    .Select(a => new { a.RecordId, a.Details, a.Timestamp })
+                    .ToListAsync())
+                .GroupBy(a => a.RecordId!).ToDictionary(g => g.Key, g => g.OrderByDescending(a => a.Timestamp).First().Details);
             var mails = (await _context.EmailQueue
                     .Where(m => m.Kind == EmailKinds.TaskLink && m.RefId != null && ids.Contains(m.RefId.Value))
                     .Select(m => new { RefId = m.RefId!.Value, m.Status, m.LastError, m.CreatedAt })
@@ -450,6 +458,7 @@ namespace ExamAPI.Services.StudentAccess
                     OpenedAt = x.l.OpenedAt,
                     UpdatedAt = x.l.UsedAt,
                     ExpiresAt = x.l.ExpiresAt,
+                    Changes = changes.GetValueOrDefault(x.l.Id.ToString()),
                 });
             }).ToList();
         }

@@ -92,6 +92,7 @@ builder.Services.AddScoped<ExamAPI.Services.Email.IEmailBodyRenderer, ExamAPI.Se
 builder.Services.AddScoped<ExamAPI.Services.Email.IEmailBodyRenderer, ExamAPI.Services.StudentAccess.OtpEmailRenderer>();
 builder.Services.AddScoped<ExamAPI.Services.StudentAccess.ITaskLinkService, ExamAPI.Services.StudentAccess.TaskLinkService>();
 builder.Services.AddScoped<ExamAPI.Services.StudentAccess.IStudentSignInService, ExamAPI.Services.StudentAccess.StudentSignInService>();
+builder.Services.AddScoped<ExamAPI.Services.StudentAccess.IStudentDetailsService, ExamAPI.Services.StudentAccess.StudentDetailsService>();
 builder.Services.AddOrdinanceEngine();
 builder.Services.AddHttpClient();
 builder.Services.AddHostedService<ExamAPI.Services.Common.KeepAliveService>(); // KeepAlive:Url, see the class

@@ -173,5 +173,57 @@ namespace ExamAPI.Services.PasswordResetOTP
             await _context.SaveChangesAsync();
             return true;
         }
+
+        private const string BadCode = "That code isn't right or has expired. Ask for a new one.";
+
+        private Task<Models.UserMaster?> FindByEmailAsync(string? email)
+        {
+            var address = (email ?? "").Trim().ToLowerInvariant();
+            return _context.UserMasters.IgnoreQueryFilters()
+                .FirstOrDefaultAsync(u => u.Email.ToLower() == address && !u.IsDeleted);
+        }
+
+        public async Task SendResetOtpByEmailAsync(string? email)
+        {
+            // Same answer whether or not the address has an account, so the page can't be used to find accounts.
+            var user = await FindByEmailAsync(email);
+            if (user == null) return;
+            var recent = await _context.PasswordResetOTPs.CountAsync(x => x.UserId == user.UserId && x.CreatedAt > DateTime.UtcNow.AddHours(-1));
+            if (recent >= 5)
+                throw new InvalidOperationException("Too many codes were asked for in the last hour. Use the newest one, or try again later.");
+            await SendResetOtpAsync(user.UserId);
+        }
+
+        public async Task ResetPasswordByEmailAsync(string? email, string? otp, string? newPassword)
+        {
+            var password = newPassword ?? "";
+            if (password.Length < 8 || string.IsNullOrWhiteSpace(password))
+                throw new InvalidOperationException("Use at least 8 characters for the new password.");
+            var user = await FindByEmailAsync(email) ?? throw new InvalidOperationException(BadCode);
+            var otpRecord = await _context.PasswordResetOTPs
+                .Where(x => x.UserId == user.UserId && !x.IsUsed && x.ExpiryTime > DateTime.UtcNow)
+                .OrderByDescending(x => x.CreatedAt)
+                .FirstOrDefaultAsync() ?? throw new InvalidOperationException(BadCode);
+
+            otpRecord.AttemptCount++;
+            if (otpRecord.AttemptCount > 5)
+            {
+                otpRecord.IsUsed = true;
+                await _context.SaveChangesAsync();
+                throw new InvalidOperationException("Too many wrong tries. Ask for a new code.");
+            }
+            var given = (otp ?? "").Trim();
+            if (!CryptographicOperations.FixedTimeEquals(System.Text.Encoding.UTF8.GetBytes(otpRecord.OTP ?? ""), System.Text.Encoding.UTF8.GetBytes(given)))
+            {
+                await _context.SaveChangesAsync();
+                var left = 5 - otpRecord.AttemptCount;
+                throw new InvalidOperationException(left > 0 ? $"That code isn't right. {left} {(left == 1 ? "try" : "tries")} left." : "That code isn't right. Ask for a new one.");
+            }
+
+            user.HashedPassword = BCrypt.Net.BCrypt.HashPassword(password);
+            user.UpdatedAt = DateTime.UtcNow;
+            otpRecord.IsUsed = true;
+            await _context.SaveChangesAsync();
+        }
     }
 }

@@ -16,8 +16,13 @@ namespace ExamAPI.Controllers
     public class StudentAccessController : ControllerBase
     {
         private readonly IStudentSignInService _service;
+        private readonly IStudentDetailsService _details;
 
-        public StudentAccessController(IStudentSignInService service) => _service = service;
+        public StudentAccessController(IStudentSignInService service, IStudentDetailsService details)
+        {
+            _service = service;
+            _details = details;
+        }
 
         public class TokenRequest
         {
@@ -67,6 +72,35 @@ namespace ExamAPI.Controllers
             return Ok(new { message = "Signed out." });
         }
 
+        /// <summary>Saves the fields this link lets the student change (others are ignored).</summary>
+        [Authorize(Policy = StudentAccessAuth.Policy)]
+        [HttpPut("details")]
+        public Task<IActionResult> SaveDetails([FromBody] StudentDetailsUpdate update) => Answer(() => _details.SaveAsync(User, update));
+
+        /// <summary>kind: photo or signature. The page shrinks phone pictures first; the limit is 2 MB.</summary>
+        [Authorize(Policy = StudentAccessAuth.Policy)]
+        [RequestSizeLimit(5 * 1024 * 1024)]
+        [HttpPut("{kind:regex(^(photo|signature)$)}")]
+        public Task<IActionResult> SaveImage(string kind, [FromBody] StudentImageUpload upload) => Answer(() => _details.SaveImageAsync(User, kind, upload.Image));
+
+        /// <summary>The student's own photo or signature (only theirs: the session names the student).</summary>
+        [Authorize(Policy = StudentAccessAuth.Policy)]
+        [HttpGet("{kind:regex(^(photo|signature)$)}")]
+        public async Task<IActionResult> Image(string kind)
+        {
+            try
+            {
+                var image = await _details.ReadImageAsync(User, kind);
+                if (image == null) return NotFound();
+                Response.Headers.CacheControl = "no-store";
+                return File(image.Value.Bytes, image.Value.ContentType);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Unauthorized(new { message = "Your session has ended. Open the link from your email again." });
+            }
+        }
+
         private async Task<IActionResult> Answer<T>(Func<Task<T>> action)
         {
             try
@@ -76,6 +110,10 @@ namespace ExamAPI.Controllers
             catch (InvalidOperationException ex)
             {
                 return BadRequest(new { message = ex.Message });
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Unauthorized(new { message = "Your session has ended. Open the link from your email again." });
             }
         }
     }

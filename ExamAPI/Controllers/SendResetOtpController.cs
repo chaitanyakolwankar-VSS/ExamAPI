@@ -57,6 +57,43 @@ SendResetOtpDTO dto)
             }
         }
 
+        public class EmailResetRequest
+        {
+            public string? Email { get; set; }
+            public string? Otp { get; set; }
+            public string? NewPassword { get; set; }
+        }
+
+        /// <summary>Sign-in page "Forgot password": the same answer whether or not the email has an account.</summary>
+        [HttpPost("by-email/send")]
+        [EnableRateLimiting(RateLimits.SendOtp)]
+        public async Task<IActionResult> SendByEmail([FromBody] EmailResetRequest request)
+        {
+            try
+            {
+                await _passwordResetService.SendResetOtpByEmailAsync(request.Email);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            return Ok(new { message = "If an account uses this email, a code is on its way. Check your inbox (and spam)." });
+        }
+
+        [HttpPost("by-email/reset")]
+        public async Task<IActionResult> ResetByEmail([FromBody] EmailResetRequest request)
+        {
+            try
+            {
+                await _passwordResetService.ResetPasswordByEmailAsync(request.Email, request.Otp, request.NewPassword);
+                return Ok(new { message = "Password changed. Sign in with the new one." });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
         [HttpPost("verify-otp-only")]
         public async Task<IActionResult> verifyOtp(VerifyOtpDTO dto)
         {
