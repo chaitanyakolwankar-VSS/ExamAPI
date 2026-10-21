@@ -35,6 +35,7 @@ namespace ExamAPI.Services.CollegeDetail
                     BannerUrl = x.LogoBannerUrl,
                     ControllerSignUrl = x.ControllerSignUrl,
                     PrincipalSignUrl = x.PrincipalSignUrl,
+                    SealUrl = x.SealUrl,
                     IsDeleted = x.IsDeleted
                 })
                 .FirstOrDefaultAsync();
@@ -69,6 +70,12 @@ namespace ExamAPI.Services.CollegeDetail
                 ValidateImage(dto.PrincipalSignature, "Principal signature");
                 principalSignUrl = await SaveImageToServerAsync(dto.PrincipalSignature, ExamAPI.Services.Files.FileStorage.CollegeSignaturesFolder);
             }
+            string? sealUrl = null;
+            if (dto.Seal != null)
+            {
+                ValidateImage(dto.Seal, "Seal");
+                sealUrl = await SaveImageToServerAsync(dto.Seal, ExamAPI.Services.Files.FileStorage.CollegeSignaturesFolder);
+            }
 
             var college = new College
             {
@@ -81,6 +88,7 @@ namespace ExamAPI.Services.CollegeDetail
                 LogoBannerUrl = bannerUrl,
                 ControllerSignUrl = controllerSignUrl,
                 PrincipalSignUrl = principalSignUrl,
+                SealUrl = sealUrl,
                 ContactEmail = dto.ContactEmail,
                 ContactPhone = dto.ContactPhone,
                 CreatedAt = DateTime.UtcNow,
@@ -128,6 +136,13 @@ namespace ExamAPI.Services.CollegeDetail
                 ValidateImage(dto.PrincipalSignature, "Principal signature");
                 DeleteImageFromServer(college.PrincipalSignUrl);
                 college.PrincipalSignUrl = await SaveImageToServerAsync(dto.PrincipalSignature, ExamAPI.Services.Files.FileStorage.CollegeSignaturesFolder);
+            }
+
+            if (dto.Seal != null)
+            {
+                ValidateImage(dto.Seal, "Seal");
+                DeleteImageFromServer(college.SealUrl);
+                college.SealUrl = await SaveImageToServerAsync(dto.Seal, ExamAPI.Services.Files.FileStorage.CollegeSignaturesFolder);
             }
 
             college.Name = dto.Name;

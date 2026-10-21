@@ -59,6 +59,7 @@ namespace ExamAPI.Services.StudentAccess
         public string? Phone { get; set; }
         public string? Address { get; set; }
         public string? Prn { get; set; }
+        public string? AbcId { get; set; }
         public string? Email { get; set; }
         public bool HasPhoto { get; set; }
         public bool HasSignature { get; set; }
@@ -165,7 +166,9 @@ namespace ExamAPI.Services.StudentAccess
             {
                 info.State = LinkOpenStates.Closed;
                 info.Message = link.UsedAt != null
-                    ? $"Your details were updated on {link.UsedAt.Value.ToLocalTime():d MMM yyyy}. This link is now closed."
+                    ? link.TaskTypeCode == TaskTypes.HallTicket
+                        ? $"You downloaded your hall ticket on {link.UsedAt.Value.ToLocalTime():d MMM yyyy}. This link is now closed."
+                        : $"Your details were updated on {link.UsedAt.Value.ToLocalTime():d MMM yyyy}. This link is now closed."
                     : "This link is closed. Contact your college office if you still need it.";
                 return info;
             }
@@ -306,6 +309,7 @@ namespace ExamAPI.Services.StudentAccess
                     Phone = s.Phone,
                     Address = s.Address,
                     Prn = s.StudentPRN,
+                    AbcId = s.AbcId,
                     Email = s.Email,
                     HasPhoto = !string.IsNullOrEmpty(s.PhotoUrl),
                     HasSignature = !string.IsNullOrEmpty(s.SignUrl),

@@ -22,6 +22,20 @@ namespace ExamAPI.Services.StudentAccess
         public string? AppUrl { get; set; }
     }
 
+    /// <summary>Hall ticket links for one released exam of a class (the Release Hall Ticket selection).</summary>
+    public class HallTicketLinksRequest
+    {
+        public Guid Ayid { get; set; }
+        public Guid CourseId { get; set; }
+        public string Semester { get; set; } = "";
+        public string Pattern { get; set; } = "";
+        public Guid ExamId { get; set; }
+        /// <summary>The links work until the end of this many days from today.</summary>
+        public int Days { get; set; } = 30;
+        /// <summary>Where the student site is, as the staff browser sees it; checked by <see cref="StudentSiteUrl"/>.</summary>
+        public string? AppUrl { get; set; }
+    }
+
     public class SendLinksResult
     {
         public Guid BatchId { get; set; }
@@ -97,6 +111,8 @@ namespace ExamAPI.Services.StudentAccess
     public interface ITaskLinkService
     {
         Task<SendLinksResult> SendAsync(SendLinksRequest request, string linkBaseUrl);
+        /// <summary>Emails each student of a released exam the link to their hall ticket.</summary>
+        Task<SendLinksResult> SendHallTicketsAsync(HallTicketLinksRequest request, string linkBaseUrl);
         Task<List<LinkBatchRow>> ListBatchesAsync(LinkBatchFilter filter);
         Task<LinkBatchDetail> GetBatchAsync(Guid batchId);
         Task<LinkBatchDetail> SetDeadlineAsync(Guid batchId, DateTime date);
@@ -153,7 +169,6 @@ namespace ExamAPI.Services.StudentAccess
             var taskType = await _context.TaskTypes.FirstAsync(t => t.Code == request.TaskType);
             var editable = StudentFields.Clean(request.EditableFields);
             var deadline = EndOfLocalDay(DateTime.Today.AddDays(request.Days));
-            var now = DateTime.UtcNow;
 
             var query = from se in _context.StudentEligibilities
                         join sm in _context.StudentMasters on se.StudentId equals sm.StudentId
@@ -185,20 +200,6 @@ namespace ExamAPI.Services.StudentAccess
             var courseId = single != null ? found[0].CourseId : request.CourseId is Guid c && c != Guid.Empty ? c : null;
             var semesterId = single != null ? found[0].SemesterId : string.IsNullOrWhiteSpace(request.SemesterId) ? null : request.SemesterId;
 
-            var result = new SendLinksResult();
-            var targets = new List<StudentMaster>();
-            foreach (var s in students)
-            {
-                if (!s.IsActive) result.Inactive++;
-                else if (s.Email == null) result.NoEmail++;
-                else if (s.EmailStatus == EmailVerification.Flagged) result.Flagged++;
-                else targets.Add(s);
-            }
-            if (targets.Count == 0)
-                throw new InvalidOperationException(single == null
-                    ? "None of these students has a usable email. Fix them under Check emails first."
-                    : result.Inactive > 0 ? "This student is marked inactive." : "This student has no usable email. Fix it under Check emails first.");
-
             var title = single != null
                 ? $"{taskType.Name} — {StudentNames.Display(students[0])} ({students[0].StudentId})"
                 : $"{taskType.Name} — {await ClassNameAsync(courseId, semesterId)}";
@@ -215,11 +216,77 @@ namespace ExamAPI.Services.StudentAccess
                 EditableFields = string.Join(',', editable),
                 LinkBaseUrl = linkBaseUrl,
             };
-            _context.TaskBatches.Add(batch);
+            return await QueueBatchAsync(batch, students, single != null);
+        }
 
+        public async Task<SendLinksResult> SendHallTicketsAsync(HallTicketLinksRequest request, string linkBaseUrl)
+        {
+            var collegeId = CollegeId;
+            if (request.Days is < 1 or > MaxDays)
+                throw new InvalidOperationException($"Choose between 1 and {MaxDays} days.");
+            await EnsureSenderAsync(collegeId);
+
+            var exam = await _context.Exams.FirstOrDefaultAsync(e => e.ExamId == request.ExamId)
+                ?? throw new InvalidOperationException("Exam not found.");
+            var release = (await ExamAPI.Services.DeclareResult.DResultService.RowsByExam(_context, request.CourseId, request.Ayid, request.Semester, request.Pattern, new[] { exam.ExamId }))
+                .GetValueOrDefault(exam.ExamId);
+            if (release is not { ReleaseHallTicket: true })
+                throw new InvalidOperationException("Release the hall ticket for this exam first.");
+
+            // The students who have this hall ticket: a marks row for the exam (as Generate Hall Ticket prints them).
+            var students = await _context.MarksMasters
+                .Where(m => m.ExamId == exam.ExamId && m.AcademicYearAYID == request.Ayid && m.SemesterId == request.Semester && m.Pattern == request.Pattern)
+                .Join(_context.StudentMasters, m => m.StdMstId, s => s.StdMstId, (m, s) => s)
+                .Distinct().ToListAsync();
+            if (students.Count == 0)
+                throw new InvalidOperationException("No students have a hall ticket for this exam yet.");
+
+            var title = $"Hall ticket — {exam.Name} — {await ClassNameAsync(request.CourseId, request.Semester)}";
+            var batch = new TaskBatch
+            {
+                Id = Guid.NewGuid(),
+                CollegeId = collegeId,
+                TaskTypeCode = TaskTypes.HallTicket,
+                Title = title.Length > 200 ? title[..200] : title,
+                Deadline = EndOfLocalDay(DateTime.Today.AddDays(request.Days)),
+                CourseId = request.CourseId,
+                SemesterId = request.Semester,
+                AYID = request.Ayid,
+                RefId = exam.ExamId,
+                // Only used when the photo or signature is missing: the hall ticket needs both.
+                EditableFields = string.Join(',', StudentFields.Photo, StudentFields.Signature),
+                LinkBaseUrl = linkBaseUrl,
+            };
+            return await QueueBatchAsync(batch, students, single: false);
+        }
+
+        /// <summary>
+        /// Adds the batch and a link per student with a usable email, stops each one's earlier open link for the same
+        /// task (and the same exam), queues the emails and audits the send.
+        /// </summary>
+        private async Task<SendLinksResult> QueueBatchAsync(TaskBatch batch, List<StudentMaster> students, bool single)
+        {
+            var collegeId = batch.CollegeId!.Value;
+            var deadline = batch.Deadline!.Value;
+            var now = DateTime.UtcNow;
+            var result = new SendLinksResult();
+            var targets = new List<StudentMaster>();
+            foreach (var s in students)
+            {
+                if (!s.IsActive) result.Inactive++;
+                else if (s.Email == null) result.NoEmail++;
+                else if (s.EmailStatus == EmailVerification.Flagged) result.Flagged++;
+                else targets.Add(s);
+            }
+            if (targets.Count == 0)
+                throw new InvalidOperationException(!single
+                    ? "None of these students has a usable email. Fix them under Check emails first."
+                    : result.Inactive > 0 ? "This student is marked inactive." : "This student has no usable email. Fix it under Check emails first.");
+
+            _context.TaskBatches.Add(batch);
             var ids = targets.Select(s => s.StdMstId).ToList();
             var earlier = await _context.TaskLinks
-                .Where(l => ids.Contains(l.StdMstId) && l.TaskTypeCode == taskType.Code && l.Status == TaskLinkStatuses.Active)
+                .Where(l => ids.Contains(l.StdMstId) && l.TaskTypeCode == batch.TaskTypeCode && l.RefId == batch.RefId && l.Status == TaskLinkStatuses.Active)
                 .ToListAsync();
             result.Replaced = earlier.Count(l => l.ExpiresAt > now);
             await StopAsync(earlier, now);
@@ -234,12 +301,13 @@ namespace ExamAPI.Services.StudentAccess
             result.Queued = targets.Count;
             result.GoTomorrow = Math.Max(0, targets.Count - today.Remaining);
 
+            var editable = StudentFields.Parse(batch.EditableFields);
             Audit(collegeId, batch.Id, "TaskLinksSent",
-                $"{title}: {targets.Count} links until {deadline.ToLocalTime():d MMM yyyy}; editable: {(editable.Count == 0 ? "none" : string.Join(", ", editable))}; "
+                $"{batch.Title}: {targets.Count} links until {deadline.ToLocalTime():d MMM yyyy}; editable: {(editable.Count == 0 ? "none" : string.Join(", ", editable))}; "
                 + $"skipped {result.NoEmail} without email, {result.Flagged} flagged, {result.Inactive} inactive; replaced {result.Replaced}.");
             await _context.SaveChangesAsync();
 
-            result.Message = (single != null
+            result.Message = (single
                     ? $"The link is on its way to {StudentNames.Display(targets[0])}."
                     : $"Links are on their way to {targets.Count} student{(targets.Count == 1 ? "" : "s")}.")
                 + (result.GoTomorrow > 0 ? $" Today's email limit is reached for {result.GoTomorrow}; they go out tomorrow." : "");
@@ -358,7 +426,7 @@ namespace ExamAPI.Services.StudentAccess
             if (batch.Deadline is not DateTime deadline || deadline <= now)
                 throw new InvalidOperationException("This batch has closed. Move its deadline first.");
             var others = await _context.TaskLinks
-                .Where(l => l.StdMstId == link.StdMstId && l.TaskTypeCode == link.TaskTypeCode && l.Status == TaskLinkStatuses.Active)
+                .Where(l => l.StdMstId == link.StdMstId && l.TaskTypeCode == link.TaskTypeCode && l.RefId == link.RefId && l.Status == TaskLinkStatuses.Active)
                 .ToListAsync();
             await StopAsync(others, now);
             var fresh = NewLink(batch, link.StdMstId, deadline);

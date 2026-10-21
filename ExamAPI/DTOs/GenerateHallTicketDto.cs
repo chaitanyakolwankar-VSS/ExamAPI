@@ -67,6 +67,10 @@
         public string centre { get; set; }
         public string seat { get; set; }
         public string Studentid { get; set; }
+        /// <summary>ERN (StudentPRN); empty when not issued.</summary>
+        public string ern { get; set; } = "";
+        /// <summary>ABC ID; empty when not given.</summary>
+        public string abcId { get; set; } = "";
         /// <summary>Stored path of the student photo; load it via GET /api/Files?path=... (null when none).</summary>
         public string? photo { get; set; }
         /// <summary>Stored path of the student signature (same /api/Files access); null when none.</summary>
@@ -91,5 +95,9 @@
         public string CollegeName { get; set; } = string.Empty;
         /// <summary>Stored path of the Principal's signature image; empty when College Details has none.</summary>
         public string PrincipalSign { get; set; } = string.Empty;
+        /// <summary>Stored path of the Controller of Examinations signature; empty when none.</summary>
+        public string ControllerSign { get; set; } = string.Empty;
+        /// <summary>Stored path of the office round seal; empty when none.</summary>
+        public string Seal { get; set; } = string.Empty;
     }
 }

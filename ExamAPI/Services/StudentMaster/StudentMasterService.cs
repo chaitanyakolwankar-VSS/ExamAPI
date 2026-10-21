@@ -171,6 +171,7 @@ namespace ExamAPI.Services.StudentMasters
                     Gender = sm.Gender,
                     Category = sm.Category,
                     StudentPRN = sm.StudentPRN,
+                    AbcId = sm.AbcId,
                     PhotoUrl = sm.PhotoUrl,
                     SignUrl = sm.SignUrl,
                     Dyslexia = sm.Dyslexia,
@@ -202,6 +203,9 @@ namespace ExamAPI.Services.StudentMasters
             {
                 throw new InvalidOperationException("ERN already exists.");
             }
+            var abcId = CleanAbcId(dto.AbcId);
+            if (await AbcIdTakenAsync(_context, abcId, student.StdMstId))
+                throw new InvalidOperationException("This ABC ID belongs to another student.");
 
             // Email: optional here (students saved before it was asked have none); checked like the import.
             var email = StudentEmail.Normalize(dto.Email);
@@ -231,6 +235,7 @@ namespace ExamAPI.Services.StudentMasters
             student.StudentType = studentType;
             student.Category = dto.Category;
             student.StudentPRN = dto.StudentPRN;
+            student.AbcId = abcId;
             student.Gender = dto.Gender;
             student.Dyslexia = dto.Dyslexia;
 
@@ -273,6 +278,22 @@ namespace ExamAPI.Services.StudentMasters
             return "Student updated successfully";
         }
         /// <summary>The trimmed mother's name; throws when it is blank or over 50 characters.</summary>
+        /// <summary>ABC ID (Academic Bank of Credits): 12 digits; spaces and dashes are dropped; blank = none.</summary>
+        public static string? CleanAbcId(string? value)
+        {
+            var digits = new string((value ?? "").Where(c => !char.IsWhiteSpace(c) && c != '-').ToArray());
+            if (digits.Length == 0) return null;
+            if (digits.Length != 12 || !digits.All(char.IsAsciiDigit))
+                throw new InvalidOperationException("ABC ID: enter the 12-digit number.");
+            return digits;
+        }
+
+        /// <summary>True when another student of the college already has this ABC ID.</summary>
+        public static Task<bool> AbcIdTakenAsync(ApplicationDbContext context, string? abcId, Guid? exceptStdMstId) =>
+            abcId == null
+                ? Task.FromResult(false)
+                : context.StudentMasters.AnyAsync(x => x.AbcId == abcId && x.StdMstId != exceptStdMstId && !x.IsDeleted);
+
         private static string CleanMotherName(string? value)
         {
             var name = (value ?? "").Trim();
@@ -336,6 +357,9 @@ namespace ExamAPI.Services.StudentMasters
 
                 if (pnrExists)
                     throw new InvalidOperationException("ERN already exists");
+                var abcId = CleanAbcId(dto.AbcId);
+                if (await AbcIdTakenAsync(_context, abcId, null))
+                    throw new InvalidOperationException("This ABC ID belongs to another student.");
 
 
                 var studentMaster = new Models.StudentMaster
@@ -349,6 +373,7 @@ namespace ExamAPI.Services.StudentMasters
                     StudentType = studentType,
                     Category = dto.Category,
                     StudentPRN=dto.StudentPRN,
+                    AbcId = abcId,
                     Gender = dto.Gender,
                     Dyslexia = dto.Dyslexia,
                     CreatedAt = DateTime.UtcNow,

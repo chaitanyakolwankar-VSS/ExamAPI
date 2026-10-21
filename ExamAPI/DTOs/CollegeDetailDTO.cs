@@ -13,6 +13,7 @@
         public string BannerUrl { get; set; }
         public string? ControllerSignUrl { get; set; }
         public string? PrincipalSignUrl { get; set; }
+        public string? SealUrl { get; set; }
         public bool IsDeleted { get; set; }
 
     }
@@ -34,5 +35,7 @@
         public IFormFile? ControllerSignature { get; set; }
         /// <summary>Signature image of the Principal (marksheets, hall tickets).</summary>
         public IFormFile? PrincipalSignature { get; set; }
+        /// <summary>The office round seal (hall tickets).</summary>
+        public IFormFile? Seal { get; set; }
     }
 }

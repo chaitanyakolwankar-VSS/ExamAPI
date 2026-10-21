@@ -17,11 +17,13 @@ namespace ExamAPI.Controllers
     {
         private readonly IStudentSignInService _service;
         private readonly IStudentDetailsService _details;
+        private readonly IStudentHallTicketService _hallTicket;
 
-        public StudentAccessController(IStudentSignInService service, IStudentDetailsService details)
+        public StudentAccessController(IStudentSignInService service, IStudentDetailsService details, IStudentHallTicketService hallTicket)
         {
             _service = service;
             _details = details;
+            _hallTicket = hallTicket;
         }
 
         public class TokenRequest
@@ -94,6 +96,41 @@ namespace ExamAPI.Controllers
                 if (image == null) return NotFound();
                 Response.Headers.CacheControl = "no-store";
                 return File(image.Value.Bytes, image.Value.ContentType);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Unauthorized(new { message = "Your session has ended. Open the link from your email again." });
+            }
+        }
+
+        /// <summary>A hall ticket link: the hall ticket, or why it can't be shown yet (not released, photo or signature missing).</summary>
+        [Authorize(Policy = StudentAccessAuth.Policy)]
+        [HttpGet("hallticket")]
+        public Task<IActionResult> HallTicket() => Answer(() => _hallTicket.GetAsync(User));
+
+        [Authorize(Policy = StudentAccessAuth.Policy)]
+        [HttpPost("hallticket/downloaded")]
+        public Task<IActionResult> HallTicketDownloaded() => Answer(async () =>
+        {
+            await _hallTicket.MarkDownloadedAsync(User);
+            return new { message = "Noted." };
+        });
+
+        /// <summary>kind: logo, principal, controller or seal: the college's pictures printed on the hall ticket.</summary>
+        [Authorize(Policy = StudentAccessAuth.Policy)]
+        [HttpGet("hallticket/{kind:regex(^(logo|principal|controller|seal)$)}")]
+        public async Task<IActionResult> HallTicketImage(string kind)
+        {
+            try
+            {
+                var image = await _hallTicket.ReadCollegeImageAsync(User, kind);
+                if (image == null) return NotFound();
+                Response.Headers.CacheControl = "no-store";
+                return File(image.Value.Bytes, image.Value.ContentType);
+            }
+            catch (InvalidOperationException)
+            {
+                return NotFound();
             }
             catch (UnauthorizedAccessException)
             {

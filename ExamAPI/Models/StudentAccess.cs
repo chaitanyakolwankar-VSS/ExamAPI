@@ -94,12 +94,13 @@ namespace ExamAPI.Models
         public const string Phone = "phone";
         public const string Address = "address";
         public const string Prn = "prn";
+        public const string AbcId = "abcId";
         public const string Photo = "photo";
         public const string Signature = "signature";
 
         public static readonly IReadOnlyList<string> All = new[]
         {
-            FirstName, MiddleName, LastName, MotherName, DateOfBirth, Gender, Category, Phone, Address, Prn, Photo, Signature,
+            FirstName, MiddleName, LastName, MotherName, DateOfBirth, Gender, Category, Phone, Address, Prn, AbcId, Photo, Signature,
         };
 
         /// <summary>Known fields only, each once, in the order of <see cref="All"/>.</summary>

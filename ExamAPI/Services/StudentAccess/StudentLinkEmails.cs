@@ -18,30 +18,33 @@ namespace ExamAPI.Services.StudentAccess
         public static string LinkUrl(string baseUrl, string token) => $"{baseUrl.TrimEnd('/')}/s/{token}";
 
         /// <summary>"what the link is for", per task.</summary>
-        private static string Purpose(TaskLink link, IReadOnlyCollection<string> editable) => link.TaskTypeCode switch
+        private static string Purpose(TaskLink link, IReadOnlyCollection<string> editable, string? examName) => link.TaskTypeCode switch
         {
             TaskTypes.StudentMaster when editable.Count == 0 => "check your student details",
             TaskTypes.StudentMaster when editable.All(f => f is StudentFields.Photo or StudentFields.Signature) => "update your photo and signature",
             TaskTypes.StudentMaster => "check and update your student details",
+            TaskTypes.HallTicket => string.IsNullOrWhiteSpace(examName) ? "download your hall ticket" : $"download your hall ticket for {examName}",
             _ => (link.TaskType?.Name ?? "complete a task").ToLowerInvariant(),
         };
 
-        public static EmailMessage LinkMessage(string to, string college, StudentMaster student, TaskLink link, IReadOnlyCollection<string> editable, string url, string? examOfficeEmail)
+        public static EmailMessage LinkMessage(string to, string college, StudentMaster student, TaskLink link, IReadOnlyCollection<string> editable, string url, string? examOfficeEmail, string? examName = null)
         {
-            var purpose = Purpose(link, editable);
+            var purpose = Purpose(link, editable, examName);
+            var hallTicket = link.TaskTypeCode == TaskTypes.HallTicket;
+            var opens = hallTicket ? "your hall ticket" : "your details";
             var until = link.ExpiresAt.ToLocalTime().ToString("d MMM yyyy");
             var name = string.IsNullOrWhiteSpace(student.FirstName) ? "Student" : student.FirstName.Trim();
             Func<string, string> e = s => WebUtility.HtmlEncode(s);
             var html =
                 $"<p>Dear {e(name)},</p>"
                 + $"<p>{e(college)} asks you to {e(purpose)}.</p>"
-                + $"<p><a href=\"{e(url)}\" style=\"display:inline-block;background:#465fff;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:6px\">Open my details</a></p>"
+                + $"<p><a href=\"{e(url)}\" style=\"display:inline-block;background:#465fff;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:6px\">Open {(hallTicket ? "my hall ticket" : "my details")}</a></p>"
                 + $"<p>The link works until <b>{e(until)}</b>. When you open it, a 6-digit code is emailed to this address to confirm it's you.</p>"
-                + "<p style=\"color:#6b7280\">Don't forward this email: the link opens your details.</p>";
+                + $"<p style=\"color:#6b7280\">Don't forward this email: the link opens {opens}.</p>";
             var text =
                 $"Dear {name},\n\n{college} asks you to {purpose}.\n\nOpen this link:\n{url}\n\n"
                 + $"The link works until {until}. When you open it, a 6-digit code is emailed to this address to confirm it's you.\n\n"
-                + "Don't forward this email: the link opens your details.";
+                + $"Don't forward this email: the link opens {opens}.";
             return EmailLayout.Build(to, $"{college}: {Capitalize(purpose)}", html, text, examOfficeEmail);
         }
 
@@ -88,9 +91,12 @@ namespace ExamAPI.Services.StudentAccess
             await _context.SaveChangesAsync(ct);
 
             var college = await StudentLinkEmails.CollegeNameAsync(_context, link.CollegeId, ct);
+            var examName = link.TaskTypeCode == TaskTypes.HallTicket && link.RefId != null
+                ? await _context.Exams.IgnoreQueryFilters().Where(x => x.ExamId == link.RefId).Select(x => x.Name).FirstOrDefaultAsync(ct)
+                : null;
             // The student's email now, not when it was queued: staff may have corrected it since.
             return StudentLinkEmails.LinkMessage(link.Student.Email, college, link.Student, link, StudentFields.Parse(link.Batch.EditableFields),
-                StudentLinkEmails.LinkUrl(link.Batch.LinkBaseUrl, token), examOfficeEmail);
+                StudentLinkEmails.LinkUrl(link.Batch.LinkBaseUrl, token), examOfficeEmail, examName);
         }
     }
 

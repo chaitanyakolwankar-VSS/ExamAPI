@@ -18,6 +18,8 @@ namespace ExamAPI.DTOs
         public string? Gender { get; set; }
         public string? Category { get; set; }
         public string? StudentPRN { get; set; }
+        /// <summary>ABC ID, 12 digits; blank = none.</summary>
+        public string? AbcId { get; set; }
         public string? PhotoUrl { get; set; }
         public string? SignUrl { get; set; }
         public bool Dyslexia { get; set; }

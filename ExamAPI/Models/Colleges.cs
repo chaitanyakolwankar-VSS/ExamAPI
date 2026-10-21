@@ -36,6 +36,10 @@ namespace ExamAPI.Models
         [MaxLength(500)]
         public string? PrincipalSignUrl { get; set; }
 
+        /// <summary>The office round seal (stamp) image, printed on hall tickets.</summary>
+        [MaxLength(500)]
+        public string? SealUrl { get; set; }
+
         [Required]
         [MaxLength(255)]
         [EmailAddress]

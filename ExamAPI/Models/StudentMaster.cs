@@ -61,6 +61,10 @@ namespace ExamAPI.Models
         [MaxLength(50)]
         public string? StudentPRN { get; set; } // Permanent Registration Number
 
+        /// <summary>Academic Bank of Credits ID: 12 digits, printed on the hall ticket.</summary>
+        [MaxLength(12)]
+        public string? AbcId { get; set; }
+
         [MaxLength(500)]
         public string? PhotoUrl { get; set; }
 

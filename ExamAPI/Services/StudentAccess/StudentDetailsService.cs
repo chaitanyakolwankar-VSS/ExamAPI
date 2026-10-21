@@ -24,6 +24,7 @@ namespace ExamAPI.Services.StudentAccess
         public string? Phone { get; set; }
         public string? Address { get; set; }
         public string? Prn { get; set; }
+        public string? AbcId { get; set; }
     }
 
     public class StudentImageUpload
@@ -90,6 +91,7 @@ namespace ExamAPI.Services.StudentAccess
             [StudentFields.Phone] = "Phone",
             [StudentFields.Address] = "Address",
             [StudentFields.Prn] = "ERN / PRN",
+            [StudentFields.AbcId] = "ABC ID",
             [StudentFields.Photo] = "Photo",
             [StudentFields.Signature] = "Signature",
         };
@@ -200,6 +202,13 @@ namespace ExamAPI.Services.StudentAccess
                     throw new InvalidOperationException("This ERN / PRN belongs to another student. Check it, or contact your college office.");
                 Set(StudentFields.Prn, s.StudentPRN, p, v => s.StudentPRN = v);
             }
+            if (editable.Contains(StudentFields.AbcId))
+            {
+                var abc = StudentMasterService.CleanAbcId(update.AbcId);
+                if (abc != s.AbcId && await StudentMasterService.AbcIdTakenAsync(_context, abc, s.StdMstId))
+                    throw new InvalidOperationException("This ABC ID belongs to another student. Check it, or contact your college office.");
+                Set(StudentFields.AbcId, s.AbcId, abc, v => s.AbcId = v);
+            }
 
             return await FinishAsync(user, link, s, changes);
         }
@@ -212,6 +221,9 @@ namespace ExamAPI.Services.StudentAccess
             var (link, s, editable) = await LoadAsync(user);
             if (!editable.Contains(field))
                 throw new InvalidOperationException($"Your {Labels[field].ToLowerInvariant()} can't be changed through this link.");
+            // A hall ticket link only fills in a missing picture; changing one on record goes through the college.
+            if (link.TaskTypeCode == TaskTypes.HallTicket && !string.IsNullOrEmpty(field == StudentFields.Photo ? s.PhotoUrl : s.SignUrl))
+                throw new InvalidOperationException($"Your {Labels[field].ToLowerInvariant()} is already on record. To change it, contact your college office.");
 
             var data = image ?? "";
             var comma = data.IndexOf(',');
@@ -248,7 +260,8 @@ namespace ExamAPI.Services.StudentAccess
             if (changes.Count > 0)
             {
                 var now = DateTime.UtcNow;
-                link.UsedAt = now;
+                // On a hall ticket link "used" means downloaded, so adding a missing picture doesn't count.
+                if (link.TaskTypeCode != TaskTypes.HallTicket) link.UsedAt = now;
                 var details = string.Join("; ", changes.Select(c => c.Field is StudentFields.Photo or StudentFields.Signature
                     ? $"{Labels[c.Field]}: {(c.Old == null ? "added" : "replaced")}"
                     : $"{Labels[c.Field]}: '{c.Old}' -> '{c.New}'"));

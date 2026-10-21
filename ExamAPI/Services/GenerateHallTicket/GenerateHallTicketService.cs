@@ -109,7 +109,9 @@ namespace ExamAPI.Services.GenerateHallTicket
                     Seat = a.mm.SeatNo,
                     StudentId = a.sm.StudentId,
                     Photo = a.sm.PhotoUrl,
-                    Sign = a.sm.SignUrl
+                    Sign = a.sm.SignUrl,
+                    Ern = a.sm.StudentPRN,
+                    a.sm.AbcId
                 }).ToList(); // materialise: the loop below runs more queries, which needs MARS if this is still streaming
                 foreach (var Student in HallTicketStudents)
                 {
@@ -126,7 +128,9 @@ namespace ExamAPI.Services.GenerateHallTicket
                         name = StudentNames.Display(Student.LastName, Student.FirstName, Student.MiddleName, Student.MotherName),
                         centre = Student.Center,
                         seat = Student.Seat,
-                        Studentid=Student.StudentId,
+                        Studentid = Student.StudentId,
+                        ern = Student.Ern ?? "",
+                        abcId = Student.AbcId ?? "",
                         photo = Student.Photo,
                         sign = Student.Sign,
                         subjects = StudentSubjects.ToList()
@@ -157,6 +161,8 @@ namespace ExamAPI.Services.GenerateHallTicket
                     Logo = collegedata?.LogoBannerUrl ?? collegedata?.LogoUrl ?? "",
                     Center = collegedata?.CollegeCenter ?? "",
                     PrincipalSign = collegedata?.PrincipalSignUrl ?? "",
+                    ControllerSign = collegedata?.ControllerSignUrl ?? "",
+                    Seal = collegedata?.SealUrl ?? "",
                     CollegeName = ExamAPI.Services.Report.CollegeBranding.DisplayName(collegedata?.Name, collegedata?.CollegeCode)
                 };
                 return result;
