@@ -122,6 +122,17 @@ Emails are sent by the API itself from a queue in the database (every 15 seconds
 
 **Student links** (Student Master → Student links) point at the website the staff member is using, accepted only when it is listed in `Cors:AllowedOrigins` (live already lists `https://www.vivacollege.in`). For any other address, set it once in `appsettings.Production.json`: `"StudentAccess": { "AppUrl": "https://www.vivacollege.in/gradesphereapp" }`.
 
+## Going live with student access (October 2026)
+
+Once, when the student-access release first goes to a server that runs the 2026-10-07 release:
+
+1. Back up the database.
+2. Run `UpdateLive_2026-10-22.sql` (or the new `GradeSphereApp-Setup.sql`; same effect). It adds the new tables and columns, skips any part already applied, and keeps all existing data. Rehearsed on a copy of the 2026-10-07 schema: runs in one transaction, and a second run changes nothing.
+3. Install the new files (below), then as platform admin set up the email sender (section 6) and send a test.
+4. College Details → upload the Controller and Principal signatures and the office round seal (hall tickets).
+5. Student emails: Student Master → Check emails → pick branch, semester, pattern → **Import** the filled email sheet (it previews every row and saves nothing unless all rows are right).
+6. Try one student link and one hall ticket link on your own email before sending a whole class.
+
 ## Installing a new version
 
 1. Build again on the PC (step 0).
