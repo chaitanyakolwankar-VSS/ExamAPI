@@ -113,7 +113,7 @@ public sealed class StudentLinkTests
 
     private static string Email(string studentId) => studentId == "2600001" ? "asha@viva.in" : "neha@viva.in";
 
-    private static string TokenIn(EmailMessage message) => Regex.Match(message.Text, @"/s/([A-Za-z0-9_-]{43})").Groups[1].Value;
+    private static string TokenIn(EmailMessage message) => Regex.Match(message.Text, @"/s#([A-Za-z0-9_-]{43})").Groups[1].Value;
 
     private static string CodeIn(EmailMessage message) => Regex.Match(message.Subject, @"^(\d{6}) ").Groups[1].Value;
 
@@ -177,7 +177,7 @@ public sealed class StudentLinkTests
         var token = await SendAndGetTokenAsync("2600001", StudentFields.Photo, StudentFields.Signature);
 
         var mail = _sender.Sent.Single(m => m.To == "asha@viva.in");
-        Assert.Contains($"{Site}/s/{token}", mail.Html);
+        Assert.Contains($"{Site}/s#{token}", mail.Html);
         Assert.Equal("VIVA: Update your photo and signature", mail.Subject);
         Assert.Contains("exam@viva.in", mail.Text);
         using var context = Context(null);

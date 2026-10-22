@@ -15,7 +15,11 @@ namespace ExamAPI.Services.StudentAccess
             await context.Colleges.IgnoreQueryFilters().Where(c => c.CollegeId == collegeId).Select(c => c.Name).FirstOrDefaultAsync(ct)
                 ?? "Your college";
 
-        public static string LinkUrl(string baseUrl, string token) => $"{baseUrl.TrimEnd('/')}/s/{token}";
+        /// <summary>
+        /// The link in the email. The token goes after "#": a browser never sends that part to the server, so it stays out
+        /// of web server logs and Referer headers. Links sent earlier as /s/{token} still open.
+        /// </summary>
+        public static string LinkUrl(string baseUrl, string token) => $"{baseUrl.TrimEnd('/')}/s#{token}";
 
         /// <summary>"what the link is for", per task.</summary>
         private static string Purpose(TaskLink link, IReadOnlyCollection<string> editable, string? examName) => link.TaskTypeCode switch
