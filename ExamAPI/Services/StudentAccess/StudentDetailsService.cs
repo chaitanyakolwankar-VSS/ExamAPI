@@ -62,7 +62,12 @@ namespace ExamAPI.Services.StudentAccess
     /// </summary>
     public sealed partial class StudentDetailsService : IStudentDetailsService
     {
-        public const int MaxImageBytes = 2 * 1024 * 1024;
+        /// <summary>
+        /// Largest picture accepted. The student site shrinks them first (a photo to about 300 KB, a signature to about
+        /// 100 KB), so these only stop something sent around it.
+        /// </summary>
+        public const int MaxPhotoBytes = 1024 * 1024;
+        public const int MaxSignatureBytes = 512 * 1024;
         public static readonly TimeSpan NoticeGap = TimeSpan.FromMinutes(10);
         public const string ChangedEvent = "StudentDetailsChanged";
 
@@ -232,7 +237,8 @@ namespace ExamAPI.Services.StudentAccess
             try { bytes = Convert.FromBase64String(data); }
             catch (FormatException) { throw new InvalidOperationException("The picture could not be read. Try another one."); }
             if (bytes.Length == 0) throw new InvalidOperationException("Choose a picture first.");
-            if (bytes.Length > MaxImageBytes) throw new InvalidOperationException("The picture must be less than 2 MB.");
+            if (field == StudentFields.Photo ? bytes.Length > MaxPhotoBytes : bytes.Length > MaxSignatureBytes)
+                throw new InvalidOperationException($"The {Labels[field].ToLowerInvariant()} must be less than {(field == StudentFields.Photo ? "1 MB" : "500 KB")}.");
             if (!Report.CollegeBranding.IsDecodableImage(bytes))
                 throw new InvalidOperationException("That file isn't a picture we can use. Use a JPG or PNG.");
 
