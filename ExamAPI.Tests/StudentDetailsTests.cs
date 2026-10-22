@@ -101,12 +101,13 @@ public sealed class StudentDetailsTests : IDisposable
         Assert.Contains("Phone: '' -> '9876543210'", audit.Details);
 
         var notice = await context.EmailQueue.SingleAsync(m => m.Kind == EmailKinds.Plain);
-        Assert.Equal(("asha@viva.in", "VIVA: your details were changed"), (notice.ToAddress, notice.Subject));
-        Assert.Contains("Date of birth, Phone, Address", notice.TextBody);
+        Assert.Equal(("asha@viva.in", "VIVA: your details were updated"), (notice.ToAddress, notice.Subject));
+        Assert.Contains("- Date of birth\n- Phone\n- Address", notice.TextBody);
+        Assert.Contains("Open the same link again, correct it and save", notice.TextBody);
     }
 
     [Fact]
-    public async Task Saving_the_same_values_changes_nothing_and_a_second_save_soon_after_sends_no_second_notice()
+    public async Task Saving_the_same_values_changes_nothing_and_each_save_that_changes_something_sends_its_own_notice()
     {
         using var context = Context(_college);
         await Service(context).SaveAsync(Student(), new StudentDetailsUpdate { Phone = "9876543210" });
@@ -114,7 +115,22 @@ public sealed class StudentDetailsTests : IDisposable
         Assert.Empty(same.Changed);
         var again = await Service(context).SaveAsync(Student(), new StudentDetailsUpdate { Phone = "9123456789" });
         Assert.Equal(new[] { "Phone" }, again.Changed);
+        Assert.Equal(2, await context.EmailQueue.CountAsync(m => m.Kind == EmailKinds.Plain));
+    }
+
+    [Fact]
+    public async Task A_photo_saved_with_other_details_is_one_save_with_one_notice()
+    {
+        using var context = Context(_college);
+        var result = await Service(context).SaveAsync(Student(), new StudentDetailsUpdate { Phone = "9876543210", Photo = PngDataUrl });
+        Assert.Equal(new[] { "Phone", "Photo" }, result.Changed);
+        Assert.True(result.Home.Student.HasPhoto);
         Assert.Equal(1, await context.EmailQueue.CountAsync(m => m.Kind == EmailKinds.Plain));
+        Assert.Equal(1, await context.AuditLogs.CountAsync(a => a.Event == StudentDetailsService.ChangedEvent));
+
+        // A bad phone stops the whole save: the picture isn't stored either.
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Service(context).SaveAsync(Student(), new StudentDetailsUpdate { Phone = "123", Photo = PngDataUrl }));
+        Assert.Equal(1, await context.AuditLogs.CountAsync(a => a.Event == StudentDetailsService.ChangedEvent));
     }
 
     [Theory]

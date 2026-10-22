@@ -25,6 +25,9 @@ namespace ExamAPI.Services.StudentAccess
         public string? Address { get; set; }
         public string? Prn { get; set; }
         public string? AbcId { get; set; }
+        /// <summary>A new photo or signature (data URL, shrunk by the page); empty = keep the one on record.</summary>
+        public string? Photo { get; set; }
+        public string? Signature { get; set; }
     }
 
     public class StudentImageUpload
@@ -55,10 +58,10 @@ namespace ExamAPI.Services.StudentAccess
 
     /// <summary>
     /// The student changes their own Student Master record through their link: only the fields the batch allows
-    /// (others are ignored), checked like the staff form, saved straight away (no approval). Each save is audited
-    /// with old and new values, marks the link Updated, and emails the student a notice (at most one per 10 minutes)
-    /// so a change they did not make does not go unnoticed. Reads and writes go through the tenant filter: the
-    /// session's college is the caller's.
+    /// (others are ignored), checked like the staff form, saved straight away (no approval). Text and pictures are
+    /// saved together from one Save; each save that changes something is audited with old and new values, marks the
+    /// link Updated, and emails the student what changed and how to correct it, so a change they did not make does
+    /// not go unnoticed. Reads and writes go through the tenant filter: the session's college is the caller's.
     /// </summary>
     public sealed partial class StudentDetailsService : IStudentDetailsService
     {
@@ -68,7 +71,6 @@ namespace ExamAPI.Services.StudentAccess
         /// </summary>
         public const int MaxPhotoBytes = 1024 * 1024;
         public const int MaxSignatureBytes = 512 * 1024;
-        public static readonly TimeSpan NoticeGap = TimeSpan.FromMinutes(10);
         public const string ChangedEvent = "StudentDetailsChanged";
 
         private readonly ApplicationDbContext _context;
@@ -215,7 +217,20 @@ namespace ExamAPI.Services.StudentAccess
                 Set(StudentFields.AbcId, s.AbcId, abc, v => s.AbcId = v);
             }
 
-            return await FinishAsync(user, link, s, changes);
+            // Pictures last: they are stored only once every text field has passed its checks.
+            var pictures = new List<(string Field, string? Old, string? New)>();
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(update.Photo)) pictures.Add(await StoreImageAsync(link, s, editable, StudentFields.Photo, update.Photo));
+                if (!string.IsNullOrWhiteSpace(update.Signature)) pictures.Add(await StoreImageAsync(link, s, editable, StudentFields.Signature, update.Signature));
+            }
+            catch
+            {
+                foreach (var p in pictures) _storage.Delete(p.New);
+                throw;
+            }
+            changes.AddRange(pictures);
+            return await FinishWithPicturesAsync(user, link, s, changes, pictures);
         }
 
         public async Task<StudentSaveResult> SaveImageAsync(ClaimsPrincipal user, string kind, string? image)
@@ -224,6 +239,29 @@ namespace ExamAPI.Services.StudentAccess
                 : kind == StudentImageKinds.Signature ? StudentFields.Signature
                 : throw new InvalidOperationException("Unknown image.");
             var (link, s, editable) = await LoadAsync(user);
+            var picture = await StoreImageAsync(link, s, editable, field, image);
+            var changes = new List<(string Field, string? Old, string? New)> { picture };
+            return await FinishWithPicturesAsync(user, link, s, changes, changes);
+        }
+
+        /// <summary>Saves; then the replaced picture files go, or on a failure the new ones (nothing is left half done).</summary>
+        private async Task<StudentSaveResult> FinishWithPicturesAsync(ClaimsPrincipal user, TaskLink link, StudentMaster s,
+            List<(string Field, string? Old, string? New)> changes, List<(string Field, string? Old, string? New)> pictures)
+        {
+            StudentSaveResult result;
+            try { result = await FinishAsync(user, link, s, changes); }
+            catch
+            {
+                foreach (var p in pictures) _storage.Delete(p.New);
+                throw;
+            }
+            foreach (var p in pictures) _storage.Delete(p.Old);
+            return result;
+        }
+
+        /// <summary>Checks a new photo or signature, stores the file and puts it on the record (saved by the caller).</summary>
+        private async Task<(string Field, string? Old, string? New)> StoreImageAsync(TaskLink link, StudentMaster s, HashSet<string> editable, string field, string? image)
+        {
             if (!editable.Contains(field))
                 throw new InvalidOperationException($"Your {Labels[field].ToLowerInvariant()} can't be changed through this link.");
             // A hall ticket link only fills in a missing picture; changing one on record goes through the college.
@@ -245,9 +283,7 @@ namespace ExamAPI.Services.StudentAccess
             var saved = await _storage.SaveAsync(bytes, FileStorage.StudentsFolder, $"{Guid.NewGuid()}_{(field == StudentFields.Photo ? "photo" : "sign")}.png");
             var old = field == StudentFields.Photo ? s.PhotoUrl : s.SignUrl;
             if (field == StudentFields.Photo) s.PhotoUrl = saved; else s.SignUrl = saved;
-            var result = await FinishAsync(user, link, s, new List<(string, string?, string?)> { (field, old, saved) });
-            _storage.Delete(old);
-            return result;
+            return (field, old, saved);
         }
 
         public async Task<(byte[] Bytes, string ContentType)?> ReadImageAsync(ClaimsPrincipal user, string kind)
@@ -290,21 +326,28 @@ namespace ExamAPI.Services.StudentAccess
             return result;
         }
 
+        /// <summary>One email per save that changed something: what changed, and how to put a mistake right.</summary>
         private async Task QueueNoticeAsync(TaskLink link, StudentMaster s, List<string> changed, DateTime now)
         {
             if (s.Email == null || link.CollegeId is not Guid collegeId) return;
-            var since = now - NoticeGap;
-            if (await _context.EmailQueue.AnyAsync(m => m.Kind == EmailKinds.Plain && m.RefId == link.Id && m.CreatedAt > since))
-                return;
             var college = await StudentLinkEmails.CollegeNameAsync(_context, collegeId);
             var help = await _context.CollegeSettings.Where(x => x.CollegeId == collegeId).Select(x => x.ExamOfficeEmail).FirstOrDefaultAsync();
             var when = now.ToLocalTime().ToString("d MMM yyyy, h:mm tt", CultureInfo.InvariantCulture);
-            var list = string.Join(", ", changed);
+            var until = link.ExpiresAt.ToLocalTime().ToString("d MMM yyyy", CultureInfo.InvariantCulture);
+            var office = string.IsNullOrWhiteSpace(help) ? "your college office" : $"your college office ({help})";
+            // A hall ticket link only adds a missing picture, so a wrong one is changed by the college.
+            var fix = link.TaskTypeCode == TaskTypes.HallTicket
+                ? $"If something is wrong, contact {office}."
+                : $"Something wrong? Open the same link again, correct it and save. The link works until {until}; after that, contact {office}.";
             var e = (Func<string, string>)WebUtility.HtmlEncode;
-            var message = EmailLayout.Build(s.Email, $"{college}: your details were changed",
-                $"<p>Dear {e(s.FirstName ?? "Student")},</p><p>Your student details at {e(college)} were changed on {e(when)}: <b>{e(list)}</b>.</p>"
-                + "<p>If this was you, there is nothing to do. If it wasn't, contact your college office straight away.</p>",
-                $"Dear {s.FirstName},\n\nYour student details at {college} were changed on {when}: {list}.\n\nIf this was you, there is nothing to do. If it wasn't, contact your college office straight away.",
+            var items = string.Concat(changed.Select(c => $"<li>{e(c)}</li>"));
+            var message = EmailLayout.Build(s.Email, $"{college}: your details were updated",
+                $"<p>Dear {e(s.FirstName ?? "Student")},</p><p>These details were saved to your student record at {e(college)} on {e(when)}:</p>"
+                + $"<ul>{items}</ul><p>{e(fix)}</p>"
+                + "<p style=\"color:#6b7280\">If you did not make this change, contact your college office straight away.</p>",
+                $"Dear {s.FirstName ?? "Student"},\n\nThese details were saved to your student record at {college} on {when}:\n"
+                + string.Concat(changed.Select(c => $"- {c}\n"))
+                + $"\n{fix}\n\nIf you did not make this change, contact your college office straight away.",
                 help);
             _outbox.Enqueue(collegeId, EmailKinds.Plain, link.Id, s.Email, EmailPriorities.Low, message.Subject, message.Html, message.Text);
         }

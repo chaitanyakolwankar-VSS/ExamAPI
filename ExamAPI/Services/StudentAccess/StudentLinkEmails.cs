@@ -27,6 +27,29 @@ namespace ExamAPI.Services.StudentAccess
             _ => (link.TaskType?.Name ?? "complete a task").ToLowerInvariant(),
         };
 
+        /// <summary>What the student does after opening the link, in order.</summary>
+        private static List<string> Steps(TaskLink link, IReadOnlyCollection<string> editable)
+        {
+            var steps = new List<string> { "Open the link and tap \"Email me a code\".", "Enter the 6-digit code we send to this address." };
+            if (link.TaskTypeCode == TaskTypes.HallTicket)
+            {
+                steps.Add("If asked, add your photo or signature and save.");
+                steps.Add("Tap \"Save as PDF\" and keep the file. Print it for the exam.");
+                return steps;
+            }
+            var pictures = editable.Count(f => f is StudentFields.Photo or StudentFields.Signature);
+            var text = editable.Count - pictures;
+            if (editable.Count == 0)
+            {
+                steps.Add("Check your details. If something is wrong, contact your college office.");
+                return steps;
+            }
+            if (text > 0) steps.Add("Check your details and correct what's wrong.");
+            if (pictures > 0) steps.Add(pictures == 2 ? "Tap your photo and signature on your card to add or change them." : $"Tap your {(editable.Contains(StudentFields.Photo) ? "photo" : "signature")} on your card to add or change it.");
+            steps.Add("Tap Save. We email you what was saved.");
+            return steps;
+        }
+
         public static EmailMessage LinkMessage(string to, string college, StudentMaster student, TaskLink link, IReadOnlyCollection<string> editable, string url, string? examOfficeEmail, string? examName = null)
         {
             var purpose = Purpose(link, editable, examName);
@@ -34,16 +57,19 @@ namespace ExamAPI.Services.StudentAccess
             var opens = hallTicket ? "your hall ticket" : "your details";
             var until = link.ExpiresAt.ToLocalTime().ToString("d MMM yyyy");
             var name = string.IsNullOrWhiteSpace(student.FirstName) ? "Student" : student.FirstName.Trim();
+            var steps = Steps(link, editable);
             Func<string, string> e = s => WebUtility.HtmlEncode(s);
             var html =
                 $"<p>Dear {e(name)},</p>"
                 + $"<p>{e(college)} asks you to {e(purpose)}.</p>"
                 + $"<p><a href=\"{e(url)}\" style=\"display:inline-block;background:#465fff;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:6px\">Open {(hallTicket ? "my hall ticket" : "my details")}</a></p>"
-                + $"<p>The link works until <b>{e(until)}</b>. When you open it, a 6-digit code is emailed to this address to confirm it's you.</p>"
+                + $"<p style=\"margin-bottom:4px\"><b>How to do it</b></p><ol style=\"margin-top:0;padding-left:20px\">{string.Concat(steps.Select(st => $"<li style=\"margin-bottom:4px\">{e(st)}</li>"))}</ol>"
+                + $"<p>The link works until <b>{e(until)}</b>.</p>"
                 + $"<p style=\"color:#6b7280\">Don't forward this email: the link opens {opens}.</p>";
             var text =
-                $"Dear {name},\n\n{college} asks you to {purpose}.\n\nOpen this link:\n{url}\n\n"
-                + $"The link works until {until}. When you open it, a 6-digit code is emailed to this address to confirm it's you.\n\n"
+                $"Dear {name},\n\n{college} asks you to {purpose}.\n\nOpen this link:\n{url}\n\nHow to do it:\n"
+                + string.Concat(steps.Select((st, i) => $"{i + 1}. {st}\n"))
+                + $"\nThe link works until {until}.\n\n"
                 + $"Don't forward this email: the link opens {opens}.";
             return EmailLayout.Build(to, $"{college}: {Capitalize(purpose)}", html, text, examOfficeEmail);
         }
