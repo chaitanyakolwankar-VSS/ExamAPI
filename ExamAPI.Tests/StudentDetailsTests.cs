@@ -166,7 +166,7 @@ public sealed class StudentDetailsTests : IDisposable
         using var staff = Context(_college);
         var resolver = new EmailAccountResolver(staff, new SecretProtector(ServerKey));
         var outbox = new EmailOutbox(staff, resolver, new Mock<IEmailSender>().Object, NullLogger<EmailOutbox>.Instance);
-        var detail = await new TaskLinkService(staff, outbox, resolver).GetBatchAsync(_batch);
+        var detail = await new TaskLinkService(staff, outbox, resolver, new ExamAPI.Services.GenerateHallTicket.GenerateHallTicketService(staff)).GetBatchAsync(_batch);
         var row = Assert.Single(detail.Links);
         Assert.Equal(LinkStates.Updated, row.State);
         Assert.Contains("Phone", row.Changes);

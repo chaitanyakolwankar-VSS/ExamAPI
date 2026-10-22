@@ -67,15 +67,24 @@ public sealed class HallTicketLinkTests : IDisposable
         try { Directory.Delete(_base, recursive: true); } catch { }
     }
 
-    private async Task ReleaseAsync(bool released = true, DateTime? from = null)
+    /// <summary>A written-exam (ESE) subject the student sits, with its timetable date and time (blank = not saved).</summary>
+    private async Task<Guid> SubjectAsync(string code, string date, string time, Guid? student = null)
     {
         using var context = Context(_college);
-        context.DeclareResults.Add(new DeclareResult
+        var subject = new SubjectMaster { SubjectId = Guid.NewGuid(), SubjectCode = code, Name = code, SemId = "Sem-1", Pattern = "NEP - R-24", CourseId = _course, CollegeId = _college };
+        var creditsId = Guid.NewGuid();
+        context.SubjectMasters.Add(subject);
+        context.SubjectCreditMasters.Add(new SubjectCreditMaster
         {
-            DeclareID = Guid.NewGuid(), CollegeId = _college, ExamId = _exam, CourseId = _course, AcademicYear = _ay,
-            Sem_id = "Sem-1", Pattern = "NEP - R-24", ReleaseHallTicket = released, HallTicketDeclareDate = from ?? DateTime.UtcNow.AddDays(-1),
+            CreditsId = creditsId, SubjectId = subject.SubjectId, TotalCredits = "4", AYID = _ay.ToString(), CollegeId = _college,
+            Credits = new List<SubjectCredits> { new() { Id = Guid.NewGuid(), Head = "H1", HeadType = "ESE", HeadOutOf = "80", HeadPass = "32", CreditsId = creditsId } },
         });
+        if (date != "")
+            context.TimeTables.Add(new TimeTableMaster { Id = Guid.NewGuid(), ExamId = _exam, CourseId = _course, SubjectId = subject.SubjectId, Date = date, Time = time, CollegeId = _college });
+        var marks = await context.MarksMasters.SingleAsync(m => m.StdMstId == (student ?? _student));
+        context.StudentMarks.Add(new StudentMarks { Id = Guid.NewGuid(), MarksId = marks.MarksId, SubjectId = subject.SubjectId, Head = "H1" });
         await context.SaveChangesAsync();
+        return subject.SubjectId;
     }
 
     private HallTicketLinksRequest Request() => new() { Ayid = _ay, CourseId = _course, Semester = "Sem-1", Pattern = "NEP - R-24", ExamId = _exam, Days = 30 };
@@ -83,7 +92,7 @@ public sealed class HallTicketLinkTests : IDisposable
     private TaskLinkService Staff(ApplicationDbContext context)
     {
         var resolver = new EmailAccountResolver(context, _protector);
-        return new TaskLinkService(context, new EmailOutbox(context, resolver, new Mock<IEmailSender>().Object, NullLogger<EmailOutbox>.Instance), resolver);
+        return new TaskLinkService(context, new EmailOutbox(context, resolver, new Mock<IEmailSender>().Object, NullLogger<EmailOutbox>.Instance), resolver, new GenerateHallTicketService(context));
     }
 
     /// <summary>Sends the hall ticket links and answers the student's link id.</summary>
@@ -114,12 +123,8 @@ public sealed class HallTicketLinkTests : IDisposable
     }
 
     [Fact]
-    public async Task Links_go_only_for_a_released_exam_and_name_the_exam_without_stopping_a_details_link()
+    public async Task Links_go_without_a_release_step_and_name_the_exam_without_stopping_a_details_link()
     {
-        using (var context = Context(_college))
-            Assert.Contains("Release the hall ticket", (await Assert.ThrowsAsync<InvalidOperationException>(() => Staff(context).SendHallTicketsAsync(Request(), Site))).Message);
-
-        await ReleaseAsync();
         using (var context = Context(_college))
         {
             var details = new TaskBatch { Id = Guid.NewGuid(), CollegeId = _college, TaskTypeCode = TaskTypes.StudentMaster, Title = "d", Deadline = DateTime.UtcNow.AddDays(3) };
@@ -142,7 +147,6 @@ public sealed class HallTicketLinkTests : IDisposable
     [Fact]
     public async Task The_hall_ticket_shows_once_photo_and_signature_are_added_and_has_ern_and_abc_id()
     {
-        await ReleaseAsync();
         var link = await SendAsync();
         using var context = Context(_college);
 
@@ -170,22 +174,60 @@ public sealed class HallTicketLinkTests : IDisposable
     }
 
     [Fact]
-    public async Task A_withdrawn_or_future_release_says_so_instead_of_showing_the_hall_ticket()
+    public async Task Stopping_the_links_takes_the_hall_ticket_back()
     {
-        await ReleaseAsync();
         var link = await SendAsync();
+        using var context = Context(_college);
+        var batch = (await context.TaskLinks.SingleAsync(l => l.Id == link)).BatchId!.Value;
+        await Staff(context).StopBatchAsync(batch);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => HallTickets(context).GetAsync(Student(link)));
+    }
+
+    [Fact]
+    public async Task A_subject_the_students_sit_without_a_date_blocks_sending_until_the_timetable_is_saved()
+    {
+        await SubjectAsync("CE301", "03-12-2026", "10 AM");
+        var blank = await SubjectAsync("CE302", "", "");
+        using var context = Context(_college);
+
+        var preview = await Staff(context).PreviewHallTicketsAsync(Request());
+        Assert.Equal(new[] { "CE302" }, preview.MissingTimetable);
+        Assert.Equal((1, 1, 0), (preview.Students, preview.Sendable, preview.Emailed));
+        Assert.Contains("CE302", (await Assert.ThrowsAsync<InvalidOperationException>(() => Staff(context).SendHallTicketsAsync(Request(), Site))).Message);
+
+        context.TimeTables.Add(new TimeTableMaster { Id = Guid.NewGuid(), ExamId = _exam, CourseId = _course, SubjectId = blank, Date = "04-12-2026", Time = "10 AM", CollegeId = _college });
+        await context.SaveChangesAsync();
+        Assert.Equal(1, (await Staff(context).SendHallTicketsAsync(Request(), Site)).Queued);
+        Assert.Equal(1, (await Staff(context).PreviewHallTicketsAsync(Request())).Emailed);
+    }
+
+    [Fact]
+    public async Task One_student_or_only_those_who_have_not_downloaded_can_be_sent_again()
+    {
+        var other = Guid.NewGuid();
         using (var context = Context(_college))
         {
-            var row = await context.DeclareResults.SingleAsync();
-            row.HallTicketDeclareDate = DateTime.UtcNow.AddDays(5);
+            context.StudentMasters.Add(new StudentMaster { StdMstId = other, StudentId = "2400002", FirstName = "Ravi", LastName = "More", Email = "ravi@viva.in", CollegeId = _college });
+            context.MarksMasters.Add(new MarksMaster { MarksId = Guid.NewGuid(), StudentID = "2400002", StdMstId = other, ExamId = _exam, SemesterId = "Sem-1", Pattern = "NEP - R-24", AcademicYearAYID = _ay, SeatNo = "1002", CollegeId = _college });
             await context.SaveChangesAsync();
-            Assert.Contains("will be available from", (await HallTickets(context).GetAsync(Student(link))).Message);
 
-            row.ReleaseHallTicket = false;
-            await context.SaveChangesAsync();
-            var view = await HallTickets(context).GetAsync(Student(link));
-            Assert.False(view.Ready);
-            Assert.Contains("isn't available", view.Message);
+            var one = await Staff(context).SendHallTicketsAsync(new HallTicketLinksRequest { Ayid = _ay, CourseId = _course, Semester = "Sem-1", Pattern = "NEP - R-24", ExamId = _exam, Student = "2400002" }, Site);
+            Assert.Equal(1, one.Queued);
+            Assert.Contains("Ravi", (await context.TaskBatches.SingleAsync(b => b.Id == one.BatchId)).Title);
+            Assert.Contains("no hall ticket", (await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                Staff(context).SendHallTicketsAsync(new HallTicketLinksRequest { Ayid = _ay, CourseId = _course, Semester = "Sem-1", Pattern = "NEP - R-24", ExamId = _exam, Student = "9999999" }, Site))).Message);
+        }
+
+        using (var context = Context(_college))
+        {
+            await Staff(context).SendHallTicketsAsync(Request(), Site);
+            var link = (await context.TaskLinks.SingleAsync(l => l.StdMstId == _student && l.Status == TaskLinkStatuses.Active)).Id;
+            // Asha downloads; a resend to those who haven't reaches Ravi only.
+            await HallTickets(context).MarkDownloadedAsync(Student(link));
+            var again = await Staff(context).SendHallTicketsAsync(new HallTicketLinksRequest { Ayid = _ay, CourseId = _course, Semester = "Sem-1", Pattern = "NEP - R-24", ExamId = _exam, OnlyNotDownloaded = true }, Site);
+            Assert.Equal(1, again.Queued);
+            Assert.Equal(other, (await context.TaskLinks.SingleAsync(l => l.BatchId == again.BatchId)).StdMstId);
+            Assert.Equal(1, (await Staff(context).PreviewHallTicketsAsync(Request())).Downloaded);
         }
     }
 

@@ -2,6 +2,7 @@ using ExamAPI.Data;
 using ExamAPI.Models;
 using ExamAPI.Services.Common;
 using ExamAPI.Services.Email;
+using ExamAPI.Services.GenerateHallTicket;
 using Microsoft.EntityFrameworkCore;
 
 namespace ExamAPI.Services.StudentAccess
@@ -22,7 +23,7 @@ namespace ExamAPI.Services.StudentAccess
         public string? AppUrl { get; set; }
     }
 
-    /// <summary>Hall ticket links for one released exam of a class (the Release Hall Ticket selection).</summary>
+    /// <summary>Hall ticket links for one exam of a class (the Generate Hall Ticket selection). Sending is the release.</summary>
     public class HallTicketLinksRequest
     {
         public Guid Ayid { get; set; }
@@ -30,6 +31,10 @@ namespace ExamAPI.Services.StudentAccess
         public string Semester { get; set; } = "";
         public string Pattern { get; set; } = "";
         public Guid ExamId { get; set; }
+        /// <summary>One student only, by Student ID; empty = everyone with this hall ticket.</summary>
+        public string? Student { get; set; }
+        /// <summary>Only students who have not downloaded it yet (a fresh link replaces their earlier one).</summary>
+        public bool OnlyNotDownloaded { get; set; }
         /// <summary>The links work until the end of this many days from today.</summary>
         public int Days { get; set; } = 30;
         /// <summary>Where the student site is, as the staff browser sees it; checked by <see cref="StudentSiteUrl"/>.</summary>
@@ -48,6 +53,25 @@ namespace ExamAPI.Services.StudentAccess
         /// <summary>Over today's email limit: they go out tomorrow.</summary>
         public int GoTomorrow { get; set; }
         public string Message { get; set; } = "";
+    }
+
+    /// <summary>Who a hall ticket send would reach, what blocks it, and how earlier sends went.</summary>
+    public class HallTicketSendPreview
+    {
+        /// <summary>Students with this hall ticket (or the one student).</summary>
+        public int Students { get; set; }
+        /// <summary>Of those, the ones the email can go to.</summary>
+        public int Sendable { get; set; }
+        public int NoEmail { get; set; }
+        public int Flagged { get; set; }
+        public int Inactive { get; set; }
+        /// <summary>Subject codes these students sit without a saved date and time; sending waits until it is empty.</summary>
+        public List<string> MissingTimetable { get; set; } = new();
+        /// <summary>Students holding a link that still works.</summary>
+        public int Emailed { get; set; }
+        /// <summary>Students who downloaded it (through any link for this exam).</summary>
+        public int Downloaded { get; set; }
+        public DateTime? LastSentAt { get; set; }
     }
 
     public class LinkBatchFilter
@@ -111,8 +135,9 @@ namespace ExamAPI.Services.StudentAccess
     public interface ITaskLinkService
     {
         Task<SendLinksResult> SendAsync(SendLinksRequest request, string linkBaseUrl);
-        /// <summary>Emails each student of a released exam the link to their hall ticket.</summary>
+        /// <summary>Emails each student with this exam's hall ticket (or the one student) the link to it.</summary>
         Task<SendLinksResult> SendHallTicketsAsync(HallTicketLinksRequest request, string linkBaseUrl);
+        Task<HallTicketSendPreview> PreviewHallTicketsAsync(HallTicketLinksRequest request);
         Task<List<LinkBatchRow>> ListBatchesAsync(LinkBatchFilter filter);
         Task<LinkBatchDetail> GetBatchAsync(Guid batchId);
         Task<LinkBatchDetail> SetDeadlineAsync(Guid batchId, DateTime date);
@@ -141,12 +166,14 @@ namespace ExamAPI.Services.StudentAccess
         private readonly ApplicationDbContext _context;
         private readonly IEmailOutbox _outbox;
         private readonly IEmailAccountResolver _accounts;
+        private readonly IGenerateHallTicketService _hallTickets;
 
-        public TaskLinkService(ApplicationDbContext context, IEmailOutbox outbox, IEmailAccountResolver accounts)
+        public TaskLinkService(ApplicationDbContext context, IEmailOutbox outbox, IEmailAccountResolver accounts, IGenerateHallTicketService hallTickets)
         {
             _context = context;
             _outbox = outbox;
             _accounts = accounts;
+            _hallTickets = hallTickets;
         }
 
         /// <summary>The last second of a local calendar day, in UTC (links "work until 2 Nov").</summary>
@@ -226,22 +253,22 @@ namespace ExamAPI.Services.StudentAccess
                 throw new InvalidOperationException($"Choose between 1 and {MaxDays} days.");
             await EnsureSenderAsync(collegeId);
 
-            var exam = await _context.Exams.FirstOrDefaultAsync(e => e.ExamId == request.ExamId)
-                ?? throw new InvalidOperationException("Exam not found.");
-            var release = (await ExamAPI.Services.DeclareResult.DResultService.RowsByExam(_context, request.CourseId, request.Ayid, request.Semester, request.Pattern, new[] { exam.ExamId }))
-                .GetValueOrDefault(exam.ExamId);
-            if (release is not { ReleaseHallTicket: true })
-                throw new InvalidOperationException("Release the hall ticket for this exam first.");
+            var (exam, students) = await HallTicketStudentsAsync(request);
+            var missing = await MissingTimetableAsync(request, students);
+            if (missing.Count > 0)
+                throw new InvalidOperationException($"Save a date and time for {string.Join(", ", missing)} in the timetable first.");
+            if (request.OnlyNotDownloaded)
+            {
+                var downloaded = await DownloadedAsync(exam.ExamId, students.Select(s => s.StdMstId).ToList());
+                students = students.Where(s => !downloaded.Contains(s.StdMstId)).ToList();
+                if (students.Count == 0)
+                    throw new InvalidOperationException("Everyone has downloaded this hall ticket already.");
+            }
 
-            // The students who have this hall ticket: a marks row for the exam (as Generate Hall Ticket prints them).
-            var students = await _context.MarksMasters
-                .Where(m => m.ExamId == exam.ExamId && m.AcademicYearAYID == request.Ayid && m.SemesterId == request.Semester && m.Pattern == request.Pattern)
-                .Join(_context.StudentMasters, m => m.StdMstId, s => s.StdMstId, (m, s) => s)
-                .Distinct().ToListAsync();
-            if (students.Count == 0)
-                throw new InvalidOperationException("No students have a hall ticket for this exam yet.");
-
-            var title = $"Hall ticket — {exam.Name} — {await ClassNameAsync(request.CourseId, request.Semester)}";
+            var single = string.IsNullOrWhiteSpace(request.Student) ? null : students[0];
+            var title = single != null
+                ? $"Hall ticket — {exam.Name} — {StudentNames.Display(single)} ({single.StudentId})"
+                : $"Hall ticket — {exam.Name} — {await ClassNameAsync(request.CourseId, request.Semester)}";
             var batch = new TaskBatch
             {
                 Id = Guid.NewGuid(),
@@ -257,8 +284,79 @@ namespace ExamAPI.Services.StudentAccess
                 EditableFields = string.Join(',', StudentFields.Photo, StudentFields.Signature),
                 LinkBaseUrl = linkBaseUrl,
             };
-            return await QueueBatchAsync(batch, students, single: false);
+            return await QueueBatchAsync(batch, students, single != null);
         }
+
+        public async Task<HallTicketSendPreview> PreviewHallTicketsAsync(HallTicketLinksRequest request)
+        {
+            _ = CollegeId;
+            var (exam, students) = await HallTicketStudentsAsync(request);
+            var ids = students.Select(s => s.StdMstId).ToList();
+            var now = DateTime.UtcNow;
+            var links = await _context.TaskLinks
+                .Where(l => l.TaskTypeCode == TaskTypes.HallTicket && l.RefId == exam.ExamId && ids.Contains(l.StdMstId))
+                .Select(l => new { l.StdMstId, l.Status, l.ExpiresAt, l.UsedAt, l.CreatedAt })
+                .ToListAsync();
+            return new HallTicketSendPreview
+            {
+                Students = students.Count,
+                Sendable = students.Count(Sendable),
+                Inactive = students.Count(s => !s.IsActive),
+                NoEmail = students.Count(s => s.IsActive && s.Email == null),
+                Flagged = students.Count(s => s.IsActive && s.Email != null && s.EmailStatus == EmailVerification.Flagged),
+                MissingTimetable = await MissingTimetableAsync(request, students),
+                Emailed = links.Where(l => l.Status == TaskLinkStatuses.Active && l.ExpiresAt > now).Select(l => l.StdMstId).Distinct().Count(),
+                Downloaded = links.Where(l => l.UsedAt != null).Select(l => l.StdMstId).Distinct().Count(),
+                LastSentAt = links.Count == 0 ? null : links.Max(l => l.CreatedAt),
+            };
+        }
+
+        /// <summary>The exam and the students who have its hall ticket: a marks row for it (as Generate Hall Ticket prints them).</summary>
+        private async Task<(ExamMaster Exam, List<StudentMaster> Students)> HallTicketStudentsAsync(HallTicketLinksRequest request)
+        {
+            var exam = await _context.Exams.FirstOrDefaultAsync(e => e.ExamId == request.ExamId)
+                ?? throw new InvalidOperationException("Exam not found.");
+            var query = _context.MarksMasters
+                .Where(m => m.ExamId == exam.ExamId && m.AcademicYearAYID == request.Ayid && m.SemesterId == request.Semester && m.Pattern == request.Pattern)
+                .Join(_context.StudentMasters, m => m.StdMstId, s => s.StdMstId, (m, s) => s);
+            var single = string.IsNullOrWhiteSpace(request.Student) ? null : request.Student.Trim();
+            if (single != null) query = query.Where(s => s.StudentId == single);
+            var students = await query.Distinct().ToListAsync();
+            if (students.Count == 0)
+                throw new InvalidOperationException(single != null
+                    ? $"Student {single} has no hall ticket for this exam."
+                    : "No students have a hall ticket for this exam yet.");
+            return (exam, students);
+        }
+
+        /// <summary>
+        /// Codes of the written-exam subjects (the timetable list) these students sit that have no saved date and time:
+        /// their hall ticket would leave those rows out.
+        /// </summary>
+        private async Task<List<string>> MissingTimetableAsync(HallTicketLinksRequest request, List<StudentMaster> students)
+        {
+            var subjects = await _hallTickets.GetHallTicketSubject(new DTOs.HallTicketSubjectsRequest
+            {
+                Ayid = request.Ayid.ToString(),
+                CourseId = request.CourseId,
+                Semester = request.Semester,
+                Pattern = request.Pattern,
+                ExamId = request.ExamId,
+            });
+            var blank = subjects.Where(s => string.IsNullOrWhiteSpace(s.ExamDate) || string.IsNullOrWhiteSpace(s.ExamTime)).ToList();
+            if (blank.Count == 0) return new();
+            var ids = students.Select(s => (Guid?)s.StdMstId).ToList();
+            var blankIds = blank.Select(s => (Guid?)s.SubjectId).ToList();
+            var taken = await _context.StudentMarks
+                .Where(sm => blankIds.Contains(sm.SubjectId) && sm.MarksMaster!.ExamId == request.ExamId && ids.Contains(sm.MarksMaster.StdMstId))
+                .Select(sm => sm.SubjectId!.Value).Distinct().ToListAsync();
+            return blank.Where(s => taken.Contains(s.SubjectId)).Select(s => s.SubjectCode).Distinct().ToList();
+        }
+
+        private async Task<HashSet<Guid>> DownloadedAsync(Guid examId, List<Guid> stdMstIds) =>
+            (await _context.TaskLinks
+                .Where(l => l.TaskTypeCode == TaskTypes.HallTicket && l.RefId == examId && l.UsedAt != null && stdMstIds.Contains(l.StdMstId))
+                .Select(l => l.StdMstId).Distinct().ToListAsync()).ToHashSet();
 
         /// <summary>
         /// Adds the batch and a link per student with a usable email, stops each one's earlier open link for the same

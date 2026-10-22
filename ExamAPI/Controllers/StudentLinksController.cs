@@ -35,7 +35,7 @@ namespace ExamAPI.Controllers
             return await _service.SendAsync(request, baseUrl);
         });
 
-        /// <summary>Release Hall Ticket: email each student of a released exam the link to their hall ticket.</summary>
+        /// <summary>Generate Hall Ticket: email each student with this exam's hall ticket (or one student) the link to it.</summary>
         [HttpPost("hallticket")]
         public Task<IActionResult> SendHallTickets([FromBody] HallTicketLinksRequest request) => Answer(async () =>
         {
@@ -43,6 +43,10 @@ namespace ExamAPI.Controllers
                 ?? throw new InvalidOperationException("The student site address isn't known to the server. Set StudentAccess:AppUrl in the API settings.");
             return await _service.SendHallTicketsAsync(request, baseUrl);
         });
+
+        /// <summary>Who a hall ticket send would reach, the subjects still without a date, and how earlier sends went.</summary>
+        [HttpPost("hallticket/preview")]
+        public Task<IActionResult> PreviewHallTickets([FromBody] HallTicketLinksRequest request) => Answer(() => _service.PreviewHallTicketsAsync(request));
 
         [HttpGet("batches")]
         public async Task<IActionResult> Batches([FromQuery] LinkBatchFilter filter) => Ok(await _service.ListBatchesAsync(filter));

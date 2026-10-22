@@ -48,8 +48,8 @@ namespace ExamAPI.Services.StudentAccess
     }
 
     /// <summary>
-    /// A hall ticket link: the student sees the same hall ticket staff print (Generate Hall Ticket), once the exam's
-    /// hall ticket is released and their photo and signature are on record. The batch names the exam (RefId) and the
+    /// A hall ticket link: the student sees the same hall ticket staff print (Generate Hall Ticket) while the link
+    /// works, once their photo and signature are on record. The batch names the exam (RefId) and the
     /// class it was sent for. Reads go through the tenant filter: the session's college is the caller's.
     /// </summary>
     public sealed class StudentHallTicketService : IStudentHallTicketService
@@ -97,20 +97,7 @@ namespace ExamAPI.Services.StudentAccess
                 HasSeal = college.Seal != "",
             };
 
-            var release = batch.CourseId is Guid courseId && batch.AYID is Guid ayid
-                ? (await ExamAPI.Services.DeclareResult.DResultService.RowsByExam(_context, courseId, ayid, batch.SemesterId, view.Pattern, new[] { exam.ExamId }))
-                    .GetValueOrDefault(exam.ExamId)
-                : null;
-            if (release is not { ReleaseHallTicket: true })
-            {
-                view.Message = "Your hall ticket isn't available right now. Contact your college office.";
-                return view;
-            }
-            if (release.HallTicketDeclareDate is DateTime from && from.ToLocalTime().Date > DateTime.Today)
-            {
-                view.Message = $"Your hall ticket will be available from {from.ToLocalTime():d MMM yyyy}.";
-                return view;
-            }
+            // The emailed link is the release: staff take a hall ticket back by stopping the links (Student links).
 
             if (string.IsNullOrEmpty(s.PhotoUrl)) view.Missing.Add(StudentImageKinds.Photo);
             if (string.IsNullOrEmpty(s.SignUrl)) view.Missing.Add(StudentImageKinds.Signature);

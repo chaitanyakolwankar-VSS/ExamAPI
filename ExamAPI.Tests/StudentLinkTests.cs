@@ -85,7 +85,7 @@ public sealed class StudentLinkTests
     }
 
     private TaskLinkService Staff(ApplicationDbContext context) =>
-        new(context, Outbox(context), new EmailAccountResolver(context, _protector));
+        new(context, Outbox(context), new EmailAccountResolver(context, _protector), new ExamAPI.Services.GenerateHallTicket.GenerateHallTicketService(context));
 
     private EmailOutbox Outbox(ApplicationDbContext context) =>
         new(context, new EmailAccountResolver(context, _protector), _sender, NullLogger<EmailOutbox>.Instance);
