@@ -58,7 +58,8 @@ namespace ExamAPI.Services.StudentAccess
 
     /// <summary>
     /// The student changes their own Student Master record through their link: only the fields the batch allows
-    /// (others are ignored), checked like the staff form, saved straight away (no approval). Text and pictures are
+    /// (others are ignored), checked like the staff form; every one it allows must be filled in except the last name.
+    /// Saved straight away (no approval). Text and pictures are
     /// saved together from one Save; each save that changes something is audited with old and new values, marks the
     /// link Updated, and emails the student what changed and how to correct it, so a change they did not make does
     /// not go unnoticed. Reads and writes go through the tenant filter: the session's college is the caller's.
@@ -163,14 +164,14 @@ namespace ExamAPI.Services.StudentAccess
             if (editable.Contains(StudentFields.FirstName))
                 Set(StudentFields.FirstName, s.FirstName, Name(update.FirstName, "First name", true), v => s.FirstName = v!);
             if (editable.Contains(StudentFields.MiddleName))
-                Set(StudentFields.MiddleName, s.MiddleName, Name(update.MiddleName, "Middle name", false), v => s.MiddleName = v);
+                Set(StudentFields.MiddleName, s.MiddleName, Name(update.MiddleName, "Middle name", true), v => s.MiddleName = v!);
             if (editable.Contains(StudentFields.LastName))
-                Set(StudentFields.LastName, s.LastName, Name(update.LastName, "Last name", true), v => s.LastName = v!);
+                Set(StudentFields.LastName, s.LastName, Name(update.LastName, "Last name", false), v => s.LastName = v ?? "");
             if (editable.Contains(StudentFields.MotherName))
                 Set(StudentFields.MotherName, s.MotherName, Name(update.MotherName, "Mother's name", true), v => s.MotherName = v);
             if (editable.Contains(StudentFields.DateOfBirth))
             {
-                DateTime? dob = update.DateOfBirth?.Date;
+                DateTime? dob = update.DateOfBirth?.Date ?? throw new InvalidOperationException("Enter your date of birth.");
                 if (dob is DateTime d && (d > DateTime.Today.AddYears(-14) || d < DateTime.Today.AddYears(-80)))
                     throw new InvalidOperationException("Date of birth: check the year.");
                 var oldDob = s.DateOfBirth?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
@@ -192,16 +193,16 @@ namespace ExamAPI.Services.StudentAccess
                 Set(StudentFields.Category, s.Category, c, v => s.Category = v);
             }
             if (editable.Contains(StudentFields.Phone))
-                Set(StudentFields.Phone, s.Phone, Phone(update.Phone), v => s.Phone = v);
+                Set(StudentFields.Phone, s.Phone, Phone(update.Phone) ?? throw new InvalidOperationException("Enter your phone number."), v => s.Phone = v);
             if (editable.Contains(StudentFields.Address))
             {
-                var a = Clean(update.Address);
-                if (a?.Length > 300) throw new InvalidOperationException("Address: at most 300 characters.");
+                var a = Clean(update.Address) ?? throw new InvalidOperationException("Enter your address.");
+                if (a.Length > 300) throw new InvalidOperationException("Address: at most 300 characters.");
                 Set(StudentFields.Address, s.Address, a, v => s.Address = v);
             }
             if (editable.Contains(StudentFields.Prn))
             {
-                var p = Clean(update.Prn)?.ToUpperInvariant();
+                var p = Clean(update.Prn)?.ToUpperInvariant() ?? throw new InvalidOperationException("Enter your ERN / PRN.");
                 if (p != null && (p.Length > 30 || !PrnPattern().IsMatch(p)))
                     throw new InvalidOperationException("ERN / PRN: letters, digits, '-' and '/' only.");
                 if (p != null && p != s.StudentPRN
@@ -211,7 +212,7 @@ namespace ExamAPI.Services.StudentAccess
             }
             if (editable.Contains(StudentFields.AbcId))
             {
-                var abc = StudentMasterService.CleanAbcId(update.AbcId);
+                var abc = StudentMasterService.CleanAbcId(update.AbcId) ?? throw new InvalidOperationException("Enter your ABC ID.");
                 if (abc != s.AbcId && await StudentMasterService.AbcIdTakenAsync(_context, abc, s.StdMstId))
                     throw new InvalidOperationException("This ABC ID belongs to another student. Check it, or contact your college office.");
                 Set(StudentFields.AbcId, s.AbcId, abc, v => s.AbcId = v);

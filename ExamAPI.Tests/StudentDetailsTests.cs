@@ -48,7 +48,7 @@ public sealed class StudentDetailsTests : IDisposable
         context.Database.EnsureCreated();
         context.Colleges.Add(new College { CollegeId = _college, Name = "VIVA", CollegeCode = "VIVA", CollegeCenter = "Virar", ContactEmail = "a@b.in", ContactPhone = "1" });
         context.StudentMasters.AddRange(
-            new StudentMaster { StdMstId = _student, StudentId = "2400001", FirstName = "Asha", LastName = "Patil", MotherName = "Sunita", Gender = "Female", Category = "OPEN", Email = "asha@viva.in", CollegeId = _college },
+            new StudentMaster { StdMstId = _student, StudentId = "2400001", FirstName = "Asha", LastName = "Patil", MotherName = "Sunita", Gender = "Female", Category = "OPEN", Email = "asha@viva.in", StudentPRN = "ERN-1", CollegeId = _college },
             new StudentMaster { StdMstId = _other, StudentId = "2400002", FirstName = "Ravi", LastName = "Patil", StudentPRN = "ERN-77", CollegeId = _college });
         context.TaskBatches.Add(new TaskBatch { Id = _batch, CollegeId = _college, TaskTypeCode = TaskTypes.StudentMaster, Title = "t", Deadline = DateTime.UtcNow.AddDays(3), EditableFields = "phone,address,prn,photo,dateOfBirth" });
         context.TaskLinks.Add(new TaskLink { Id = _link, CollegeId = _college, TaskTypeCode = TaskTypes.StudentMaster, BatchId = _batch, StdMstId = _student, ExpiresAt = DateTime.UtcNow.AddDays(3) });
@@ -70,6 +70,14 @@ public sealed class StudentDetailsTests : IDisposable
         new Claim(StudentAccessAuth.TaskClaim, TaskTypes.StudentMaster),
     }, StudentAccessAuth.Scheme));
 
+    /// <summary>Every field this batch allows, filled in (the page always sends them all); a test changes what it needs.</summary>
+    private static StudentDetailsUpdate Full(Action<StudentDetailsUpdate>? change = null)
+    {
+        var u = new StudentDetailsUpdate { Phone = "9876543210", Address = "12, MG Road, Virar", Prn = "ERN-1", DateOfBirth = new DateTime(2005, 3, 14) };
+        change?.Invoke(u);
+        return u;
+    }
+
     private StudentDetailsService Service(ApplicationDbContext context)
     {
         var resolver = new EmailAccountResolver(context, new SecretProtector(ServerKey));
@@ -86,6 +94,7 @@ public sealed class StudentDetailsTests : IDisposable
             FirstName = "Hacked",              // not allowed by this batch: ignored
             Phone = "+91 98765 43210",
             Address = "  12, MG Road,   Virar ",
+            Prn = "ERN-1",
             DateOfBirth = new DateTime(2005, 3, 14),
         });
 
@@ -110,10 +119,10 @@ public sealed class StudentDetailsTests : IDisposable
     public async Task Saving_the_same_values_changes_nothing_and_each_save_that_changes_something_sends_its_own_notice()
     {
         using var context = Context(_college);
-        await Service(context).SaveAsync(Student(), new StudentDetailsUpdate { Phone = "9876543210" });
-        var same = await Service(context).SaveAsync(Student(), new StudentDetailsUpdate { Phone = "9876543210" });
+        await Service(context).SaveAsync(Student(), Full());
+        var same = await Service(context).SaveAsync(Student(), Full());
         Assert.Empty(same.Changed);
-        var again = await Service(context).SaveAsync(Student(), new StudentDetailsUpdate { Phone = "9123456789" });
+        var again = await Service(context).SaveAsync(Student(), Full(u => u.Phone = "9123456789"));
         Assert.Equal(new[] { "Phone" }, again.Changed);
         Assert.Equal(2, await context.EmailQueue.CountAsync(m => m.Kind == EmailKinds.Plain));
     }
@@ -122,14 +131,14 @@ public sealed class StudentDetailsTests : IDisposable
     public async Task A_photo_saved_with_other_details_is_one_save_with_one_notice()
     {
         using var context = Context(_college);
-        var result = await Service(context).SaveAsync(Student(), new StudentDetailsUpdate { Phone = "9876543210", Photo = PngDataUrl });
-        Assert.Equal(new[] { "Phone", "Photo" }, result.Changed);
+        var result = await Service(context).SaveAsync(Student(), Full(u => u.Photo = PngDataUrl));
+        Assert.Equal(new[] { "Date of birth", "Phone", "Address", "Photo" }, result.Changed);
         Assert.True(result.Home.Student.HasPhoto);
         Assert.Equal(1, await context.EmailQueue.CountAsync(m => m.Kind == EmailKinds.Plain));
         Assert.Equal(1, await context.AuditLogs.CountAsync(a => a.Event == StudentDetailsService.ChangedEvent));
 
         // A bad phone stops the whole save: the picture isn't stored either.
-        await Assert.ThrowsAsync<InvalidOperationException>(() => Service(context).SaveAsync(Student(), new StudentDetailsUpdate { Phone = "123", Photo = PngDataUrl }));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Service(context).SaveAsync(Student(), Full(u => { u.Phone = "123"; u.Photo = PngDataUrl; })));
         Assert.Equal(1, await context.AuditLogs.CountAsync(a => a.Event == StudentDetailsService.ChangedEvent));
     }
 
@@ -142,9 +151,27 @@ public sealed class StudentDetailsTests : IDisposable
     {
         using var context = Context(_college);
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => Service(context).SaveAsync(Student(),
-            new StudentDetailsUpdate { Phone = phone, Prn = prn, DateOfBirth = dob == null ? null : DateTime.Parse(dob) }));
+            Full(u => { if (phone != null) u.Phone = phone; if (prn != null) u.Prn = prn; if (dob != null) u.DateOfBirth = DateTime.Parse(dob); })));
         Assert.StartsWith(message, ex.Message);
         Assert.Null((await context.TaskLinks.SingleAsync()).UsedAt);
+    }
+
+    [Theory]
+    [InlineData("phone", "Enter your phone number.")]
+    [InlineData("address", "Enter your address.")]
+    [InlineData("prn", "Enter your ERN / PRN.")]
+    [InlineData("dob", "Enter your date of birth.")]
+    public async Task Every_allowed_field_must_be_filled_in(string empty, string message)
+    {
+        using var context = Context(_college);
+        var update = Full(u =>
+        {
+            if (empty == "phone") u.Phone = " ";
+            if (empty == "address") u.Address = "";
+            if (empty == "prn") u.Prn = null;
+            if (empty == "dob") u.DateOfBirth = null;
+        });
+        Assert.Equal(message, (await Assert.ThrowsAsync<InvalidOperationException>(() => Service(context).SaveAsync(Student(), update))).Message);
     }
 
     [Fact]
@@ -171,14 +198,14 @@ public sealed class StudentDetailsTests : IDisposable
             await context.SaveChangesAsync();
         }
         using var c = Context(_college);
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(c).SaveAsync(Student(), new StudentDetailsUpdate { Phone = "9876543210" }));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(c).SaveAsync(Student(), Full()));
     }
 
     [Fact]
     public async Task Staff_see_what_the_student_changed()
     {
         using (var context = Context(_college))
-            await Service(context).SaveAsync(Student(), new StudentDetailsUpdate { Phone = "9876543210" });
+            await Service(context).SaveAsync(Student(), Full());
         using var staff = Context(_college);
         var resolver = new EmailAccountResolver(staff, new SecretProtector(ServerKey));
         var outbox = new EmailOutbox(staff, resolver, new Mock<IEmailSender>().Object, NullLogger<EmailOutbox>.Instance);

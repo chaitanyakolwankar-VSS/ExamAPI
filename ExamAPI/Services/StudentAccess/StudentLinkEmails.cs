@@ -30,11 +30,11 @@ namespace ExamAPI.Services.StudentAccess
         /// <summary>What the student does after opening the link, in order.</summary>
         private static List<string> Steps(TaskLink link, IReadOnlyCollection<string> editable)
         {
-            var steps = new List<string> { "Open the link and tap \"Email me a code\".", "Enter the 6-digit code we send to this address." };
+            var steps = new List<string> { "Open the link and confirm it's you with the one-time code sent to this email." };
             if (link.TaskTypeCode == TaskTypes.HallTicket)
             {
                 steps.Add("If asked, add your photo or signature and save.");
-                steps.Add("Tap \"Save as PDF\" and keep the file. Print it for the exam.");
+                steps.Add("Download your hall ticket (PDF) and keep it. Print it for the exam.");
                 return steps;
             }
             var pictures = editable.Count(f => f is StudentFields.Photo or StudentFields.Signature);

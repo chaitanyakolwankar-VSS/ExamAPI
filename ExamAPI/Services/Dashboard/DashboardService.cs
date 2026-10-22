@@ -309,6 +309,13 @@ namespace ExamAPI.Services.Dashboard
                 .Select(d => new { d.ExamId, d.ReleaseHallTicket, d.IsDeclare, d.GazetteGnrt })
                 .ToListAsync();
 
+            // Hall tickets now go out by email from Generate Hall Ticket: an exam whose hall ticket links were
+            // emailed counts as released (the old Release Hall Ticket flag still counts too).
+            var examIds = exams.Select(e => (Guid?)e.ExamId).ToList();
+            var emailed = (await _context.TaskBatches
+                .Where(b => b.TaskTypeCode == ExamAPI.Models.TaskTypes.HallTicket && examIds.Contains(b.RefId))
+                .Select(b => b.RefId!.Value).Distinct().ToListAsync()).ToHashSet();
+
             var studentsByExam = students.ToLookup(s => s.ExamId);
             var declaresByExam = declares.ToLookup(d => d.ExamId);
 
@@ -326,7 +333,7 @@ namespace ExamAPI.Services.Dashboard
                         SeatNo = mine.Where(x => x.HasSeat).Select(x => x.StdMstId).Distinct().Count(),
                         MarksEntered = mine.Where(x => x.HasMarks).Select(x => x.StdMstId).Distinct().Count(),
                         // One exam can have a DeclareResult row per semester: released/declared means any of them.
-                        ReleaseHallTicket = drs.Any(d => d.ReleaseHallTicket),
+                        ReleaseHallTicket = emailed.Contains(e.ExamId) || drs.Any(d => d.ReleaseHallTicket),
                         IsDeclare = drs.Any(d => d.IsDeclare),
                         GazetteGnrt = drs.Count == 0 ? 0 : drs.Max(d => d.GazetteGnrt)
                     };
