@@ -17,9 +17,32 @@ college, ready to show the student side (details link and hall ticket by link). 
 - There is **no mail account** yet. Before a demo, the platform admin enters the demo's own sender (not the live
   one) under email settings. Nothing is emailed until then.
 
+## Where it runs
+
+| | Address | Server folder |
+|---|---|---|
+| Website | `https://www.vivacollege.in/ExamSoftware` | the demo's ExamSoftware IIS folder |
+| API | `https://www.vivacollege.in/ExamAPI` | the demo's ExamAPI IIS folder |
+| Database | `DBExamAPI` on the dev SQL server | |
+
+**Build (on the development PC):** the website with `npm run build` in ExamClient (the default build is the demo:
+`/ExamSoftware`, API at `/ExamAPI`); the API with `dotnet publish ExamAPI/ExamAPI.csproj -c Release`. Zip each
+output. The 23 Oct build is `_deploy/demo/Demo-ExamSoftware-20261023-1148.zip` and `Demo-ExamAPI-20261023-1148.zip`.
+
+**Deploy:** extract each zip straight into its folder, replacing the files. Keep the server's own
+`appsettings*.json` in the API folder (the zip has none). `DBExamAPI` already has every migration this build needs.
+
+**Server settings the student links need:** `Cors:AllowedOrigins` must include `https://www.vivacollege.in` (links
+are written with the address staff are on), or set `StudentAccess:AppUrl` to `https://www.vivacollege.in/ExamSoftware`.
+
+**Mail account:** the demo database has none. Sign in as the platform admin on the demo site and enter the demo's
+own sender (a different Google account from live, so live's daily allowance isn't shared). It has to be entered on the
+demo site itself: the password is encrypted with that server's key.
+
 ## Staff sign-in
 
-Staff sign in with their email, and the emails were changed to `@demo.invalid`. Passwords are unchanged.
+Staff sign in with their email, and the emails were changed to `@demo.invalid`. New passwords were set on 23 Oct for
+the four accounts below; they are in `_review/DemoLogins.txt` on Chaitanya's PC (not in git). Ask him for one.
 
 | College | User | Sign in with |
 |---|---|---|
@@ -27,7 +50,7 @@ Staff sign in with their email, and the emails were changed to `@demo.invalid`. 
 | ENG001 | admin | `admin.eng001@demo.invalid` |
 | PHM001 | admin | `admin.phm001@demo.invalid` |
 | PHM001 | staff.pharm | `staff.pharm.phm001@demo.invalid` |
-| TST001 (test college) | admin, chaitanya_test | `admin.tst001@demo.invalid`, `chaitanya_test.tst001@demo.invalid` |
+| TST001 (test college) | admin, chaitanya_test | `admin.tst001@demo.invalid`, `chaitanya_test.tst001@demo.invalid` (old passwords) |
 
 Forgot password doesn't work here (no real emails). Reset a password from the user screens instead.
 

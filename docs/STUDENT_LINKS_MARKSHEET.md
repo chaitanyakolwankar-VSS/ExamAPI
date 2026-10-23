@@ -119,6 +119,14 @@ Run `dotnet test` (all must pass) and `npx tsc -b --noEmit` in ExamClient before
 
 ## 4. Working locally
 
+- **Code:** everything here is on GitHub: `master` of `chaitanyakolwankar-VSS/ExamAPI` and `main` of
+  `chaitanyakolwankar-VSS/ExamClient`. Pull both, then work on your own branch from them (e.g.
+  `nitesh/marksheet-links`) and open a pull request when a piece is done.
+  ```bash
+  git checkout master && git pull && git checkout -b nitesh/marksheet-links   # ExamAPI (use main in ExamClient)
+  ```
+- **Seeing it working first:** the demo (`https://www.vivacollege.in/ExamSoftware`, database `DBExamAPI`) runs this
+  code. Ask Chaitanya for a demo staff sign-in and try a hall ticket link end to end before you start; see `DEMO.md`.
 - **Database:** use your own `DBExamAPI_Nitesh`. It needs every migration up to `AddAbcIdAndCollegeSeal`:
   set your connection string in `appsettings.Development.json` (don't commit it) and run
   `dotnet ef database update` from `ExamAPI/ExamAPI`.
