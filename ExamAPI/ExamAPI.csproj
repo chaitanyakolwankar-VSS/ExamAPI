@@ -31,5 +31,6 @@
   <ItemGroup>
     <Content Update="appsettings.json;appsettings.Development.json" CopyToPublishDirectory="Never" />
   </ItemGroup>
+  <ProjectExtensions><VisualStudio><UserProperties appsettings_1json__JsonSchema="https://www.schemastore.org/aurora-2.0.json" /></VisualStudio></ProjectExtensions>
 
 </Project>
