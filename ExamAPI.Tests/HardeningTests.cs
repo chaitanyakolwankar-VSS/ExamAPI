@@ -26,6 +26,15 @@ public sealed class HardeningTests
     }
 
     [Fact]
+    public void A_logger_that_has_shut_down_does_not_break_the_error_message()
+    {
+        // The test host sets the shared logger at startup; once it is disposed, logging through it throws.
+        using (var factory = new AccessAuditFactory()) factory.CreateClient();
+
+        Assert.Equal(SafeError.Generic, SafeError.Message(new NullReferenceException()));
+    }
+
+    [Fact]
     public void Sign_in_and_reset_endpoints_are_rate_limited()
     {
         static string? Policy(MemberInfo m) => m.GetCustomAttribute<EnableRateLimitingAttribute>()?.PolicyName;

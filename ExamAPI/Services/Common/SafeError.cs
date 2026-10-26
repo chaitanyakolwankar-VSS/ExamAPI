@@ -19,7 +19,9 @@ namespace ExamAPI.Services.Common
         public static string Message(Exception ex)
         {
             if (IsUserFacing(ex)) return ex.Message;
-            Logger?.LogError(ex, "Handled error");
+            // Logging must never turn a handled error into a new one (e.g. the logger of a host that has shut down).
+            try { Logger?.LogError(ex, "Handled error"); }
+            catch (Exception) { }
             return Generic;
         }
     }
