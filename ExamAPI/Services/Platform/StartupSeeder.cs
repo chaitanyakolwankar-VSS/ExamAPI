@@ -31,6 +31,7 @@ namespace ExamAPI.Services.Platform
             ("Students Admin", "Declare Result"),
             ("Students Admin", "Release Hallticket"),
             ("Students Admin", "Student Master"),
+            ("Staff Admin", "Staff Master"),
             ("Conduct Exam", "Regular Exam"),
             ("Conduct Exam", "ATKT/Reval Exam"),
             ("Conduct Exam", "Assign Seat No"),
