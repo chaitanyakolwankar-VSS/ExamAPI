@@ -26,12 +26,12 @@ namespace ExamAPI.Controllers
             _portal = portal;
         }
 
-        public class TokenRequest
+        public class StaffTokenRequest
         {
             public string? Token { get; set; }
         }
 
-        public class CodeCheckRequest
+        public class StaffCodeCheckRequest
         {
             public string? Token { get; set; }
             public string? Code { get; set; }
@@ -40,17 +40,17 @@ namespace ExamAPI.Controllers
         [AllowAnonymous]
         [EnableRateLimiting(RateLimits.StudentAccess)]
         [HttpPost("open")]
-        public async Task<IActionResult> Open([FromBody] TokenRequest request) => Ok(await _service.OpenAsync(request.Token));
+        public async Task<IActionResult> Open([FromBody] StaffTokenRequest request) => Ok(await _service.OpenAsync(request.Token));
 
         [AllowAnonymous]
         [EnableRateLimiting(RateLimits.StudentAccess)]
         [HttpPost("code")]
-        public Task<IActionResult> SendCode([FromBody] TokenRequest request) => Answer(() => _service.SendCodeAsync(request.Token));
+        public Task<IActionResult> SendCode([FromBody] StaffTokenRequest request) => Answer(() => _service.SendCodeAsync(request.Token));
 
         [AllowAnonymous]
         [EnableRateLimiting(RateLimits.StudentAccess)]
         [HttpPost("verify")]
-        public Task<IActionResult> Verify([FromBody] CodeCheckRequest request) => Answer(() => _service.VerifyAsync(request.Token, request.Code));
+        public Task<IActionResult> Verify([FromBody] StaffCodeCheckRequest request) => Answer(() => _service.VerifyAsync(request.Token, request.Code));
 
         /// <summary>The person, the exam, the details to check and all their live letters.</summary>
         [Authorize(Policy = StaffAccessAuth.Policy)]
