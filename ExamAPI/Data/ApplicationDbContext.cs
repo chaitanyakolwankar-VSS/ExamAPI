@@ -128,6 +128,9 @@ namespace ExamAPI.Data
         public DbSet<StaffOption> StaffOptions { get; set; }
         public DbSet<StaffLetter> StaffLetters { get; set; }
         public DbSet<StaffLetterDuty> StaffLetterDuties { get; set; }
+        public DbSet<StaffLink> StaffLinks { get; set; }
+        public DbSet<StaffOtp> StaffOtps { get; set; }
+        public DbSet<StaffSession> StaffSessions { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -237,6 +240,7 @@ namespace ExamAPI.Data
 
             StudentAccessModel.Configure(modelBuilder);
             StaffModel.Configure(modelBuilder);
+            StaffAccessModel.Configure(modelBuilder);
 
             // =========================================================
             // GLOBAL CONFIGURATION
@@ -353,7 +357,10 @@ namespace ExamAPI.Data
             Guid? currentUserId = userIdString != null ? Guid.Parse(userIdString) : null;
 
             // A student is someone signed in with the student session, not a staff role that happens to be called "Student".
-            var userType = user?.Identity?.AuthenticationType == ExamAPI.Services.StudentAccess.StudentAccessAuth.Scheme ? "Student" : "Staff";
+            // A staff member opening an emailed letters link has a session of their own, not a staff sign-in.
+            var authType = user?.Identity?.AuthenticationType;
+            var userType = authType == ExamAPI.Services.StudentAccess.StudentAccessAuth.Scheme ? "Student"
+                : authType == ExamAPI.Services.Staff.StaffAccessAuth.Scheme ? ExamAPI.Services.Staff.StaffAccessAuth.RoleName : "Staff";
 
             // Stamp the tenant on every new row, so no service can forget to set it and
             // silently create data that belongs to nobody (and would then be invisible,

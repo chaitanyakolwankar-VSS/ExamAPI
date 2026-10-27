@@ -25,7 +25,7 @@ namespace ExamAPI.Models
         public Guid? PerformedBy { get; set; }   // The User's ID (Guid)
 
         [MaxLength(50)]
-        public string? UserType { get; set; }    // "Student" or "Staff"
+        public string? UserType { get; set; }    // "Student", "Staff" or "StaffMember" (a staff member on an emailed letters link)
 
         public DateTime Timestamp { get; set; } = DateTime.UtcNow;
 

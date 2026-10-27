@@ -73,6 +73,7 @@ builder.Services.AddScoped<ExamAPI.Services.ATKTCummulativeReport.IATKTCummulati
 builder.Services.AddScoped<ExamAPI.Services.AttendenceReport.IAttendenceReportService, ExamAPI.Services.AttendenceReport.AttendenceReportService>();
 builder.Services.AddScoped<ExamAPI.Services.Staff.IStaffService, ExamAPI.Services.Staff.StaffService>();
 builder.Services.AddScoped<ExamAPI.Services.Staff.IStaffLetterService, ExamAPI.Services.Staff.StaffLetterService>();
+builder.Services.AddScoped<ExamAPI.Services.Staff.IStaffLetterPdfService, ExamAPI.Services.Staff.StaffLetterPdfService>();
 builder.Services.AddScoped<ExamAPI.Services.StudentPromotion.IStudentPromotionService, ExamAPI.Services.StudentPromotion.StudentPromotion>();
 builder.Services.AddScoped<ExamAPI.Services.ReleaseHallTicket.IReleaseHallticketService, ExamAPI.Services.ReleaseHallTicket.ReleaseHallticketService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
@@ -97,6 +98,12 @@ builder.Services.AddScoped<ExamAPI.Services.StudentAccess.ITaskLinkService, Exam
 builder.Services.AddScoped<ExamAPI.Services.StudentAccess.IStudentSignInService, ExamAPI.Services.StudentAccess.StudentSignInService>();
 builder.Services.AddScoped<ExamAPI.Services.StudentAccess.IStudentDetailsService, ExamAPI.Services.StudentAccess.StudentDetailsService>();
 builder.Services.AddScoped<ExamAPI.Services.StudentAccess.IStudentHallTicketService, ExamAPI.Services.StudentAccess.StudentHallTicketService>();
+// Staff links: letters emailed to staff (own tables, the same secrets helper, an auth scheme of their own, below).
+builder.Services.AddScoped<ExamAPI.Services.Email.IEmailBodyRenderer, ExamAPI.Services.Staff.StaffLinkEmailRenderer>();
+builder.Services.AddScoped<ExamAPI.Services.Email.IEmailBodyRenderer, ExamAPI.Services.Staff.StaffOtpEmailRenderer>();
+builder.Services.AddScoped<ExamAPI.Services.Staff.IStaffLinkService, ExamAPI.Services.Staff.StaffLinkService>();
+builder.Services.AddScoped<ExamAPI.Services.Staff.IStaffSignInService, ExamAPI.Services.Staff.StaffSignInService>();
+builder.Services.AddScoped<ExamAPI.Services.Staff.IStaffPortalService, ExamAPI.Services.Staff.StaffPortalService>();
 builder.Services.AddOrdinanceEngine();
 builder.Services.AddHttpClient();
 builder.Services.AddHostedService<ExamAPI.Services.Common.KeepAliveService>(); // KeepAlive:Url, see the class
@@ -136,7 +143,10 @@ builder.Services.AddAuthentication(options =>
 })
 // Students: not a default scheme, so it only runs on endpoints with the Student policy.
 .AddScheme<AuthenticationSchemeOptions, ExamAPI.Services.StudentAccess.StudentSessionHandler>(
-    ExamAPI.Services.StudentAccess.StudentAccessAuth.Scheme, _ => { });
+    ExamAPI.Services.StudentAccess.StudentAccessAuth.Scheme, _ => { })
+// Staff members on an emailed letters link: likewise only on endpoints with the StaffMemberSite policy.
+.AddScheme<AuthenticationSchemeOptions, ExamAPI.Services.Staff.StaffSessionHandler>(
+    ExamAPI.Services.Staff.StaffAccessAuth.Scheme, _ => { });
 // JWT Authentication end
 
 
@@ -154,6 +164,7 @@ builder.Services.AddAuthorization(options =>
     // Access model (DEC-17 / DB-05): PlatformAdmin and CollegeAdmin policies.
     options.AddAccessPolicies();
     ExamAPI.Services.StudentAccess.StudentAccessAuth.AddStudentPolicy(options);
+    ExamAPI.Services.Staff.StaffAccessAuth.AddStaffMemberPolicy(options);
 });
 // Authorization end
 
