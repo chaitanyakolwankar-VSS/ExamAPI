@@ -121,6 +121,12 @@ namespace ExamAPI.Data
         public DbSet<CollegeSettings> CollegeSettings { get; set; }
         public DbSet<EmailAccount> EmailAccounts { get; set; }
 
+        // =========================================
+        // 10. Staff (exam letters)
+        // =========================================
+        public DbSet<StaffMaster> StaffMasters { get; set; }
+        public DbSet<StaffOption> StaffOptions { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -228,6 +234,7 @@ namespace ExamAPI.Data
                 .IsRequired();
 
             StudentAccessModel.Configure(modelBuilder);
+            StaffModel.Configure(modelBuilder);
 
             // =========================================================
             // GLOBAL CONFIGURATION
