@@ -560,6 +560,41 @@ namespace ExamAPI.Services.Report
 
         public async Task<byte[]> GenerateMarksheetPdfAsync(Guid studId, Guid examId, string semId, string pattern, bool includeHistory, DateTime? resultDate, Guid collegeId, bool noRleForFail = false)
         {
+            var reportDto = await BuildMarksheetAsync(studId, examId, semId, pattern, includeHistory, resultDate, collegeId, noRleForFail);
+            return new MarksheetDocument(reportDto).GeneratePdf();
+        }
+
+        public Task<MarksheetReportDto> GetMarksheetDataAsync(Guid studId, Guid examId, string semId, string pattern, bool includeHistory, DateTime? resultDate, Guid collegeId, bool noRleForFail = false)
+            => BuildMarksheetAsync(studId, examId, semId, pattern, includeHistory, resultDate, collegeId, noRleForFail);
+
+        public async Task<MarksheetBrandingDto> GetMarksheetBrandingAsync(Guid collegeId)
+        {
+            // The preview is drawn in the browser, so it needs the same images the PDF embeds. The PDF
+            // refuses remote URLs (DEC-19), so they are dropped here too; both then print the same sheet.
+            var college = await _context.Colleges.AsNoTracking()
+                .Where(c => c.CollegeId == collegeId && !c.IsDeleted)
+                .Select(c => new { c.Name, c.CollegeCode, c.LogoUrl, c.LogoBannerUrl, c.ControllerSignUrl, c.PrincipalSignUrl })
+                .FirstOrDefaultAsync();
+
+            static string? Local(string? storedPath)
+                => string.IsNullOrWhiteSpace(storedPath) || CollegeBranding.IsRemoteUrl(storedPath) ? null : storedPath;
+
+            return new MarksheetBrandingDto
+            {
+                CollegeName = CollegeBranding.DisplayName(college?.Name, college?.CollegeCode),
+                Banner = Local(college?.LogoBannerUrl),
+                Logo = Local(college?.LogoUrl),
+                ControllerSignature = Local(college?.ControllerSignUrl),
+                PrincipalSignature = Local(college?.PrincipalSignUrl)
+            };
+        }
+
+        /// <summary>
+        /// Builds the marksheet the PDF prints. The preview endpoint returns the same object, so the
+        /// on-screen card and the generated file can never disagree.
+        /// </summary>
+        private async Task<MarksheetReportDto> BuildMarksheetAsync(Guid studId, Guid examId, string semId, string pattern, bool includeHistory, DateTime? resultDate, Guid collegeId, bool noRleForFail = false)
+        {
             var exam = await _context.Exams
                 .Include(e => e.Course)
                 .FirstOrDefaultAsync(e => e.ExamId == examId
@@ -597,7 +632,7 @@ namespace ExamAPI.Services.Report
                     && !m.IsDeleted);
 
             if (marksMaster == null)
-                throw new Exception("Result not found for the given student and exam. Have you processed the results yet?");
+                throw new InvalidOperationException("Result not found for the given student and exam. Have you processed the results yet?");
 
             var student = marksMaster.Student;
 
@@ -673,8 +708,7 @@ namespace ExamAPI.Services.Report
             reportDto.CreditsEarned = creditsEarned;
             reportDto.CumulativeGrade = reportDto.Subjects.Sum(subject => subject.EarnedGradePoints);
 
-            var document = new MarksheetDocument(reportDto);
-            return document.GeneratePdf();
+            return reportDto;
         }
 
         public async Task<byte[]> GenerateBulkMarksheetPdfAsync(Guid examId, string semId, string pattern, Guid courseId, Guid ayid, string generationType, bool includeHistory, DateTime? resultDate, Guid collegeId, bool noRleForFail = false)

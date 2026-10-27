@@ -94,6 +94,7 @@ builder.Services.AddScoped<ExamAPI.Services.StudentAccess.ITaskLinkService, Exam
 builder.Services.AddScoped<ExamAPI.Services.StudentAccess.IStudentSignInService, ExamAPI.Services.StudentAccess.StudentSignInService>();
 builder.Services.AddScoped<ExamAPI.Services.StudentAccess.IStudentDetailsService, ExamAPI.Services.StudentAccess.StudentDetailsService>();
 builder.Services.AddScoped<ExamAPI.Services.StudentAccess.IStudentHallTicketService, ExamAPI.Services.StudentAccess.StudentHallTicketService>();
+builder.Services.AddScoped<ExamAPI.Services.StudentAccess.IStudentMarksheetService, ExamAPI.Services.StudentAccess.StudentMarksheetService>();
 builder.Services.AddOrdinanceEngine();
 builder.Services.AddHttpClient();
 builder.Services.AddHostedService<ExamAPI.Services.Common.KeepAliveService>(); // KeepAlive:Url, see the class

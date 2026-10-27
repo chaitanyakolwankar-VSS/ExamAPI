@@ -129,10 +129,45 @@ public sealed class CollegeBrandingTests : IDisposable
         Assert.NotEmpty(new BulkMarksheetDocument(new[] { signed, unsigned }).GeneratePdf());
     }
 
+    /// <summary>The marksheet preview card reads the same College Details images the PDF embeds.</summary>
+    [Fact]
+    public async Task Marksheet_preview_branding_returns_the_stored_paths_and_the_display_name()
+    {
+        AddCollege("Viva College", "college/logos/logo.png", "college/banners/banner.png");
+        var college = _context.Colleges.Single();
+        college.ControllerSignUrl = "college/signatures/coe.png";
+        college.PrincipalSignUrl = "college/signatures/principal.png";
+        _context.SaveChanges();
+
+        var service = new ReportService(new Mock<ExamAPI.Services.Result.IResultService>().Object, _context, _storage);
+        var branding = await service.GetMarksheetBrandingAsync(_collegeId);
+
+        Assert.Equal("Viva College", branding.CollegeName);
+        Assert.Equal("college/logos/logo.png", branding.Logo);
+        Assert.Equal("college/banners/banner.png", branding.Banner);
+        Assert.Equal("college/signatures/coe.png", branding.ControllerSignature);
+        Assert.Equal("college/signatures/principal.png", branding.PrincipalSignature);
+    }
+
+    /// <summary>The PDF refuses remote URLs (DEC-19); the preview must not show an image the file omits.</summary>
+    [Fact]
+    public async Task Marksheet_preview_branding_drops_remote_urls_and_falls_back_to_the_college_code()
+    {
+        AddCollege("", "https://res.cloudinary.com/demo/image/upload/logo.png");
+
+        var service = new ReportService(new Mock<ExamAPI.Services.Result.IResultService>().Object, _context, _storage);
+        var branding = await service.GetMarksheetBrandingAsync(_collegeId);
+
+        Assert.Null(branding.Logo);
+        Assert.Null(branding.Banner);
+        Assert.Null(branding.ControllerSignature);
+        Assert.Null(branding.PrincipalSignature);
+        Assert.Equal("VC", branding.CollegeName);
+    }
+
     [Fact]
     public async Task A_college_without_a_banner_has_none_and_keeps_its_logo()
-    {
-        var logo = await _storage.SaveAsync(UploadsTests.Png, FileStorage.CollegeLogosFolder, "logo.png");
+    {        var logo = await _storage.SaveAsync(UploadsTests.Png, FileStorage.CollegeLogosFolder, "logo.png");
         AddCollege("Viva College", logo);
 
         var branding = await CollegeBranding.LoadAsync(_context, _storage, _collegeId);

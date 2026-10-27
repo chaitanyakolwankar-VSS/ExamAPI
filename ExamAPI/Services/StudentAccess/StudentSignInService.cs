@@ -166,9 +166,12 @@ namespace ExamAPI.Services.StudentAccess
             {
                 info.State = LinkOpenStates.Closed;
                 info.Message = link.UsedAt != null
-                    ? link.TaskTypeCode == TaskTypes.HallTicket
-                        ? $"You downloaded your hall ticket on {link.UsedAt.Value.ToLocalTime():d MMM yyyy}. This link is now closed."
-                        : $"Your details were updated on {link.UsedAt.Value.ToLocalTime():d MMM yyyy}. This link is now closed."
+                    ? link.TaskTypeCode switch
+                    {
+                        TaskTypes.HallTicket => $"You downloaded your hall ticket on {link.UsedAt.Value.ToLocalTime():d MMM yyyy}. This link is now closed.",
+                        TaskTypes.Marksheet => $"You downloaded your marksheet on {link.UsedAt.Value.ToLocalTime():d MMM yyyy}. This link is now closed.",
+                        _ => $"Your details were updated on {link.UsedAt.Value.ToLocalTime():d MMM yyyy}. This link is now closed.",
+                    }
                     : "This link is closed. Contact your college office if you still need it.";
                 return info;
             }

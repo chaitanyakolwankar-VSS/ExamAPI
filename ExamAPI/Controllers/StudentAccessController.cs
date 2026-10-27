@@ -18,12 +18,14 @@ namespace ExamAPI.Controllers
         private readonly IStudentSignInService _service;
         private readonly IStudentDetailsService _details;
         private readonly IStudentHallTicketService _hallTicket;
+        private readonly IStudentMarksheetService _marksheet;
 
-        public StudentAccessController(IStudentSignInService service, IStudentDetailsService details, IStudentHallTicketService hallTicket)
+        public StudentAccessController(IStudentSignInService service, IStudentDetailsService details, IStudentHallTicketService hallTicket, IStudentMarksheetService marksheet)
         {
             _service = service;
             _details = details;
             _hallTicket = hallTicket;
+            _marksheet = marksheet;
         }
 
         public class TokenRequest
@@ -131,6 +133,32 @@ namespace ExamAPI.Controllers
             catch (InvalidOperationException)
             {
                 return NotFound();
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Unauthorized(new { message = "Your session has ended. Open the link from your email again." });
+            }
+        }
+
+        /// <summary>A marksheet link: the exam, or why it can't be shown yet (result not declared).</summary>
+        [Authorize(Policy = StudentAccessAuth.Policy)]
+        [HttpGet("marksheet")]
+        public Task<IActionResult> Marksheet() => Answer(() => _marksheet.GetAsync(User));
+
+        /// <summary>The student's own marksheet as a PDF. Records the first download (staff see it as downloaded).</summary>
+        [Authorize(Policy = StudentAccessAuth.Policy)]
+        [HttpGet("marksheet/pdf")]
+        public async Task<IActionResult> MarksheetPdf()
+        {
+            try
+            {
+                var (bytes, name) = await _marksheet.PdfAsync(User);
+                Response.Headers.CacheControl = "no-store";
+                return File(bytes, "application/pdf", name);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
             }
             catch (UnauthorizedAccessException)
             {

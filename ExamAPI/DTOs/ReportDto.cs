@@ -92,6 +92,24 @@ namespace ExamAPI.DTOs
         public List<SemesterRecordDto> PastSemesters { get; set; } = new();
     }
 
+    /// <summary>
+    /// College letterhead and signature images for the on-screen marksheet preview. Stored paths,
+    /// fetched by the client through the authorised GET /api/Files endpoint (never public URLs).
+    /// </summary>
+    public class MarksheetBrandingDto
+    {
+        public string CollegeName { get; set; } = string.Empty;
+
+        /// <summary>Full-width letterhead; printed instead of the logo and name text when present.</summary>
+        public string? Banner { get; set; }
+
+        public string? Logo { get; set; }
+
+        /// <summary>Signatures printed above the footer lines; null prints a blank line to sign by hand.</summary>
+        public string? ControllerSignature { get; set; }
+        public string? PrincipalSignature { get; set; }
+    }
+
     public class StudentResultSummaryDto
     {
         public string StudentId { get; set; } = string.Empty;

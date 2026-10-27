@@ -48,6 +48,10 @@ namespace ExamAPI.Controllers
         [HttpPost("hallticket/preview")]
         public Task<IActionResult> PreviewHallTickets([FromBody] HallTicketLinksRequest request) => Answer(() => _service.PreviewHallTicketsAsync(request));
 
+        /// <summary>Marksheet: who a send would reach, whether the result is declared, and how earlier sends went.</summary>
+        [HttpPost("marksheet/preview")]
+        public Task<IActionResult> PreviewMarksheets([FromBody] MarksheetLinksRequest request) => Answer(() => _service.PreviewMarksheetsAsync(request));
+
         [HttpGet("batches")]
         public async Task<IActionResult> Batches([FromQuery] LinkBatchFilter filter) => Ok(await _service.ListBatchesAsync(filter));
 
@@ -70,6 +74,15 @@ namespace ExamAPI.Controllers
 
         [HttpPost("links/{id:guid}/resend")]
         public Task<IActionResult> Resend(Guid id) => Answer(() => _service.ResendAsync(id));
+
+        // StudentLinksController.cs — next to PreviewMarksheets
+        [HttpPost("marksheet")]
+        public Task<IActionResult> SendMarksheets([FromBody] MarksheetLinksRequest request) => Answer(async () =>
+        {
+            var baseUrl = _site.Resolve(request.AppUrl)
+                ?? throw new InvalidOperationException("The student site address isn't known to the server. Set StudentAccess:AppUrl in the API settings.");
+            return await _service.SendMarksheetsAsync(request, baseUrl);
+        });
 
         private async Task<IActionResult> Answer<T>(Func<Task<T>> action)
         {

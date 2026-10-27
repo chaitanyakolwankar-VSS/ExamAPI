@@ -28,6 +28,7 @@ namespace ExamAPI.Services.StudentAccess
             TaskTypes.StudentMaster when editable.All(f => f is StudentFields.Photo or StudentFields.Signature) => "update your photo and signature",
             TaskTypes.StudentMaster => "check and update your student details",
             TaskTypes.HallTicket => string.IsNullOrWhiteSpace(examName) ? "download your hall ticket" : $"download your hall ticket for {examName}",
+            TaskTypes.Marksheet => string.IsNullOrWhiteSpace(examName) ? "download your marksheet" : $"download your marksheet for {examName}",
             _ => (link.TaskType?.Name ?? "complete a task").ToLowerInvariant(),
         };
 
@@ -39,6 +40,11 @@ namespace ExamAPI.Services.StudentAccess
             {
                 steps.Add("If asked, add your photo or signature and save.");
                 steps.Add("Download your hall ticket (PDF) and keep it. Print it for the exam.");
+                return steps;
+            }
+            if (link.TaskTypeCode == TaskTypes.Marksheet)
+            {
+                steps.Add("Download your marksheet (PDF) and keep it.");
                 return steps;
             }
             var pictures = editable.Count(f => f is StudentFields.Photo or StudentFields.Signature);
@@ -57,8 +63,13 @@ namespace ExamAPI.Services.StudentAccess
         public static EmailMessage LinkMessage(string to, string college, StudentMaster student, TaskLink link, IReadOnlyCollection<string> editable, string url, string? examOfficeEmail, string? examName = null)
         {
             var purpose = Purpose(link, editable, examName);
-            var hallTicket = link.TaskTypeCode == TaskTypes.HallTicket;
-            var opens = hallTicket ? "your hall ticket" : "your details";
+            var what = link.TaskTypeCode switch
+            {
+                TaskTypes.HallTicket => "hall ticket",
+                TaskTypes.Marksheet => "marksheet",
+                _ => "details",
+            };
+            var opens = $"your {what}";
             var until = link.ExpiresAt.ToLocalTime().ToString("d MMM yyyy");
             var name = string.IsNullOrWhiteSpace(student.FirstName) ? "Student" : student.FirstName.Trim();
             var steps = Steps(link, editable);
@@ -66,7 +77,7 @@ namespace ExamAPI.Services.StudentAccess
             var html =
                 $"<p>Dear {e(name)},</p>"
                 + $"<p>{e(college)} asks you to {e(purpose)}.</p>"
-                + $"<p><a href=\"{e(url)}\" style=\"display:inline-block;background:#465fff;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:6px\">Open {(hallTicket ? "my hall ticket" : "my details")}</a></p>"
+                + $"<p><a href=\"{e(url)}\" style=\"display:inline-block;background:#465fff;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:6px\">Open my {what}</a></p>"
                 + $"<p style=\"margin-bottom:4px\"><b>How to do it</b></p><ol style=\"margin-top:0;padding-left:20px\">{string.Concat(steps.Select(st => $"<li style=\"margin-bottom:4px\">{e(st)}</li>"))}</ol>"
                 + $"<p>The link works until <b>{e(until)}</b>.</p>"
                 + $"<p style=\"color:#6b7280\">Don't forward this email: the link opens {opens}.</p>";
@@ -121,7 +132,7 @@ namespace ExamAPI.Services.StudentAccess
             await _context.SaveChangesAsync(ct);
 
             var college = await StudentLinkEmails.CollegeNameAsync(_context, link.CollegeId, ct);
-            var examName = link.TaskTypeCode == TaskTypes.HallTicket && link.RefId != null
+            var examName = (link.TaskTypeCode is TaskTypes.HallTicket or TaskTypes.Marksheet) && link.RefId != null
                 ? await _context.Exams.IgnoreQueryFilters().Where(x => x.ExamId == link.RefId).Select(x => x.Name).FirstOrDefaultAsync(ct)
                 : null;
             // The student's email now, not when it was queued: staff may have corrected it since.

@@ -46,6 +46,34 @@ namespace ExamAPI.Controllers
             return File(pdfBytes, "application/pdf", $"Marksheet_{studId}.pdf");
         }
 
+        /// <summary>
+        /// The marksheet as JSON for the staff preview card. Built by the same code as the PDF, so the
+        /// preview shows exactly what the generated file prints.
+        /// </summary>
+        [HttpGet("marksheet/data")]
+        public async Task<IActionResult> MarksheetData(Guid studId, Guid examId, string semId, string pattern, bool includeHistory = false, DateTime? resultDate = null, bool noRleForFail = false)
+        {
+            if (!TryGetCollegeId(out var collegeId)) return Unauthorized();
+            try
+            {
+                var data = await _reportService.GetMarksheetDataAsync(studId, examId, semId, pattern, includeHistory, resultDate, collegeId, noRleForFail);
+                return Ok(data);
+            }
+            catch (InvalidOperationException ex)
+            {
+                // The student has no processed result (or similar): say so on the preview instead of a 500.
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        /// <summary>College letterhead and signature images (stored paths) for the marksheet preview card.</summary>
+        [HttpGet("marksheet/branding")]
+        public async Task<IActionResult> MarksheetBranding()
+        {
+            if (!TryGetCollegeId(out var collegeId)) return Unauthorized();
+            return Ok(await _reportService.GetMarksheetBrandingAsync(collegeId));
+        }
+
         [HttpGet("bulk-marksheet")]
         public async Task<IActionResult> DownloadBulkMarksheet(Guid examId, string semId, string pattern,Guid courseId,Guid ayid, string generationType = "all", bool includeHistory = false, DateTime? resultDate = null, bool noRleForFail = false)
         {

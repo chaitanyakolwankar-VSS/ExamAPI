@@ -1,6 +1,7 @@
 using ExamAPI.Data;
 using ExamAPI.Models;
 using ExamAPI.Services.Common;
+using ExamAPI.Services.DeclareResult;
 using ExamAPI.Services.Email;
 using ExamAPI.Services.GenerateHallTicket;
 using Microsoft.EntityFrameworkCore;
@@ -40,6 +41,54 @@ namespace ExamAPI.Services.StudentAccess
         /// <summary>Where the student site is, as the staff browser sees it; checked by <see cref="StudentSiteUrl"/>.</summary>
         public string? AppUrl { get; set; }
     }
+
+
+    //For Marksheet Implementations
+    public static class MarksheetTargets
+    {
+        public const string All = "all";
+        public const string Pass = "pass";
+        public const string Fail = "fail";
+        public const string Single = "single";
+    }
+
+    /// <summary>Marksheet links for one exam of a class (the Marksheet page selection plus its formatting options).</summary>
+    public class MarksheetLinksRequest
+    {
+        public Guid Ayid { get; set; }
+        public Guid CourseId { get; set; }
+        public string Semester { get; set; } = "";
+        public string Pattern { get; set; } = "";
+        public Guid ExamId { get; set; }
+        /// <summary><see cref="MarksheetTargets"/>: all, pass, fail or single.</summary>
+        public string GenerationType { get; set; } = MarksheetTargets.All;
+        /// <summary>One student only, by Student ID; empty = the target group.</summary>
+        public string? Student { get; set; }
+        public bool OnlyNotDownloaded { get; set; }
+        public int Days { get; set; } = 30;
+        // Formatting options: unused by the preview, saved with the links when sending.
+        public bool IncludeHistory { get; set; }
+        public bool NoRleForFail { get; set; }
+        public DateTime? ResultDate { get; set; }
+        public string? AppUrl { get; set; }
+    }
+
+    /// <summary>Who a marksheet send would reach, whether the result is out, and how earlier sends went.</summary>
+    public class MarksheetSendPreview
+    {
+        public int Students { get; set; }
+        public int Sendable { get; set; }
+        public int NoEmail { get; set; }
+        public int Flagged { get; set; }
+        public int Inactive { get; set; }
+        public int Emailed { get; set; }
+        public int Downloaded { get; set; }
+        public DateTime? LastSentAt { get; set; }
+        /// <summary>False until the result for this exam is declared; sending waits until it is true.</summary>
+        public bool ResultDeclared { get; set; }
+    }
+
+
 
     public class SendLinksResult
     {
@@ -150,6 +199,9 @@ namespace ExamAPI.Services.StudentAccess
         Task<LinkRow> StopLinkAsync(Guid linkId);
         /// <summary>An open link: emailed again (with a new token). A stopped or closed one: a new link in the same batch.</summary>
         Task<LinkRow> ResendAsync(Guid linkId);
+        //Marksheet Implementation Addition
+        Task<MarksheetSendPreview> PreviewMarksheetsAsync(MarksheetLinksRequest request);
+        Task<SendLinksResult> SendMarksheetsAsync(MarksheetLinksRequest request, string linkBaseUrl);
     }
 
     /// <summary>
@@ -244,6 +296,122 @@ namespace ExamAPI.Services.StudentAccess
                 LinkBaseUrl = linkBaseUrl,
             };
             return await QueueBatchAsync(batch, students, single != null);
+        }
+
+        //For the Marksheet Working
+        public async Task<SendLinksResult> SendMarksheetsAsync(MarksheetLinksRequest request, string linkBaseUrl)
+        {
+            var collegeId = CollegeId;
+            if (request.Days is < 1 or > MaxDays)
+                throw new InvalidOperationException($"Choose between 1 and {MaxDays} days.");
+            await EnsureSenderAsync(collegeId);
+
+            var (exam, students) = await MarksheetStudentsAsync(request);
+            if (students.Count == 0)
+                throw new InvalidOperationException("No students have a marksheet for this exam yet.");
+
+            // Real declare check — no schema change, just read DeclareResult.
+            var row = (await DResultService.RowsByExam(
+                    _context, request.CourseId, request.Ayid, request.Semester, request.Pattern,
+                    new[] { exam.ExamId }))
+                .GetValueOrDefault(exam.ExamId);
+            if (row is not { IsDeclare: true })
+                throw new InvalidOperationException("Declare the result for this exam first.");
+
+            if (request.OnlyNotDownloaded)
+            {
+                var downloaded = await DownloadedAsync(exam.ExamId, students.Select(s => s.StdMstId).ToList(), TaskTypes.Marksheet);
+                students = students.Where(s => !downloaded.Contains(s.StdMstId)).ToList();
+                if (students.Count == 0)
+                    throw new InvalidOperationException("Everyone has downloaded this marksheet already.");
+            }
+
+            var single = string.IsNullOrWhiteSpace(request.Student) ? null : students[0];
+            var title = single != null
+                ? $"Marksheet — {exam.Name} — {StudentNames.Display(single)} ({single.StudentId})"
+                : $"Marksheet — {exam.Name} — {await ClassNameAsync(request.CourseId, request.Semester)}";
+
+            var batch = new TaskBatch
+            {
+                Id = Guid.NewGuid(),
+                CollegeId = collegeId,
+                TaskTypeCode = TaskTypes.Marksheet,
+                Title = title.Length > 200 ? title[..200] : title,
+                Deadline = EndOfLocalDay(DateTime.Today.AddDays(request.Days)),
+                CourseId = request.CourseId,
+                SemesterId = request.Semester,
+                AYID = request.Ayid,
+                RefId = exam.ExamId,          // the exam the marksheet is for
+                EditableFields = "",          // view/download only
+                LinkBaseUrl = linkBaseUrl,
+            };
+            return await QueueBatchAsync(batch, students, single != null);
+        }
+
+        public async Task<MarksheetSendPreview> PreviewMarksheetsAsync(MarksheetLinksRequest request)
+        {
+            _ = CollegeId;
+            var (exam, students) = await MarksheetStudentsAsync(request);
+            var ids = students.Select(s => s.StdMstId).ToList();
+            var now = DateTime.UtcNow;
+            var links = await _context.TaskLinks
+                .Where(l => l.TaskTypeCode == TaskTypes.Marksheet && l.RefId == exam.ExamId && ids.Contains(l.StdMstId))
+                .Select(l => new { l.StdMstId, l.Status, l.ExpiresAt, l.UsedAt, l.CreatedAt })
+                .ToListAsync();
+            return new MarksheetSendPreview
+            {
+                Students = students.Count,
+                Sendable = students.Count(Sendable),
+                Inactive = students.Count(s => !s.IsActive),
+                NoEmail = students.Count(s => s.IsActive && s.Email == null),
+                Flagged = students.Count(s => s.IsActive && s.Email != null && s.EmailStatus == EmailVerification.Flagged),
+                Emailed = links.Where(l => l.Status == TaskLinkStatuses.Active && l.ExpiresAt > now).Select(l => l.StdMstId).Distinct().Count(),
+                Downloaded = links.Where(l => l.UsedAt != null).Select(l => l.StdMstId).Distinct().Count(),
+                LastSentAt = links.Count == 0 ? null : links.Max(l => l.CreatedAt),
+                ResultDeclared = await ResultDeclaredAsync(request),
+            };
+        }
+
+        /// <summary>The exam and the students who have its marksheet: a marks row for it, narrowed to the target group.</summary>
+        private async Task<(ExamMaster Exam, List<StudentMaster> Students)> MarksheetStudentsAsync(MarksheetLinksRequest request)
+        {
+            var exam = await _context.Exams.FirstOrDefaultAsync(e => e.ExamId == request.ExamId)
+                ?? throw new InvalidOperationException("Exam not found.");
+
+            var single = string.IsNullOrWhiteSpace(request.Student) ? null : request.Student.Trim();
+            var target = request.GenerationType?.ToLowerInvariant();
+            if (target is not (MarksheetTargets.All or MarksheetTargets.Pass or MarksheetTargets.Fail or MarksheetTargets.Single))
+                throw new InvalidOperationException("Choose who the marksheets go to.");
+            if (target == MarksheetTargets.Single && single == null)
+                throw new InvalidOperationException("Enter a Student ID.");
+
+            var marks = _context.MarksMasters
+                .Where(m => !m.IsDeleted && m.ExamId == exam.ExamId && m.AcademicYearAYID == request.Ayid
+                            && m.SemesterId == request.Semester && m.Pattern == request.Pattern);
+
+            // Same rule as the bulk marksheet download (ReportService.GenerateBulkMarksheetPdfAsync).
+            if (single == null && target == MarksheetTargets.Pass)
+                marks = marks.Where(m => m.OverallRemark == OverallRemarks.Pass);
+            else if (single == null && target == MarksheetTargets.Fail)
+                marks = marks.Where(m => m.OverallRemark == OverallRemarks.Fail);
+
+            var query = marks.Join(_context.StudentMasters, m => m.StdMstId, s => s.StdMstId, (m, s) => s);
+            if (single != null) query = query.Where(s => s.StudentId == single);
+
+            var students = await query.Distinct().ToListAsync();
+            if (single != null && students.Count == 0)
+                throw new InvalidOperationException($"Student {single} has no marksheet for this exam.");
+            return (exam, students);   // empty is fine for a preview: the card shows "0 of 0"
+        }
+
+        private async Task<bool> ResultDeclaredAsync(MarksheetLinksRequest request)
+        {
+            if (request.ExamId == Guid.Empty || request.CourseId == Guid.Empty) return false;
+            var row = (await DResultService.RowsByExam(
+                    _context, request.CourseId, request.Ayid, request.Semester, request.Pattern,
+                    new[] { request.ExamId }))
+                .GetValueOrDefault(request.ExamId);
+            return row?.IsDeclare == true;
         }
 
         public async Task<SendLinksResult> SendHallTicketsAsync(HallTicketLinksRequest request, string linkBaseUrl)
@@ -353,10 +521,10 @@ namespace ExamAPI.Services.StudentAccess
             return blank.Where(s => taken.Contains(s.SubjectId)).Select(s => s.SubjectCode).Distinct().ToList();
         }
 
-        private async Task<HashSet<Guid>> DownloadedAsync(Guid examId, List<Guid> stdMstIds) =>
-            (await _context.TaskLinks
-                .Where(l => l.TaskTypeCode == TaskTypes.HallTicket && l.RefId == examId && l.UsedAt != null && stdMstIds.Contains(l.StdMstId))
-                .Select(l => l.StdMstId).Distinct().ToListAsync()).ToHashSet();
+        private async Task<HashSet<Guid>> DownloadedAsync(Guid examId, List<Guid> stdMstIds, string taskType = TaskTypes.HallTicket) =>
+     (await _context.TaskLinks
+         .Where(l => l.TaskTypeCode == taskType && l.RefId == examId && l.UsedAt != null && stdMstIds.Contains(l.StdMstId))
+         .Select(l => l.StdMstId).Distinct().ToListAsync()).ToHashSet();
 
         /// <summary>
         /// Adds the batch and a link per student with a usable email, stops each one's earlier open link for the same
