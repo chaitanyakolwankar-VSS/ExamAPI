@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace ExamAPI.Controllers
 {
-    /// <summary>Letters to staff (supervision duties first). Signed-in staff only (the fallback policy); every query is limited to the user's college. The letter settings can be changed by a college admin only.</summary>
+    /// <summary>Letters to staff (supervision duties, examiner and moderator appointments). Signed-in staff only (the fallback policy); every query is limited to the user's college. The letter settings can be changed by a college admin only.</summary>
     [Route("api/[controller]")]
     [ApiController]
     public class StaffLettersController : ControllerBase
@@ -30,6 +30,14 @@ namespace ExamAPI.Controllers
         /// <summary>Saves the whole assignment grid of an exam: new letters, changed letters, cancelled letters.</summary>
         [HttpPut("supervision")]
         public Task<IActionResult> SaveSupervision([FromBody] SupervisionSave dto) => Answer(() => _service.SaveSupervisionAsync(dto));
+
+        /// <summary>One exam's subjects and its examiner and moderator letters. Any branch's copy of the exam will do.</summary>
+        [HttpGet("appointments")]
+        public Task<IActionResult> Appointments([FromQuery] Guid examId) => Answer(() => _service.AppointmentsAsync(examId));
+
+        /// <summary>Saves the whole Examiner Letters screen of an exam: new letters, cancelled letters.</summary>
+        [HttpPut("appointments")]
+        public Task<IActionResult> SaveAppointments([FromBody] AppointmentSave dto) => Answer(() => _service.SaveAppointmentsAsync(dto));
 
         [HttpGet("settings")]
         public Task<IActionResult> Settings() => Answer(() => _service.GetSettingsAsync());

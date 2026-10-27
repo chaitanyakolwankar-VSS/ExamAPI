@@ -13,6 +13,8 @@ namespace ExamAPI.Services.Staff
         Task<List<ExamGroupDto>> ExamsAsync(Guid ayid);
         Task<SupervisionDto> SupervisionAsync(Guid examId);
         Task<SupervisionSaveResult> SaveSupervisionAsync(SupervisionSave dto);
+        Task<AppointmentsDto> AppointmentsAsync(Guid examId);
+        Task<AppointmentSaveResult> SaveAppointmentsAsync(AppointmentSave dto);
         Task<LetterSettingsDto> GetSettingsAsync();
         Task<LetterSettingsDto> SaveSettingsAsync(LetterSettingsSave dto);
     }
@@ -20,7 +22,8 @@ namespace ExamAPI.Services.Staff
     /// <summary>
     /// Letters to staff. Supervision letters: the exam office gives each member of staff a duty role and the dates
     /// they supervise for one exam (all branches together); the screen sends the whole grid and the letters follow it.
-    /// Every letter gets a number that is never reused, even when the letter is cancelled.
+    /// Appointment letters: the exam office appoints an examiner and a moderator for each subject of an exam, and the
+    /// screen sends all of them at once. Every letter gets a number that is never reused, even when the letter is cancelled.
     /// </summary>
     public class StaffLetterService : IStaffLetterService
     {
@@ -36,8 +39,8 @@ namespace ExamAPI.Services.Staff
         /// <summary>One date and time papers are written, with the number of papers and the branches writing them.</summary>
         private sealed record Slot(string Date, string Time, int Papers, List<string> Branches);
 
-        /// <summary>An exam group: the canonical copy, all copies, the duty slots in exam order and the half.</summary>
-        private sealed record Group(ExamMaster Exam, List<Guid> CopyIds, List<Slot> Slots, string Half, int BranchCount);
+        /// <summary>An exam group: the canonical copy, all copies, the duty slots in exam order, the half and the timetabled papers.</summary>
+        private sealed record Group(ExamMaster Exam, List<Guid> CopyIds, List<Slot> Slots, string Half, int BranchCount, List<Paper> Papers);
 
         private sealed record Paper(Guid ExamId, Guid? CourseId, Guid? SubjectId, string Date, string Time, string Branch, int? Semester);
 
@@ -53,8 +56,8 @@ namespace ExamAPI.Services.Staff
             var examIds = exams.Select(e => e.ExamId).ToList();
             var papers = await PapersAsync(examIds);
             var lettered = await _context.StaffLetters.AsNoTracking()
-                .Where(l => l.LetterType == StaffLetterTypes.Supervision && examIds.Contains(l.ExamId))
-                .Select(l => l.ExamId).ToListAsync();
+                .Where(l => examIds.Contains(l.ExamId))
+                .Select(l => new { l.ExamId, l.LetterType }).ToListAsync();
 
             var result = new List<ExamGroupDto>();
             foreach (var copies in exams.GroupBy(e => (Name: e.Name.ToUpperInvariant(), Type: (e.ExamType ?? "").ToUpperInvariant())))
@@ -62,7 +65,9 @@ namespace ExamAPI.Services.Staff
                 var ids = copies.Select(e => e.ExamId).ToHashSet();
                 var group = Describe(copies.ToList(), papers.Where(p => ids.Contains(p.ExamId)).ToList());
                 if (group.Slots.Count == 0) continue;
-                result.Add(ToDto(group, lettered.Count(ids.Contains)));
+                result.Add(ToDto(group,
+                    lettered.Count(l => ids.Contains(l.ExamId) && l.LetterType == StaffLetterTypes.Supervision),
+                    lettered.Count(l => ids.Contains(l.ExamId) && IsAppointment(l.LetterType))));
             }
             return result.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase).ThenBy(e => e.ExamType, StringComparer.OrdinalIgnoreCase).ToList();
         }
@@ -73,23 +78,25 @@ namespace ExamAPI.Services.Staff
             var letters = await LettersAsync(group);
             return new SupervisionDto
             {
-                Exam = ToDto(group, letters.Count),
+                Exam = ToDto(group, letters.Count, await AppointmentLettersCountAsync(group)),
                 Roles = SupervisionRoles.All.ToList(),
                 Slots = group.Slots.Select(s => new SupervisionSlotDto { Date = s.Date, Time = s.Time, Papers = s.Papers, Branches = s.Branches }).ToList(),
                 Letters = letters
             };
         }
 
-        /// <summary>The exam's group, looked up from any branch's copy. Revaluation exams are not for supervision.</summary>
-        private async Task<Group> GroupAsync(Guid examId)
+        /// <summary>The exam's group, looked up from any branch's copy. Revaluation exams are not for letters (the refusal names the kind of letter).</summary>
+        private async Task<Group> GroupAsync(Guid examId, string letters = "Supervision letters")
         {
             var copyIds = await ExamGroups.CopyIdsAsync(_context, examId);
             if (copyIds.Count == 0) throw new KeyNotFoundException("Exam not found.");
             var copies = await _context.Exams.AsNoTracking().Where(e => copyIds.Contains(e.ExamId)).ToListAsync();
             if (copies.Any(e => e.RevaluationForExamId != null))
-                throw new InvalidOperationException("Supervision letters are for regular exams, not revaluation exams.");
+                throw new InvalidOperationException($"{letters} are for regular exams, not revaluation exams.");
             return Describe(copies, await PapersAsync(copyIds));
         }
+
+        private static bool IsAppointment(string type) => type == StaffLetterTypes.Examiner || type == StaffLetterTypes.Moderator;
 
         /// <summary>The timetabled papers of the given exams (rows with a date and a time), with their branch and semester.</summary>
         private async Task<List<Paper>> PapersAsync(List<Guid> examIds)
@@ -139,10 +146,10 @@ namespace ExamAPI.Services.Staff
             var semesters = papers.Where(p => p.Semester != null).Select(p => p.Semester!.Value).Distinct().ToList();
             var half = semesters.Count == 0 ? "" : semesters.All(s => s % 2 == 1) ? "First Half" : semesters.All(s => s % 2 == 0) ? "Second Half" : "";
             var branchCount = papers.Select(p => p.CourseId).Where(c => c != null).Distinct().Count();
-            return new Group(canonical, copies.Select(e => e.ExamId).ToList(), slots, half, branchCount);
+            return new Group(canonical, copies.Select(e => e.ExamId).ToList(), slots, half, branchCount, papers);
         }
 
-        private static ExamGroupDto ToDto(Group group, int letterCount) => new()
+        private static ExamGroupDto ToDto(Group group, int letterCount, int appointmentCount) => new()
         {
             ExamId = group.Exam.ExamId,
             Name = group.Exam.Name,
@@ -151,7 +158,8 @@ namespace ExamAPI.Services.Staff
             Half = group.Half,
             BranchCount = group.BranchCount,
             SlotCount = group.Slots.Count,
-            LetterCount = letterCount
+            LetterCount = letterCount,
+            AppointmentCount = appointmentCount
         };
 
         // ------------------------------------------------------------------ supervision letters
@@ -272,11 +280,8 @@ namespace ExamAPI.Services.Staff
 
                     if (numberStart == null)
                     {
-                        numberStart = await NumberStartAsync(collegeId, ayid);
-                        // Deleted letters count: a number is never given out twice.
-                        nextSerial = (await _context.StaffLetters.IgnoreQueryFilters()
-                            .Where(l => l.CollegeId == collegeId && l.LetterType == StaffLetterTypes.Supervision && l.AYID == ayid)
-                            .MaxAsync(l => (int?)l.SerialNo) ?? 0) + 1;
+                        numberStart = await NumberStartAsync(collegeId, ayid, StaffLetterTypes.Supervision);
+                        nextSerial = await NextSerialAsync(collegeId, ayid, StaffLetterTypes.Supervision);
                     }
                     letter = new StaffLetter
                     {
@@ -339,18 +344,245 @@ namespace ExamAPI.Services.Staff
             }
         }
 
+        // ------------------------------------------------------------------ examiner and moderator letters
+
+        public async Task<AppointmentsDto> AppointmentsAsync(Guid examId)
+        {
+            var group = await GroupAsync(examId, "Appointment letters");
+            var letters = await AppointmentLettersAsync(group);
+            var supervision = await _context.StaffLetters.AsNoTracking()
+                .CountAsync(l => l.LetterType == StaffLetterTypes.Supervision && group.CopyIds.Contains(l.ExamId));
+            return new AppointmentsDto
+            {
+                Exam = ToDto(group, supervision, letters.Count),
+                Subjects = await AppointmentSubjectsAsync(group),
+                Letters = letters
+            };
+        }
+
+        /// <summary>The subjects on the exam's timetable (all branches), once each: by branch, semester, then subject order.</summary>
+        private async Task<List<AppointmentSubjectDto>> AppointmentSubjectsAsync(Group group)
+        {
+            var papers = group.Papers.Where(p => p.SubjectId != null).ToList();
+            var ids = papers.Select(p => p.SubjectId!.Value).Distinct().ToList();
+            var masters = await _context.SubjectMasters.AsNoTracking().Where(s => ids.Contains(s.SubjectId)).ToDictionaryAsync(s => s.SubjectId);
+
+            var rows = new List<(AppointmentSubjectDto Subject, int? SortOrder)>();
+            foreach (var g in papers.GroupBy(p => p.SubjectId!.Value))
+            {
+                if (!masters.TryGetValue(g.Key, out var subject)) continue;
+                // The subject's own branch when it is on the timetable, otherwise the first branch that has it.
+                var paper = g.OrderBy(p => p.CourseId == subject.CourseId ? 0 : 1)
+                    .ThenBy(p => p.Branch, StringComparer.OrdinalIgnoreCase).ThenBy(p => p.CourseId).First();
+                rows.Add((new AppointmentSubjectDto
+                {
+                    SubjectId = subject.SubjectId,
+                    Code = subject.SubjectCode,
+                    Name = subject.Name,
+                    Branch = paper.Branch,
+                    CourseId = paper.CourseId,
+                    Semester = paper.Semester,
+                    Pattern = subject.Pattern ?? ""
+                }, subject.SortOrder));
+            }
+
+            var order = Comparer<(AppointmentSubjectDto Subject, int? SortOrder)>.Create((a, b) =>
+            {
+                var byBranch = StringComparer.OrdinalIgnoreCase.Compare(a.Subject.Branch, b.Subject.Branch);
+                if (byBranch != 0) return byBranch;
+                var bySemester = (a.Subject.Semester ?? int.MaxValue).CompareTo(b.Subject.Semester ?? int.MaxValue);
+                if (bySemester != 0) return bySemester;
+                return SubjectOrder.Compare(a.SortOrder, a.Subject.Code, a.Subject.Name, b.SortOrder, b.Subject.Code, b.Subject.Name);
+            });
+            return rows.OrderBy(r => r, order).Select(r => r.Subject).ToList();
+        }
+
+        private async Task<List<AppointmentLetterDto>> AppointmentLettersAsync(Group group)
+        {
+            var letters = await _context.StaffLetters.AsNoTracking()
+                .Where(l => (l.LetterType == StaffLetterTypes.Examiner || l.LetterType == StaffLetterTypes.Moderator) && group.CopyIds.Contains(l.ExamId))
+                .ToListAsync();
+            return letters.OrderBy(l => l.LetterType, StringComparer.Ordinal).ThenBy(l => l.SerialNo).Select(ToAppointmentDto).ToList();
+        }
+
+        private Task<int> AppointmentLettersCountAsync(Group group) =>
+            _context.StaffLetters.AsNoTracking()
+                .CountAsync(l => (l.LetterType == StaffLetterTypes.Examiner || l.LetterType == StaffLetterTypes.Moderator) && group.CopyIds.Contains(l.ExamId));
+
+        private static AppointmentLetterDto ToAppointmentDto(StaffLetter l) => new()
+        {
+            LetterId = l.Id,
+            StaffId = l.StaffId,
+            StaffName = l.StaffName,
+            LetterNo = l.LetterNo,
+            LetterDate = l.LetterDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            Type = l.LetterType,
+            SubjectId = l.SubjectId
+        };
+
+        /// <summary>
+        /// Makes the exam's examiner and moderator letters match the screen: an appointment that already has a letter keeps it
+        /// (number and date), a new one gets a new numbered letter, letters missing from the screen are cancelled. Everything
+        /// is checked before anything is saved.
+        /// </summary>
+        public async Task<AppointmentSaveResult> SaveAppointmentsAsync(AppointmentSave dto)
+        {
+            var group = await GroupAsync(dto.ExamId, "Appointment letters");
+            var exam = group.Exam;
+            var subjects = (await AppointmentSubjectsAsync(group)).ToDictionary(s => s.SubjectId);
+
+            var requested = dto.Subjects ?? new List<AppointmentSubjectSave>();
+            var staffIds = requested.SelectMany(s => (s.Examiners ?? new List<Guid>()).Concat(s.Moderators ?? new List<Guid>())).Distinct().ToList();
+            var staff = await _context.StaffMasters.AsNoTracking().Where(s => staffIds.Contains(s.StaffId)).ToDictionaryAsync(s => s.StaffId);
+
+            // Someone who has left keeps a letter they already hold; they just cannot be given a new one.
+            var held = (await _context.StaffLetters.AsNoTracking()
+                    .Where(l => (l.LetterType == StaffLetterTypes.Examiner || l.LetterType == StaffLetterTypes.Moderator) && group.CopyIds.Contains(l.ExamId))
+                    .Select(l => new { l.StaffId, l.SubjectId, l.LetterType }).ToListAsync())
+                .Select(l => (l.StaffId, l.SubjectId ?? Guid.Empty, l.LetterType)).ToHashSet();
+
+            var errors = new List<string>();
+            var seen = new HashSet<(Guid Staff, Guid Subject, string Type)>();
+            var plan = new List<(StaffMaster Staff, AppointmentSubjectDto Subject, string Type)>();
+            foreach (var entry in requested)
+            {
+                if (!subjects.TryGetValue(entry.SubjectId, out var subject))
+                {
+                    errors.Add("a subject in the list is not on this exam's timetable.");
+                    continue;
+                }
+                var lists = new[]
+                {
+                    (Type: StaffLetterTypes.Examiner, Other: StaffLetterTypes.Moderator, Ids: entry.Examiners ?? new List<Guid>()),
+                    (Type: StaffLetterTypes.Moderator, Other: StaffLetterTypes.Examiner, Ids: entry.Moderators ?? new List<Guid>())
+                };
+                foreach (var (type, other, ids) in lists)
+                {
+                    foreach (var staffId in ids)
+                    {
+                        if (!staff.TryGetValue(staffId, out var person))
+                        {
+                            errors.Add("a member of staff in the list was not found.");
+                            continue;
+                        }
+                        var who = StaffService.Letter(person.Title, person.FirstName, person.MiddleName, person.LastName);
+                        var what = $"{subject.Code} {subject.Name}";
+                        if (!person.IsActive && !held.Contains((staffId, subject.SubjectId, type)))
+                            errors.Add($"{who} has left and cannot be appointed.");
+                        else if (seen.Contains((staffId, subject.SubjectId, type)))
+                            errors.Add($"{who} is listed more than once as {type.ToLowerInvariant()} for {what}.");
+                        else if (seen.Contains((staffId, subject.SubjectId, other)))
+                            errors.Add($"{who} cannot be both examiner and moderator for {what}.");
+                        else
+                        {
+                            seen.Add((staffId, subject.SubjectId, type));
+                            plan.Add((person, subject, type));
+                        }
+                    }
+                }
+            }
+
+            DateTime? letterDate = null;
+            if (!string.IsNullOrWhiteSpace(dto.LetterDate))
+            {
+                if (DateTime.TryParseExact(dto.LetterDate.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed)) letterDate = parsed.Date;
+                else errors.Add("the letter date is not a valid date.");
+            }
+            if (exam.AcademicYearAYID == null)
+                errors.Add("this exam has no academic year.");
+            if (errors.Count > 0)
+                throw new InvalidOperationException(Sentence(errors.Distinct().ToList()));
+
+            var existing = await _context.StaffLetters
+                .Where(l => (l.LetterType == StaffLetterTypes.Examiner || l.LetterType == StaffLetterTypes.Moderator) && group.CopyIds.Contains(l.ExamId))
+                .ToListAsync();
+            var byKey = new Dictionary<(Guid Staff, Guid Subject, string Type), StaffLetter>();
+            foreach (var l in existing.Where(l => l.SubjectId != null).OrderBy(l => l.SerialNo))
+                byKey.TryAdd((l.StaffId, l.SubjectId!.Value, l.LetterType), l);
+            if (letterDate == null && plan.Any(p => !byKey.ContainsKey((p.Staff.StaffId, p.Subject.SubjectId, p.Type))))
+                throw new InvalidOperationException("Enter the letter date.");
+
+            var collegeId = exam.CollegeId ?? _context.CurrentCollegeId;
+            var ayid = exam.AcademicYearAYID!.Value;
+            var result = new AppointmentSaveResult();
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                var numbering = new Dictionary<string, (string Start, int Next)>();
+                var kept = new HashSet<Guid>();
+                foreach (var (person, subject, type) in plan)
+                {
+                    if (byKey.TryGetValue((person.StaffId, subject.SubjectId, type), out var letter))
+                    {
+                        kept.Add(letter.Id);
+                        letter.ExamId = exam.ExamId;   // stored against the canonical copy, whichever copy it was made for
+                        result.Unchanged++;
+                        continue;
+                    }
+
+                    if (!numbering.TryGetValue(type, out var number))
+                        number = (await NumberStartAsync(collegeId, ayid, type), await NextSerialAsync(collegeId, ayid, type));
+                    numbering[type] = (number.Start, number.Next + 1);
+                    _context.StaffLetters.Add(new StaffLetter
+                    {
+                        Id = Guid.NewGuid(),
+                        CollegeId = collegeId,
+                        StaffId = person.StaffId,
+                        LetterType = type,
+                        ExamId = exam.ExamId,
+                        AYID = ayid,
+                        SubjectId = subject.SubjectId,
+                        SerialNo = number.Next,
+                        LetterNo = $"{number.Start}/{number.Next:D4}",
+                        LetterDate = letterDate!.Value,
+                        Role = type == StaffLetterTypes.Examiner ? "Examiner" : "Moderator",
+                        StaffName = StaffService.Letter(person.Title, person.FirstName, person.MiddleName, person.LastName),
+                        ExamTitle = TitleOf(exam),
+                        Half = group.Half
+                    });
+                    result.Created++;
+                }
+
+                foreach (var letter in existing.Where(l => !kept.Contains(l.Id)))
+                {
+                    letter.IsDeleted = true;
+                    letter.DeletedAt = DateTime.UtcNow;
+                    result.Removed++;
+                }
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+
+            result.Message = $"Saved: {result.Created} new, {result.Unchanged} unchanged, {result.Removed} cancelled.";
+            result.Letters = await AppointmentLettersAsync(group);
+            return result;
+        }
+
         // ------------------------------------------------------------------ numbering
 
-        /// <summary>"{prefix}/SUP/{year}": the letter number up to the serial, which is added per letter.</summary>
-        private async Task<string> NumberStartAsync(Guid? collegeId, Guid ayid)
+        /// <summary>"{prefix}/{SUP|EXM|MOD}/{year}": the letter number up to the serial, which is added per letter.</summary>
+        private async Task<string> NumberStartAsync(Guid? collegeId, Guid ayid, string type)
         {
             var prefix = await PrefixAsync(collegeId);
             var year = await _context.AcademicYears.AsNoTracking().Where(a => a.AYID == ayid)
                 .Select(a => a.ShortDuration ?? a.FullDuration).FirstOrDefaultAsync();
             if (string.IsNullOrWhiteSpace(year))
                 throw new InvalidOperationException("The exam's academic year was not found.");
-            return $"{prefix}/{StaffLetterTypes.Code(StaffLetterTypes.Supervision)}/{ShortYear(year)}";
+            return $"{prefix}/{StaffLetterTypes.Code(type)}/{ShortYear(year)}";
         }
+
+        /// <summary>The next serial of a letter type in a college and academic year. Deleted letters count: a number is never given out twice.</summary>
+        private async Task<int> NextSerialAsync(Guid? collegeId, Guid ayid, string type) =>
+            (await _context.StaffLetters.IgnoreQueryFilters()
+                .Where(l => l.CollegeId == collegeId && l.LetterType == type && l.AYID == ayid)
+                .MaxAsync(l => (int?)l.SerialNo) ?? 0) + 1;
 
         /// <summary>"2026-2027" -> "2026-27"; anything else as it is.</summary>
         public static string ShortYear(string year) => Regex.Replace(year.Trim(), @"^(\d{4})-\d{2}(\d{2})$", "$1-$2");

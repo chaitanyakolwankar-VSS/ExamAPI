@@ -118,13 +118,22 @@ Shown to college and platform admins. Other users see the current prefix, read-o
 - **Prefix:** up to 40 characters: letters, digits, `/`, `-` and `.` only. Empty means the default, shown as the placeholder.
 - **CAP contact:** the CAP contact numbers, saved with the prefix.
 
+## 3b. Examiner and moderator letters
+
+The exam office appoints staff, our own or external, as **Examiner** or **Moderator** for a subject of an exam. There is one letter per person, per subject, per type. The subjects are those on the exam's timetable, all branches together, listed by branch, semester and subject order.
+
+- **Saving** works like supervision: the screen sends everything for the exam (`PUT api/StaffLetters/appointments`) and the letters follow it. A person already appointed keeps their letter, number and date. A new appointment gets a new numbered letter with the letter date. An appointment taken off the screen is cancelled, and its number is never used again. The message reads "Saved: 3 new, 5 unchanged, 1 cancelled."
+- **Numbers** have their own series: `VIT/EXAM/EXM/2026-27/0001` for examiners and `VIT/EXAM/MOD/2026-27/0001` for moderators, counted per college, type and academic year.
+- **Checks** (nothing is saved if one fails): the subject is on this exam's timetable; the person exists and is still at the college; the same person is not listed twice for a subject and type; nobody is both examiner and moderator of the same subject; the letter date is given when a new letter is made.
+- Reading: `GET api/StaffLetters/appointments?examId={any copy}`. The exam list also carries `appointmentCount`.
+
 ## 4. Roadmap
 
 | Step | What | Status |
 |---|---|---|
 | 1 | Staff Master: our staff and external examiners, Excel import, departments and designations | Done |
 | 2 | Letter tables, numbering, and the Supervision Letters screen | Done |
-| 3 | Examiner and moderator appointment letters | Planned |
+| 3 | Examiner and moderator appointment letters (API done, screen in progress) | In progress |
 | 4 | Letters made as PDFs on the server | Planned |
 | 5 | One emailed link per staff member per exam, with a one-time code. A short form first if details are missing. Then that exam's letters, earlier exams collapsed. Separate tables from student links. | Planned |
 | 6 | Office tracking (sent, opened, downloaded) and the Resolution Report certificate, using the staff list | Planned |
@@ -138,11 +147,11 @@ Letters copy the staff name, exam title and half onto the letter row, so a re-do
 | Models | `ExamAPI/ExamAPI/Models/Staff.cs`; `StaffLetter.cs` (`StaffLetter`, `StaffLetterDuty`, `StaffLetterTypes`); `StudentAccess.cs` (`CollegeSettings`) | 1; 2; 2 |
 | EF config, DbContext | `ExamAPI/ExamAPI/Data/StaffModel.cs`; `Data/ApplicationDbContext.cs` | 1 (letters: 2) |
 | Migrations | `ExamAPI/ExamAPI/Migrations/20261027062147_AddStaffMaster.cs`; `AddStaffLetters` (not yet created) | 1; 2 |
-| Services | `Services/Staff/StaffService.cs` (staff, lists, Excel); `Services/Common/ExamGroups.cs`; `Services/Common/ExamSlotOrder.cs`; `Services/Staff/StaffLetterService.cs` (exams, grid, numbering, letter settings) | 1; 2; 2; 2 |
+| Services | `Services/Staff/StaffService.cs` (staff, lists, Excel); `Services/Common/ExamGroups.cs`; `Services/Common/ExamSlotOrder.cs`; `Services/Staff/StaffLetterService.cs` (exams, grid, appointments, numbering, letter settings) | 1; 2; 2; 2 |
 | Shared with existing code | `Services/GenerateHallTicket/GenerateHallTicketService.cs` (`GetTimeTableAll`); `Services/AttendenceReport/AttendenceReportService.cs` | existing |
 | Seeder | `ExamAPI/ExamAPI/Services/Platform/StartupSeeder.cs` (`Screens`) | 2 |
 | Controllers | `ExamAPI/ExamAPI/Controllers/StaffController.cs`; `StaffLettersController.cs` (route `api/StaffLetters`) | 1; 2 |
-| API tests | `ExamAPI/ExamAPI.Tests/StaffServiceTests.cs`; `StaffLetterTests.cs`; `GenerateHallTicketTimeTableTests.cs` and `AttendenceReportTests.cs` (must keep passing) | 1; 2; existing |
+| API tests | `ExamAPI/ExamAPI.Tests/StaffServiceTests.cs`; `StaffLetterTests.cs`; `AppointmentLetterTests.cs`; `GenerateHallTicketTimeTableTests.cs` and `AttendenceReportTests.cs` (must keep passing) | 1; 2; existing |
 | Client pages | `ExamClient/src/pages/Staff/Staff Admin/StaffMaster.tsx`, `StaffOptionLists.tsx`, `SupervisionLetters.tsx` | 1; 1; 2 |
 | Client shared | `ExamClient/src/pages/Staff/Students Admin/SheetImportPanel.tsx` (Excel import panel) | existing |
 | Client services, config, routing | `ExamClient/src/services/StaffService.ts`, `StaffLetterService.ts`; `src/config/screens.ts` (path `/Staff/SupervisionLetters`); `src/App.tsx` (lazy route) | 1; 2; 2; 2 |

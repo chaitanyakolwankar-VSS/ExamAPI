@@ -33,6 +33,7 @@ namespace ExamAPI.Services.Platform
             ("Students Admin", "Student Master"),
             ("Staff Admin", "Staff Master"),
             ("Staff Admin", "Supervision Letters"),
+            ("Staff Admin", "Examiner Letters"),
             ("Conduct Exam", "Regular Exam"),
             ("Conduct Exam", "ATKT/Reval Exam"),
             ("Conduct Exam", "Assign Seat No"),
