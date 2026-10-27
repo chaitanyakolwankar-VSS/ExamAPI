@@ -49,8 +49,8 @@ namespace ExamAPI.Services.AttendenceReport
 
             return papers
                 .GroupBy(p => p.SubjectId).Select(g => g.First())
-                .OrderBy(p => ExamDate(p.Date))
-                .ThenBy(p => StartTime(p.Time))
+                .OrderBy(p => ExamSlotOrder.Date(p.Date))
+                .ThenBy(p => ExamSlotOrder.StartTime(p.Time))
                 .ThenBy(p => p.Time, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(p => p.SortOrder.HasValue ? 0 : 1).ThenBy(p => p.SortOrder ?? int.MaxValue)
                 .ThenBy(p => p.SubjectCode, StringComparer.OrdinalIgnoreCase)
@@ -100,19 +100,6 @@ namespace ExamAPI.Services.AttendenceReport
             public Guid MarksId { get; set; }
             public string? SeatNo { get; set; }
             public Guid? SubjectId { get; set; }
-        }
-
-        // Timetable dates are saved as dd-MM-yyyy text; anything unreadable goes last.
-        private static DateTime ExamDate(string date)
-            => DateTime.TryParseExact(date.Trim(), new[] { "dd-MM-yyyy", "d-M-yyyy", "dd/MM/yyyy", "yyyy-MM-dd" },
-                CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) ? d : DateTime.MaxValue;
-
-        // Times are text like "10:00 AM - 1:00 PM" or "2 PM"; sort on the start time, anything unreadable last.
-        private static TimeSpan StartTime(string time)
-        {
-            var start = time.Split('-')[0].Trim().ToUpperInvariant().Replace(".", "");
-            return DateTime.TryParseExact(start, new[] { "h:mm tt", "hh:mm tt", "h tt", "hh tt", "h:mmtt", "htt", "H:mm", "HH:mm" },
-                CultureInfo.InvariantCulture, DateTimeStyles.AllowWhiteSpaces, out var t) ? t.TimeOfDay : TimeSpan.MaxValue;
         }
     }
 }

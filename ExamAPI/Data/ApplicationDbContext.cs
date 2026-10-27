@@ -126,6 +126,8 @@ namespace ExamAPI.Data
         // =========================================
         public DbSet<StaffMaster> StaffMasters { get; set; }
         public DbSet<StaffOption> StaffOptions { get; set; }
+        public DbSet<StaffLetter> StaffLetters { get; set; }
+        public DbSet<StaffLetterDuty> StaffLetterDuties { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

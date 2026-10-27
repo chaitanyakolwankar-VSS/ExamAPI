@@ -290,6 +290,14 @@ namespace ExamAPI.Models
         public string? ExamOfficeEmail { get; set; }
 
         public int DailyEmailLimit { get; set; } = 2000;
+
+        /// <summary>Start of every exam letter number: "VIT/EXAM/SUP/2026-27/0042". Empty = "{college code}/EXAM".</summary>
+        [MaxLength(40)]
+        public string? LetterPrefix { get; set; }
+
+        /// <summary>Contact numbers printed on supervision letters ("CAP contact").</summary>
+        [MaxLength(100)]
+        public string? CapContact { get; set; }
     }
 
     /// <summary>

@@ -188,14 +188,7 @@ namespace ExamAPI.Services.GenerateHallTicket
                     .Select(a => a.ShortDuration ?? a.FullDuration).FirstOrDefaultAsync() ?? "";
 
             // Every branch's copy of this exam (same name, type and academic year; revaluation exams only with revaluation exams).
-            var isReval = exam.RevaluationForExamId != null;
-            var copiesQuery = _context.Exams.AsNoTracking()
-                .Where(e => e.Name == exam.Name && e.ExamType == exam.ExamType && e.AcademicYearAYID == exam.AcademicYearAYID);
-            copiesQuery = isReval
-                ? copiesQuery.Where(e => e.RevaluationForExamId != null)
-                : copiesQuery.Where(e => e.RevaluationForExamId == null);
-            var copyIds = await copiesQuery.Select(e => e.ExamId).ToListAsync();
-            if (!copyIds.Contains(exam.ExamId)) copyIds.Add(exam.ExamId);
+            var copyIds = await ExamGroups.CopyIdsAsync(_context, exam.ExamId);
 
             var raw = await (
                 from tt in _context.TimeTables.AsNoTracking()

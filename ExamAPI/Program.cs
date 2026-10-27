@@ -72,6 +72,7 @@ builder.Services.AddScoped<ExamAPI.Services.StatisticalReport.IStatisticalReport
 builder.Services.AddScoped<ExamAPI.Services.ATKTCummulativeReport.IATKTCummulativeReportService, ExamAPI.Services.ATKTCummulativeReport.ATKTCummulativeReportService>();
 builder.Services.AddScoped<ExamAPI.Services.AttendenceReport.IAttendenceReportService, ExamAPI.Services.AttendenceReport.AttendenceReportService>();
 builder.Services.AddScoped<ExamAPI.Services.Staff.IStaffService, ExamAPI.Services.Staff.StaffService>();
+builder.Services.AddScoped<ExamAPI.Services.Staff.IStaffLetterService, ExamAPI.Services.Staff.StaffLetterService>();
 builder.Services.AddScoped<ExamAPI.Services.StudentPromotion.IStudentPromotionService, ExamAPI.Services.StudentPromotion.StudentPromotion>();
 builder.Services.AddScoped<ExamAPI.Services.ReleaseHallTicket.IReleaseHallticketService, ExamAPI.Services.ReleaseHallTicket.ReleaseHallticketService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();

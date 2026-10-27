@@ -203,6 +203,10 @@ namespace ExamAPI.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
 
+                    b.Property<string>("CapContact")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
                     b.Property<Guid?>("CollegeId")
                         .HasColumnType("uniqueidentifier");
 
@@ -228,6 +232,10 @@ namespace ExamAPI.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bit")
                         .HasDefaultValue(false);
+
+                    b.Property<string>("LetterPrefix")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
@@ -1266,6 +1274,128 @@ namespace ExamAPI.Migrations
                     b.HasIndex("PatternId");
 
                     b.ToTable("RuleSet");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.StaffLetter", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AYID")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CollegeId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("ExamId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ExamTitle")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Half")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
+                    b.Property<DateTime>("LetterDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("LetterNo")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
+                    b.Property<string>("LetterType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("Role")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<int>("SerialNo")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("StaffId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("StaffName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid?>("SubjectId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExamId");
+
+                    b.HasIndex("CollegeId", "LetterType", "AYID", "SerialNo")
+                        .IsUnique()
+                        .HasFilter("[IsDeleted] = 0");
+
+                    b.HasIndex("StaffId", "ExamId", "LetterType", "SubjectId")
+                        .IsUnique()
+                        .HasFilter("[IsDeleted] = 0");
+
+                    b.ToTable("StaffLetter");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.StaffLetterDuty", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CollegeId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Date")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<Guid>("LetterId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Time")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CollegeId");
+
+                    b.HasIndex("LetterId");
+
+                    b.ToTable("StaffLetterDuty");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.StaffMaster", b =>
@@ -2663,6 +2793,44 @@ namespace ExamAPI.Migrations
                     b.Navigation("Pattern");
                 });
 
+            modelBuilder.Entity("ExamAPI.Models.StaffLetter", b =>
+                {
+                    b.HasOne("ExamAPI.Models.College", null)
+                        .WithMany()
+                        .HasForeignKey("CollegeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ExamAPI.Models.ExamMaster", null)
+                        .WithMany()
+                        .HasForeignKey("ExamId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ExamAPI.Models.StaffMaster", "Staff")
+                        .WithMany()
+                        .HasForeignKey("StaffId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Staff");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.StaffLetterDuty", b =>
+                {
+                    b.HasOne("ExamAPI.Models.College", null)
+                        .WithMany()
+                        .HasForeignKey("CollegeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ExamAPI.Models.StaffLetter", "Letter")
+                        .WithMany("Duties")
+                        .HasForeignKey("LetterId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Letter");
+                });
+
             modelBuilder.Entity("ExamAPI.Models.StaffMaster", b =>
                 {
                     b.HasOne("ExamAPI.Models.College", null)
@@ -3036,6 +3204,11 @@ namespace ExamAPI.Migrations
             modelBuilder.Entity("ExamAPI.Models.RuleSet", b =>
                 {
                     b.Navigation("Rules");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.StaffLetter", b =>
+                {
+                    b.Navigation("Duties");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.StudentMaster", b =>
