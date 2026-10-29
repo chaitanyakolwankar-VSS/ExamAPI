@@ -24,7 +24,7 @@ namespace ExamAPI.Services.Staff
         {
             get
             {
-                var n = Letter.Duties.Count;
+                var n = Letter.Duties.Select(d => d.Date).Distinct().Count();
                 return $"{n} date{(n == 1 ? "" : "s")}";
             }
         }
@@ -124,8 +124,9 @@ namespace ExamAPI.Services.Staff
             if (link?.Staff == null || !StaffAccessAuth.IsOpen(link, now) || !StaffAccessAuth.StaffOk(link.Staff) || string.IsNullOrWhiteSpace(link.LinkBaseUrl))
                 return null;
 
+            var mine = _context.StaffLetters.IgnoreQueryFilters().Where(l => l.CollegeId == link.CollegeId && l.StaffId == link.StaffId && !l.IsDeleted);
             var lines = await StaffLetterLine.LoadAsync(_context,
-                _context.StaffLetters.IgnoreQueryFilters().Where(l => l.CollegeId == link.CollegeId && l.StaffId == link.StaffId && l.ExamId == link.ExamId && !l.IsDeleted)
+                (link.DutyChartId is Guid chart ? mine.Where(l => l.DutyChartId == chart) : mine.Where(l => l.ExamId == link.ExamId))
                     .OrderBy(l => l.LetterType).ThenBy(l => l.SerialNo), ignoreFilters: true, ct);
             // Nothing left to send (the letters were cancelled since).
             if (lines.Count == 0) return null;

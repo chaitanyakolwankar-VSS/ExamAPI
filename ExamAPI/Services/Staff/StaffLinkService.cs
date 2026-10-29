@@ -7,12 +7,17 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ExamAPI.Services.Staff
 {
-    /// <summary>Who to email: the letters of one exam, of one kind, optionally only some people.</summary>
+    /// <summary>
+    /// Who to email: the letters of one duty chart (supervision) or of one exam (examiner and moderator), optionally only some
+    /// people. Exactly one of <see cref="ExamId"/> and <see cref="DutyChartId"/>.
+    /// </summary>
     public class StaffEmailRequest
     {
-        /// <summary>Any branch's copy of the exam.</summary>
-        public Guid ExamId { get; set; }
-        /// <summary>"supervision", "appointment" (examiner and moderator letters) or "all".</summary>
+        /// <summary>Any branch's copy of the exam; for appointment letters.</summary>
+        public Guid? ExamId { get; set; }
+        /// <summary>The duty chart; for supervision letters.</summary>
+        public Guid? DutyChartId { get; set; }
+        /// <summary>"supervision" (needs a duty chart), "appointment" (examiner and moderator letters; needs an exam) or "all" (the letters of whichever was given).</summary>
         public string Kind { get; set; } = "all";
         /// <summary>Only these people. Absent: everyone with letters of that kind; an empty list: nobody.</summary>
         public List<Guid>? StaffIds { get; set; }
@@ -24,7 +29,7 @@ namespace ExamAPI.Services.Staff
 
     public class StaffEmailPreview
     {
-        /// <summary>People with live letters of that kind in the exam (and in StaffIds, when given).</summary>
+        /// <summary>People with live letters of that kind in the exam or chart (and in StaffIds, when given).</summary>
         public int People { get; set; }
         /// <summary>Of those, people who can be emailed (on the staff list, with a valid email).</summary>
         public int WithEmail { get; set; }
@@ -45,7 +50,7 @@ namespace ExamAPI.Services.Staff
         public string Message { get; set; } = "";
     }
 
-    /// <summary>The latest link of one person for an exam, as the Letters tab shows it.</summary>
+    /// <summary>The latest link of one person for an exam or a duty chart, as the Letters tab shows it.</summary>
     public class StaffLinkStatus
     {
         public Guid StaffId { get; set; }
@@ -58,11 +63,11 @@ namespace ExamAPI.Services.Staff
     {
         Task<StaffEmailPreview> PreviewAsync(StaffEmailRequest request);
         Task<StaffEmailResult> SendAsync(StaffEmailRequest request, string linkBaseUrl);
-        Task<List<StaffLinkStatus>> StatusAsync(Guid examId);
+        Task<List<StaffLinkStatus>> StatusAsync(Guid? examId, Guid? dutyChartId);
     }
 
     /// <summary>
-    /// The exam office emails staff their letters: one link per person for the exam (a newer one stops the older), the
+    /// The exam office emails staff their letters: one link per person for the exam or duty chart (a newer one stops the older), the
     /// email is written when it is sent (so it holds the token and the queue never does). Signed-in office staff only;
     /// every query goes through the tenant filter.
     /// </summary>
@@ -89,7 +94,13 @@ namespace ExamAPI.Services.Staff
             public bool Usable => Staff != null && StaffAccessAuth.StaffOk(Staff) && StudentEmail.IsValid(StudentEmail.Normalize(Staff.Email));
         }
 
-        private sealed record Selection(Guid Canonical, List<Guid> Copies, List<Person> People);
+        /// <summary>What the links are for: an exam (its canonical copy and all copies) or a duty chart.</summary>
+        private sealed record Scope(Guid? Exam, List<Guid> Copies, Guid? Chart, DateTime? ChartTo)
+        {
+            public Guid Id => (Exam ?? Chart)!.Value;
+        }
+
+        private sealed record Selection(Scope Scope, List<Person> People);
 
         private static IReadOnlyList<string> TypesOf(string? kind) => (kind ?? "").Trim().ToLowerInvariant() switch
         {
@@ -99,15 +110,46 @@ namespace ExamAPI.Services.Staff
             _ => throw new InvalidOperationException("Choose supervision letters, examiner letters or all letters."),
         };
 
-        /// <summary>The people with live letters of the kind in the exam (any branch's copy), filtered to the given people.</summary>
+        /// <summary>Which exam or duty chart the request is for, and the letter types of its kind.</summary>
+        private async Task<(Scope Scope, IReadOnlyList<string> Types)> ScopeAsync(Guid? examId, Guid? dutyChartId, string? kind)
+        {
+            var types = TypesOf(kind);
+            if ((examId == null) == (dutyChartId == null))
+                throw new InvalidOperationException("Choose a duty chart (for supervision letters) or an exam (for examiner letters).");
+
+            if (dutyChartId is Guid chartId)
+            {
+                if (!types.Contains(StaffLetterTypes.Supervision))
+                    throw new InvalidOperationException("Examiner and moderator letters belong to an exam, not a duty chart.");
+                var chart = await _context.DutyCharts.AsNoTracking().Where(c => c.Id == chartId).Select(c => new { c.Id, c.ToDate }).FirstOrDefaultAsync()
+                    ?? throw new KeyNotFoundException("Duty chart not found.");
+                return (new Scope(null, new List<Guid>(), chart.Id, chart.ToDate), new[] { StaffLetterTypes.Supervision });
+            }
+
+            if (!types.Any(t => t != StaffLetterTypes.Supervision))
+                throw new InvalidOperationException("Supervision letters belong to a duty chart, not an exam.");
+            var copies = await ExamGroups.CopyIdsAsync(_context, examId!.Value);
+            if (copies.Count == 0) throw new KeyNotFoundException("Exam not found.");
+            var canonical = await ExamGroups.CanonicalIdAsync(_context, examId.Value) ?? examId.Value;
+            return (new Scope(canonical, copies, null, null), types.Where(t => t != StaffLetterTypes.Supervision).ToList());
+        }
+
+        private static IQueryable<StaffLetter> LettersOf(IQueryable<StaffLetter> letters, Scope scope) =>
+            scope.Chart is Guid chart
+                ? letters.Where(l => l.DutyChartId == chart)
+                : letters.Where(l => l.ExamId != null && scope.Copies.Contains(l.ExamId.Value));
+
+        private static IQueryable<StaffLink> LinksOf(IQueryable<StaffLink> links, Scope scope) =>
+            scope.Chart is Guid chart
+                ? links.Where(l => l.DutyChartId == chart)
+                : links.Where(l => l.ExamId != null && scope.Copies.Contains(l.ExamId.Value));
+
+        /// <summary>The people with live letters of the kind in the exam (any branch's copy) or duty chart, filtered to the given people.</summary>
         private async Task<Selection> SelectAsync(StaffEmailRequest request)
         {
-            var types = TypesOf(request.Kind);
-            var copies = await ExamGroups.CopyIdsAsync(_context, request.ExamId);
-            if (copies.Count == 0) throw new KeyNotFoundException("Exam not found.");
-            var canonical = await ExamGroups.CanonicalIdAsync(_context, request.ExamId) ?? request.ExamId;
+            var (scope, types) = await ScopeAsync(request.ExamId, request.DutyChartId, request.Kind);
 
-            var letters = _context.StaffLetters.AsNoTracking().Where(l => (l.ExamId != null && copies.Contains(l.ExamId.Value)) && types.Contains(l.LetterType));
+            var letters = LettersOf(_context.StaffLetters.AsNoTracking(), scope).Where(l => types.Contains(l.LetterType));
             if (request.StaffIds != null)
             {
                 var wanted = request.StaffIds;
@@ -124,7 +166,7 @@ namespace ExamAPI.Services.Staff
                     return new Person(g.Key, s, s == null ? g.First().StaffName : StaffService.Letter(s.Title, s.FirstName, s.MiddleName, s.LastName), g.Count());
                 })
                 .OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ToList();
-            return new Selection(canonical, copies, people);
+            return new Selection(scope, people);
         }
 
         private async Task<bool> SenderReadyAsync(Guid collegeId)
@@ -140,11 +182,11 @@ namespace ExamAPI.Services.Staff
             }
         }
 
-        /// <summary>Each person's latest link for the exam, with its email's state.</summary>
-        private async Task<Dictionary<Guid, (StaffLink Link, string? MailStatus, DateTime? MailSentAt)>> LatestAsync(List<Guid> copies, List<Guid>? staffIds = null)
+        /// <summary>Each person's latest link for the exam or duty chart, with its email's state.</summary>
+        private async Task<Dictionary<Guid, (StaffLink Link, string? MailStatus, DateTime? MailSentAt)>> LatestAsync(Scope scope, List<Guid>? staffIds = null)
         {
-            var links = await _context.StaffLinks.AsNoTracking()
-                .Where(l => (l.ExamId != null && copies.Contains(l.ExamId.Value)) && (staffIds == null || staffIds.Contains(l.StaffId)))
+            var links = await LinksOf(_context.StaffLinks.AsNoTracking(), scope)
+                .Where(l => staffIds == null || staffIds.Contains(l.StaffId))
                 .ToListAsync();
             var latest = links.GroupBy(l => l.StaffId).Select(g => g.OrderByDescending(l => l.CreatedAt).First()).ToList();
             var ids = latest.Select(l => l.Id).ToList();
@@ -169,7 +211,7 @@ namespace ExamAPI.Services.Staff
             var collegeId = CollegeId;
             var selection = await SelectAsync(request);
             var usable = selection.People.Where(p => p.Usable).ToList();
-            var latest = await LatestAsync(selection.Copies, usable.Select(p => p.StaffId).ToList());
+            var latest = await LatestAsync(selection.Scope, usable.Select(p => p.StaffId).ToList());
             var now = DateTime.UtcNow;
             return new StaffEmailPreview
             {
@@ -194,7 +236,7 @@ namespace ExamAPI.Services.Staff
             var now = DateTime.UtcNow;
             var usable = selection.People.Where(p => p.Usable).ToList();
             var noEmail = selection.People.Count - usable.Count;
-            var latest = await LatestAsync(selection.Copies, usable.Select(p => p.StaffId).ToList());
+            var latest = await LatestAsync(selection.Scope, usable.Select(p => p.StaffId).ToList());
             var alreadySent = request.OnlyNotSent ? usable.Where(p => latest.TryGetValue(p.StaffId, out var x) && Emailed(x, now)).ToList() : new List<Person>();
             var targets = usable.Except(alreadySent).ToList();
             if (targets.Count == 0)
@@ -202,15 +244,16 @@ namespace ExamAPI.Services.Staff
                     ? "None of these people has a usable email on the staff list."
                     : "Everyone has been emailed already.");
 
-            // Their earlier open links stop (the sessions end, the emails not yet sent are cancelled): one link per person and exam.
+            // Their earlier open links stop (the sessions end, the emails not yet sent are cancelled): one link per person and exam or chart.
+            var scope = selection.Scope;
             var targetIds = targets.Select(p => p.StaffId).ToList();
-            var earlier = await _context.StaffLinks
-                .Where(l => targetIds.Contains(l.StaffId) && (l.ExamId != null && selection.Copies.Contains(l.ExamId.Value)) && l.Status == StaffLinkStatuses.Active)
+            var earlier = await LinksOf(_context.StaffLinks, scope)
+                .Where(l => targetIds.Contains(l.StaffId) && l.Status == StaffLinkStatuses.Active)
                 .ToListAsync();
             var replaced = earlier.Count(l => l.ExpiresAt > now);
             await StopAsync(earlier, now);
 
-            var expires = await ExpiryAsync(selection.Copies, now);
+            var expires = await ExpiryAsync(scope, now);
             var today = await _outbox.DailyStatusAsync(collegeId);
             foreach (var person in targets)
             {
@@ -219,7 +262,8 @@ namespace ExamAPI.Services.Staff
                     Id = Guid.NewGuid(),
                     CollegeId = collegeId,
                     StaffId = person.StaffId,
-                    ExamId = selection.Canonical,
+                    ExamId = scope.Exam,
+                    DutyChartId = scope.Chart,
                     Status = StaffLinkStatuses.Active,
                     ExpiresAt = expires,
                     CreatedAt = now,
@@ -237,7 +281,7 @@ namespace ExamAPI.Services.Staff
                 CollegeId = collegeId,
                 Action = "UPDATE",
                 TableName = nameof(StaffLink),
-                RecordId = selection.Canonical.ToString(),
+                RecordId = scope.Id.ToString(),
                 PerformedBy = _context.CurrentUserId,
                 UserType = "Staff",
                 Event = "StaffLettersEmailed",
@@ -255,12 +299,11 @@ namespace ExamAPI.Services.Staff
             };
         }
 
-        public async Task<List<StaffLinkStatus>> StatusAsync(Guid examId)
+        public async Task<List<StaffLinkStatus>> StatusAsync(Guid? examId, Guid? dutyChartId)
         {
             _ = CollegeId;
-            var copies = await ExamGroups.CopyIdsAsync(_context, examId);
-            if (copies.Count == 0) throw new KeyNotFoundException("Exam not found.");
-            var latest = await LatestAsync(copies);
+            var (scope, _) = await ScopeAsync(examId, dutyChartId, "all");
+            var latest = await LatestAsync(scope);
             return latest.Select(kv => new StaffLinkStatus
             {
                 StaffId = kv.Key,
@@ -270,13 +313,18 @@ namespace ExamAPI.Services.Staff
             }).ToList();
         }
 
-        /// <summary>30 days after the exam's last timetable date, or 30 days from now when there is none; never less than a week from now.</summary>
-        private async Task<DateTime> ExpiryAsync(List<Guid> copies, DateTime now)
+        /// <summary>30 days after the chart's last day (or the exam's last timetable date), or 30 days from now when the exam has none; never less than a week from now.</summary>
+        private async Task<DateTime> ExpiryAsync(Scope scope, DateTime now)
         {
-            var dates = await _context.TimeTables.AsNoTracking()
-                .Where(t => t.ExamId != null && copies.Contains(t.ExamId.Value) && t.Date != null && t.Date != "")
-                .Select(t => t.Date!).ToListAsync();
-            var last = dates.Select(ExamSlotOrder.Date).Where(d => d != DateTime.MaxValue).DefaultIfEmpty(DateTime.MaxValue).Max();
+            var copies = scope.Copies;
+            var last = scope.ChartTo?.Date ?? DateTime.MaxValue;
+            if (scope.Chart == null)
+            {
+                var dates = await _context.TimeTables.AsNoTracking()
+                    .Where(t => t.ExamId != null && copies.Contains(t.ExamId.Value) && t.Date != null && t.Date != "")
+                    .Select(t => t.Date!).ToListAsync();
+                last = dates.Select(ExamSlotOrder.Date).Where(d => d != DateTime.MaxValue).DefaultIfEmpty(DateTime.MaxValue).Max();
+            }
             var wanted = last == DateTime.MaxValue
                 ? TaskLinkService.EndOfLocalDay(DateTime.Today.AddDays(AfterExamDays))
                 : TaskLinkService.EndOfLocalDay(last.AddDays(AfterExamDays));

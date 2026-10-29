@@ -2,13 +2,14 @@ using Microsoft.AspNetCore.Http;
 
 namespace ExamAPI.DTOs
 {
-    /// <summary>Staff Master filters. Type: "internal", "external" or empty for both.</summary>
+    /// <summary>Staff Master filters. Type: "internal", "external" or empty for both. Teaching: "teaching", "non-teaching" or empty for both.</summary>
     public class StaffFilter
     {
         public string? Search { get; set; }
         public Guid? DepartmentId { get; set; }
         public Guid? DesignationId { get; set; }
         public string? Type { get; set; }
+        public string? Teaching { get; set; }
         public bool IncludeInactive { get; set; }
     }
 
@@ -27,6 +28,8 @@ namespace ExamAPI.DTOs
         public string? Department { get; set; }
         public Guid? DesignationId { get; set; }
         public string? Designation { get; set; }
+        /// <summary>Teaching or non-teaching staff: decides the default duty role.</summary>
+        public bool IsTeaching { get; set; } = true;
         public bool IsExternal { get; set; }
         public string? ExternalCollege { get; set; }
         public string? ExternalCity { get; set; }
@@ -44,6 +47,7 @@ namespace ExamAPI.DTOs
         public string? Email { get; set; }
         public Guid? DepartmentId { get; set; }
         public Guid? DesignationId { get; set; }
+        public bool IsTeaching { get; set; } = true;
         public bool IsExternal { get; set; }
         public string? ExternalCollege { get; set; }
         public string? ExternalCity { get; set; }

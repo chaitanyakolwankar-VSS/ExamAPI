@@ -11,8 +11,6 @@ namespace ExamAPI.Services.Staff
     public interface IStaffLetterService
     {
         Task<List<ExamGroupDto>> ExamsAsync(Guid ayid);
-        Task<SupervisionDto> SupervisionAsync(Guid examId);
-        Task<SupervisionSaveResult> SaveSupervisionAsync(SupervisionSave dto);
         Task<AppointmentsDto> AppointmentsAsync(Guid examId);
         Task<AppointmentSaveResult> SaveAppointmentsAsync(AppointmentSave dto);
         Task<LetterSettingsDto> GetSettingsAsync();
@@ -20,10 +18,10 @@ namespace ExamAPI.Services.Staff
     }
 
     /// <summary>
-    /// Letters to staff. Supervision letters: the exam office gives each member of staff a duty role and the dates
-    /// they supervise for one exam (all branches together); the screen sends the whole grid and the letters follow it.
-    /// Appointment letters: the exam office appoints an examiner and a moderator for each subject of an exam, and the
-    /// screen sends all of them at once. Every letter gets a number that is never reused, even when the letter is cancelled.
+    /// Letters to staff. Appointment letters: the exam office appoints an examiner and a moderator for each subject of
+    /// an exam (all branches together), and the screen sends all of them at once. Supervision letters come from duty
+    /// charts (see <see cref="DutyChartService"/>). Every letter gets a number that is never reused, even when the
+    /// letter is cancelled; <see cref="LetterNumbering"/> hands the numbers out.
     /// </summary>
     public class StaffLetterService : IStaffLetterService
     {
@@ -65,28 +63,13 @@ namespace ExamAPI.Services.Staff
                 var ids = copies.Select(e => e.ExamId).ToHashSet();
                 var group = Describe(copies.ToList(), papers.Where(p => ids.Contains(p.ExamId)).ToList());
                 if (group.Slots.Count == 0) continue;
-                result.Add(ToDto(group,
-                    lettered.Count(l => l.ExamId != null && ids.Contains(l.ExamId.Value) && l.LetterType == StaffLetterTypes.Supervision),
-                    lettered.Count(l => l.ExamId != null && ids.Contains(l.ExamId.Value) && IsAppointment(l.LetterType))));
+                result.Add(ToDto(group, lettered.Count(l => l.ExamId != null && ids.Contains(l.ExamId.Value) && IsAppointment(l.LetterType))));
             }
             return result.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase).ThenBy(e => e.ExamType, StringComparer.OrdinalIgnoreCase).ToList();
         }
 
-        public async Task<SupervisionDto> SupervisionAsync(Guid examId)
-        {
-            var group = await GroupAsync(examId);
-            var letters = await LettersAsync(group);
-            return new SupervisionDto
-            {
-                Exam = ToDto(group, letters.Count, await AppointmentLettersCountAsync(group)),
-                Roles = SupervisionRoles.All.ToList(),
-                Slots = group.Slots.Select(s => new SupervisionSlotDto { Date = s.Date, Time = s.Time, Papers = s.Papers, Branches = s.Branches }).ToList(),
-                Letters = letters
-            };
-        }
-
         /// <summary>The exam's group, looked up from any branch's copy. Revaluation exams are not for letters (the refusal names the kind of letter).</summary>
-        private async Task<Group> GroupAsync(Guid examId, string letters = "Supervision letters")
+        private async Task<Group> GroupAsync(Guid examId, string letters = "Appointment letters")
         {
             var copyIds = await ExamGroups.CopyIdsAsync(_context, examId);
             if (copyIds.Count == 0) throw new KeyNotFoundException("Exam not found.");
@@ -149,7 +132,7 @@ namespace ExamAPI.Services.Staff
             return new Group(canonical, copies.Select(e => e.ExamId).ToList(), slots, half, branchCount, papers);
         }
 
-        private static ExamGroupDto ToDto(Group group, int letterCount, int appointmentCount) => new()
+        private static ExamGroupDto ToDto(Group group, int appointmentCount) => new()
         {
             ExamId = group.Exam.ExamId,
             Name = group.Exam.Name,
@@ -158,203 +141,19 @@ namespace ExamAPI.Services.Staff
             Half = group.Half,
             BranchCount = group.BranchCount,
             SlotCount = group.Slots.Count,
-            LetterCount = letterCount,
+            LetterCount = 0,
             AppointmentCount = appointmentCount
         };
-
-        // ------------------------------------------------------------------ supervision letters
-
-        private async Task<List<SupervisionLetterDto>> LettersAsync(Group group)
-        {
-            var letters = await _context.StaffLetters.AsNoTracking().Include(l => l.Duties)
-                .Where(l => l.LetterType == StaffLetterTypes.Supervision && (l.ExamId != null && group.CopyIds.Contains(l.ExamId.Value))).ToListAsync();
-            return letters.OrderBy(l => l.SerialNo).Select(ToDto).ToList();
-        }
-
-        private static SupervisionLetterDto ToDto(StaffLetter l) => new()
-        {
-            LetterId = l.Id,
-            StaffId = l.StaffId,
-            StaffName = l.StaffName,
-            LetterNo = l.LetterNo,
-            LetterDate = l.LetterDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-            Role = l.Role ?? "",
-            Duties = l.Duties.OrderBy(d => d.SortOrder).Select(d => new DutyDto { Date = d.Date, Time = d.Time }).ToList()
-        };
-
-        /// <summary>
-        /// Makes the exam's supervision letters match the grid: people in it get a new letter or an updated one (number
-        /// and date kept), letters of people not in it are cancelled. Everything is checked before anything is saved.
-        /// </summary>
-        public async Task<SupervisionSaveResult> SaveSupervisionAsync(SupervisionSave dto)
-        {
-            var group = await GroupAsync(dto.ExamId);
-            var exam = group.Exam;
-            var slots = group.Slots.Select((s, i) => (Key: SlotKey(s.Date, s.Time), Slot: s, Order: i)).ToDictionary(s => s.Key);
-
-            var assignments = dto.Assignments ?? new List<SupervisionAssignment>();
-            var staffIds = assignments.Select(a => a.StaffId).Distinct().ToList();
-            var staff = await _context.StaffMasters.AsNoTracking().Where(s => staffIds.Contains(s.StaffId)).ToDictionaryAsync(s => s.StaffId);
-            var errors = new List<string>();
-            var seen = new HashSet<Guid>();
-            var plan = new List<(StaffMaster Staff, string Role, List<Slot> Duties)>();
-            foreach (var a in assignments)
-            {
-                if (!staff.TryGetValue(a.StaffId, out var person))
-                {
-                    errors.Add("a member of staff in the list was not found.");
-                    continue;
-                }
-                var who = StaffService.Letter(person.Title, person.FirstName, person.MiddleName, person.LastName);
-                if (!seen.Add(a.StaffId))
-                {
-                    errors.Add($"{who} appears more than once.");
-                    continue;
-                }
-
-                var problems = new List<string>();
-                if (!person.IsActive) problems.Add("has left and cannot be given duties.");
-                else if (person.IsExternal) problems.Add("is an external member of staff; supervision duties are for our own staff.");
-
-                var role = SupervisionRoles.All.FirstOrDefault(r => string.Equals(r, (a.Role ?? "").Trim(), StringComparison.OrdinalIgnoreCase));
-                if (role == null) problems.Add($"needs a role ({string.Join(", ", SupervisionRoles.All)}).");
-
-                var duties = new List<(string Key, Slot Slot, int Order)>();
-                foreach (var duty in a.Duties ?? new List<DutyDto>())
-                {
-                    var key = SlotKey(duty.Date ?? "", duty.Time ?? "");
-                    if (!slots.TryGetValue(key, out var slot)) problems.Add($"has a duty on {(duty.Date ?? "").Trim()} {(duty.Time ?? "").Trim()}, which is not a date and time of this exam.");
-                    else if (duties.All(d => d.Key != key)) duties.Add((key, slot.Slot, slot.Order));
-                }
-                if (duties.Count == 0 && problems.Count == 0) problems.Add("needs at least one date.");
-
-                errors.AddRange(problems.Select(p => $"{who} {p}"));
-                if (problems.Count == 0) plan.Add((person, role!, duties.OrderBy(d => d.Order).Select(d => d.Slot).ToList()));
-            }
-
-            DateTime? letterDate = null;
-            if (!string.IsNullOrWhiteSpace(dto.LetterDate))
-            {
-                if (DateTime.TryParseExact(dto.LetterDate.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed)) letterDate = parsed.Date;
-                else errors.Add("the letter date is not a valid date.");
-            }
-            if (exam.AcademicYearAYID == null)
-                errors.Add("this exam has no academic year.");
-            if (errors.Count > 0)
-                throw new InvalidOperationException(Sentence(errors));
-
-            var existing = await _context.StaffLetters.Include(l => l.Duties)
-                .Where(l => l.LetterType == StaffLetterTypes.Supervision && (l.ExamId != null && group.CopyIds.Contains(l.ExamId.Value))).ToListAsync();
-            if (letterDate == null && plan.Any(p => existing.All(l => l.StaffId != p.Staff.StaffId)))
-                throw new InvalidOperationException("Enter the letter date.");
-
-            var collegeId = exam.CollegeId ?? _context.CurrentCollegeId;
-            var ayid = exam.AcademicYearAYID!.Value;
-            var result = new SupervisionSaveResult();
-
-            using var transaction = await _context.Database.BeginTransactionAsync();
-            try
-            {
-                string? numberStart = null;
-                var nextSerial = 0;
-                foreach (var (person, role, duties) in plan)
-                {
-                    var letter = existing.FirstOrDefault(l => l.StaffId == person.StaffId);
-                    if (letter != null)
-                    {
-                        var same = letter.Role == role && letter.ExamId == exam.ExamId
-                            && letter.Duties.OrderBy(d => d.SortOrder).Select(d => SlotKey(d.Date, d.Time)).SequenceEqual(duties.Select(d => SlotKey(d.Date, d.Time)));
-                        if (same)
-                        {
-                            result.Unchanged++;
-                            continue;
-                        }
-                        letter.Role = role;
-                        letter.ExamId = exam.ExamId;
-                        letter.UpdatedAt = DateTime.UtcNow;
-                        _context.StaffLetterDuties.RemoveRange(letter.Duties.ToList());
-                        AddDuties(letter, duties, collegeId);
-                        result.Updated++;
-                        continue;
-                    }
-
-                    if (numberStart == null)
-                    {
-                        numberStart = await NumberStartAsync(collegeId, ayid, StaffLetterTypes.Supervision);
-                        nextSerial = await NextSerialAsync(collegeId, ayid, StaffLetterTypes.Supervision);
-                    }
-                    letter = new StaffLetter
-                    {
-                        Id = Guid.NewGuid(),
-                        CollegeId = collegeId,
-                        StaffId = person.StaffId,
-                        LetterType = StaffLetterTypes.Supervision,
-                        ExamId = exam.ExamId,
-                        AYID = ayid,
-                        SerialNo = nextSerial,
-                        LetterNo = $"{numberStart}/{nextSerial:D4}",
-                        LetterDate = letterDate!.Value,
-                        Role = role,
-                        StaffName = StaffService.Letter(person.Title, person.FirstName, person.MiddleName, person.LastName),
-                        ExamTitle = TitleOf(exam),
-                        Half = group.Half
-                    };
-                    nextSerial++;
-                    AddDuties(letter, duties, collegeId);
-                    _context.StaffLetters.Add(letter);
-                    result.Created++;
-                }
-
-                var kept = plan.Select(p => p.Staff.StaffId).ToHashSet();
-                foreach (var letter in existing.Where(l => !kept.Contains(l.StaffId)))
-                {
-                    letter.IsDeleted = true;
-                    letter.DeletedAt = DateTime.UtcNow;
-                    result.Removed++;
-                }
-
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
-            }
-            catch
-            {
-                await transaction.RollbackAsync();
-                throw;
-            }
-
-            result.Message = $"Saved: {result.Created} new, {result.Updated} updated, {result.Unchanged} unchanged, {result.Removed} cancelled.";
-            result.Letters = await LettersAsync(group);
-            return result;
-        }
-
-        private void AddDuties(StaffLetter letter, List<Slot> duties, Guid? collegeId)
-        {
-            for (int i = 0; i < duties.Count; i++)
-            {
-                var duty = new StaffLetterDuty
-                {
-                    Id = Guid.NewGuid(),
-                    CollegeId = collegeId,
-                    LetterId = letter.Id,
-                    Date = duties[i].Date,
-                    Time = duties[i].Time,
-                    SortOrder = i
-                };
-                _context.StaffLetterDuties.Add(duty);
-            }
-        }
 
         // ------------------------------------------------------------------ examiner and moderator letters
 
         public async Task<AppointmentsDto> AppointmentsAsync(Guid examId)
         {
-            var group = await GroupAsync(examId, "Appointment letters");
+            var group = await GroupAsync(examId);
             var letters = await AppointmentLettersAsync(group);
-            var supervision = await _context.StaffLetters.AsNoTracking()
-                .CountAsync(l => l.LetterType == StaffLetterTypes.Supervision && (l.ExamId != null && group.CopyIds.Contains(l.ExamId.Value)));
             return new AppointmentsDto
             {
-                Exam = ToDto(group, supervision, letters.Count),
+                Exam = ToDto(group, letters.Count),
                 Subjects = await AppointmentSubjectsAsync(group),
                 Letters = letters
             };
@@ -405,10 +204,6 @@ namespace ExamAPI.Services.Staff
             return letters.OrderBy(l => l.LetterType, StringComparer.Ordinal).ThenBy(l => l.SerialNo).Select(ToAppointmentDto).ToList();
         }
 
-        private Task<int> AppointmentLettersCountAsync(Group group) =>
-            _context.StaffLetters.AsNoTracking()
-                .CountAsync(l => (l.LetterType == StaffLetterTypes.Examiner || l.LetterType == StaffLetterTypes.Moderator) && (l.ExamId != null && group.CopyIds.Contains(l.ExamId.Value)));
-
         private static AppointmentLetterDto ToAppointmentDto(StaffLetter l) => new()
         {
             LetterId = l.Id,
@@ -427,7 +222,7 @@ namespace ExamAPI.Services.Staff
         /// </summary>
         public async Task<AppointmentSaveResult> SaveAppointmentsAsync(AppointmentSave dto)
         {
-            var group = await GroupAsync(dto.ExamId, "Appointment letters");
+            var group = await GroupAsync(dto.ExamId);
             var exam = group.Exam;
             var subjects = (await AppointmentSubjectsAsync(group)).ToDictionary(s => s.SubjectId);
 
@@ -509,7 +304,7 @@ namespace ExamAPI.Services.Staff
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
-                var numbering = new Dictionary<string, (string Start, int Next)>();
+                var numbering = new Dictionary<string, LetterNumbering>();
                 var kept = new HashSet<Guid>();
                 foreach (var (person, subject, type) in plan)
                 {
@@ -521,9 +316,9 @@ namespace ExamAPI.Services.Staff
                         continue;
                     }
 
-                    if (!numbering.TryGetValue(type, out var number))
-                        number = (await NumberStartAsync(collegeId, ayid, type), await NextSerialAsync(collegeId, ayid, type));
-                    numbering[type] = (number.Start, number.Next + 1);
+                    if (!numbering.TryGetValue(type, out var numbers))
+                        numbering[type] = numbers = await LetterNumbering.OpenAsync(_context, collegeId, ayid, type);
+                    var (serial, letterNo) = numbers.Take();
                     _context.StaffLetters.Add(new StaffLetter
                     {
                         Id = Guid.NewGuid(),
@@ -533,8 +328,8 @@ namespace ExamAPI.Services.Staff
                         ExamId = exam.ExamId,
                         AYID = ayid,
                         SubjectId = subject.SubjectId,
-                        SerialNo = number.Next,
-                        LetterNo = $"{number.Start}/{number.Next:D4}",
+                        SerialNo = serial,
+                        LetterNo = letterNo,
                         LetterDate = letterDate!.Value,
                         Role = type == StaffLetterTypes.Examiner ? "Examiner" : "Moderator",
                         StaffName = StaffService.Letter(person.Title, person.FirstName, person.MiddleName, person.LastName),
@@ -565,41 +360,6 @@ namespace ExamAPI.Services.Staff
             return result;
         }
 
-        // ------------------------------------------------------------------ numbering
-
-        /// <summary>"{prefix}/{SUP|EXM|MOD}/{year}": the letter number up to the serial, which is added per letter.</summary>
-        private async Task<string> NumberStartAsync(Guid? collegeId, Guid ayid, string type)
-        {
-            var prefix = await PrefixAsync(collegeId);
-            var year = await _context.AcademicYears.AsNoTracking().Where(a => a.AYID == ayid)
-                .Select(a => a.ShortDuration ?? a.FullDuration).FirstOrDefaultAsync();
-            if (string.IsNullOrWhiteSpace(year))
-                throw new InvalidOperationException("The exam's academic year was not found.");
-            return $"{prefix}/{StaffLetterTypes.Code(type)}/{ShortYear(year)}";
-        }
-
-        /// <summary>The next serial of a letter type in a college and academic year. Deleted letters count: a number is never given out twice.</summary>
-        private async Task<int> NextSerialAsync(Guid? collegeId, Guid ayid, string type) =>
-            (await _context.StaffLetters.IgnoreQueryFilters()
-                .Where(l => l.CollegeId == collegeId && l.LetterType == type && l.AYID == ayid)
-                .MaxAsync(l => (int?)l.SerialNo) ?? 0) + 1;
-
-        /// <summary>"2026-2027" -> "2026-27"; anything else as it is.</summary>
-        public static string ShortYear(string year) => Regex.Replace(year.Trim(), @"^(\d{4})-\d{2}(\d{2})$", "$1-$2");
-
-        private async Task<string> PrefixAsync(Guid? collegeId)
-        {
-            var custom = await _context.CollegeSettings.IgnoreQueryFilters().AsNoTracking()
-                .Where(s => s.CollegeId == collegeId && !s.IsDeleted).Select(s => s.LetterPrefix).FirstOrDefaultAsync();
-            return !string.IsNullOrWhiteSpace(custom) ? custom.Trim() : await DefaultPrefixAsync(collegeId);
-        }
-
-        private async Task<string> DefaultPrefixAsync(Guid? collegeId)
-        {
-            var code = await _context.Colleges.AsNoTracking().Where(c => c.CollegeId == collegeId).Select(c => c.CollegeCode).FirstOrDefaultAsync();
-            return $"{code}/EXAM";
-        }
-
         // ------------------------------------------------------------------ settings
 
         public async Task<LetterSettingsDto> GetSettingsAsync()
@@ -609,7 +369,11 @@ namespace ExamAPI.Services.Staff
             {
                 LetterPrefix = settings?.LetterPrefix,
                 CapContact = settings?.CapContact,
-                DefaultPrefix = await DefaultPrefixAsync(_context.CurrentCollegeId)
+                ReportingPlace = settings?.ReportingPlace,
+                DutyGuidelines = settings?.DutyGuidelines,
+                DefaultPrefix = await LetterNumbering.DefaultPrefixAsync(_context, _context.CurrentCollegeId),
+                DefaultReportingPlace = DutyLetterDefaults.ReportingPlace,
+                DefaultGuidelines = DutyLetterDefaults.Guidelines.ToList()
             };
         }
 
@@ -619,10 +383,17 @@ namespace ExamAPI.Services.Staff
                 throw new InvalidOperationException("Letter settings belong to a college: sign in as that college's admin.");
             var prefix = (dto.LetterPrefix ?? "").Trim();
             var contact = (dto.CapContact ?? "").Trim();
+            var place = (dto.ReportingPlace ?? "").Trim();
+            var lines = (dto.DutyGuidelines ?? "").Split('\n').Select(l => l.Trim()).Where(l => l != "").ToList();
+            var guidelines = string.Join("\n", lines);
             if (prefix.Length > 40) throw new InvalidOperationException("The prefix is longer than 40 characters.");
             if (prefix != "" && !Regex.IsMatch(prefix, @"^[A-Za-z0-9/.\-]+$"))
                 throw new InvalidOperationException("The prefix may only have letters, digits, / - and .");
             if (contact.Length > 100) throw new InvalidOperationException("The contact numbers are longer than 100 characters.");
+            if (place.Length > 200) throw new InvalidOperationException("The reporting place is longer than 200 characters.");
+            if (lines.Count > 10) throw new InvalidOperationException("There are more than 10 guidelines.");
+            if (lines.Any(l => l.Length > 300)) throw new InvalidOperationException("A guideline is longer than 300 characters.");
+            if (guidelines.Length > 2000) throw new InvalidOperationException("The guidelines are longer than 2000 characters in all.");
 
             var settings = await _context.CollegeSettings.FirstOrDefaultAsync();
             if (settings == null)
@@ -632,6 +403,8 @@ namespace ExamAPI.Services.Staff
             }
             settings.LetterPrefix = prefix == "" ? null : prefix;
             settings.CapContact = contact == "" ? null : contact;
+            settings.ReportingPlace = place == "" ? null : place;
+            settings.DutyGuidelines = guidelines == "" ? null : guidelines;
             _context.AuditLogs.Add(new AuditLog
             {
                 Id = Guid.NewGuid(),
@@ -641,16 +414,87 @@ namespace ExamAPI.Services.Staff
                 PerformedBy = _context.CurrentUserId,
                 UserType = "Staff",
                 Event = "LetterSettingsChanged",
-                Details = $"Letter prefix: {(prefix == "" ? "(default)" : prefix)}; CAP contact: {(contact == "" ? "(none)" : contact)}.",
+                Details = $"Letter prefix: {(prefix == "" ? "(default)" : prefix)}; CAP contact: {(contact == "" ? "(none)" : contact)}; reporting place: {(place == "" ? "(default)" : place)}; guidelines: {(lines.Count == 0 ? "(default)" : lines.Count + " line(s)")}.",
             });
             await _context.SaveChangesAsync();
             return await GetSettingsAsync();
         }
 
-        private static string Sentence(List<string> errors)
+        /// <summary>"2026-2027" -> "2026-27"; anything else as it is.</summary>
+        public static string ShortYear(string year) => Regex.Replace(year.Trim(), @"^(\d{4})-\d{2}(\d{2})$", "$1-$2");
+
+        internal static string Sentence(List<string> errors)
         {
             var text = string.Join(" ", errors);
             return text.Length == 0 ? text : char.ToUpperInvariant(text[0]) + text[1..];
+        }
+    }
+
+    /// <summary>What the duty letters print when the college has not set its own reporting place and guidelines.</summary>
+    public static class DutyLetterDefaults
+    {
+        public const string ReportingPlace = "the Examination Control Room";
+
+        public static readonly IReadOnlyList<string> Guidelines = new[]
+        {
+            "Follow the University's examination conduct rules and regulations.",
+            "If you cannot attend because of an emergency, get written permission from the Principal or the Chief Conductor in advance and arrange a substitute.",
+            "Check the answer-book counts and keep the supervision diary up to date throughout the session."
+        };
+
+        /// <summary>The college's guidelines (one per line), or the defaults when it has none.</summary>
+        public static List<string> GuidelinesOf(string? saved)
+        {
+            var lines = (saved ?? "").Split('\n').Select(l => l.Trim()).Where(l => l != "").ToList();
+            return lines.Count > 0 ? lines : Guidelines.ToList();
+        }
+    }
+
+    /// <summary>
+    /// Hands out letter numbers of one type in a college and academic year: "{prefix}/{year}/{CODE}-{serial:D3}", e.g.
+    /// "VIVA/VIT/EXAM/2025-26/DUTY-084". The prefix is the college's own or "{college code}/EXAM". Deleted letters count
+    /// when finding the next serial: a number is never given out twice.
+    /// </summary>
+    public sealed class LetterNumbering
+    {
+        private readonly string _start;
+        private readonly string _code;
+        private int _next;
+
+        private LetterNumbering(string start, string code, int next)
+        {
+            _start = start;
+            _code = code;
+            _next = next;
+        }
+
+        public static async Task<LetterNumbering> OpenAsync(ApplicationDbContext context, Guid? collegeId, Guid ayid, string type)
+        {
+            var custom = await context.CollegeSettings.IgnoreQueryFilters().AsNoTracking()
+                .Where(s => s.CollegeId == collegeId && !s.IsDeleted).Select(s => s.LetterPrefix).FirstOrDefaultAsync();
+            var prefix = !string.IsNullOrWhiteSpace(custom) ? custom.Trim() : await DefaultPrefixAsync(context, collegeId);
+            var year = await context.AcademicYears.AsNoTracking().Where(a => a.AYID == ayid)
+                .Select(a => a.ShortDuration ?? a.FullDuration).FirstOrDefaultAsync();
+            if (string.IsNullOrWhiteSpace(year))
+                throw new InvalidOperationException("The academic year was not found.");
+            var last = await context.StaffLetters.IgnoreQueryFilters()
+                .Where(l => l.CollegeId == collegeId && l.LetterType == type && l.AYID == ayid)
+                .MaxAsync(l => (int?)l.SerialNo) ?? 0;
+            return new LetterNumbering($"{prefix}/{StaffLetterService.ShortYear(year)}", StaffLetterTypes.Code(type), last + 1);
+        }
+
+        /// <summary>"{college code}/EXAM": the start of the number when the college has not set its own prefix.</summary>
+        public static async Task<string> DefaultPrefixAsync(ApplicationDbContext context, Guid? collegeId)
+        {
+            var code = await context.Colleges.AsNoTracking().Where(c => c.CollegeId == collegeId).Select(c => c.CollegeCode).FirstOrDefaultAsync();
+            return $"{code}/EXAM";
+        }
+
+        /// <summary>The next serial and its letter number.</summary>
+        public (int Serial, string Number) Take()
+        {
+            var serial = _next++;
+            return (serial, $"{_start}/{_code}-{serial:D3}");
         }
     }
 }

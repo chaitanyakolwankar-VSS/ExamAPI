@@ -12,8 +12,8 @@ using Moq;
 namespace ExamAPI.Tests;
 
 /// <summary>
-/// Supervision letters: an exam is all branches' copies together, the grid creates numbered letters that keep their
-/// number, a bad grid saves nothing, and another college's exams and staff are never visible.
+/// Letter exams and numbers: an exam is all branches' copies together, letter numbers follow the new format and are
+/// never reused, the letter settings are checked, and another college's exams and staff are never visible.
 /// </summary>
 public sealed class StaffLetterTests
 {
@@ -109,17 +109,6 @@ public sealed class StaffLetterTests
         return s;
     }
 
-    private static DutyDto Duty(string date, string time) => new() { Date = date, Time = time };
-
-    private static SupervisionAssignment Assign(StaffMaster staff, string role, params DutyDto[] duties) =>
-        new() { StaffId = staff.StaffId, Role = role, Duties = duties.ToList() };
-
-    private static SupervisionSave Grid(Guid examId, string date, params SupervisionAssignment[] assignments) =>
-        new() { ExamId = examId, LetterDate = date, Assignments = assignments.ToList() };
-
-    private Task<SupervisionSaveResult> Save(string date, params SupervisionAssignment[] assignments) =>
-        _service.SaveSupervisionAsync(Grid(_itExam.ExamId, date, assignments));   // any copy will do
-
     // ------------------------------------------------------------------ exam groups, half, slots
 
     [Fact]
@@ -160,23 +149,6 @@ public sealed class StaffLetterTests
     }
 
     [Fact]
-    public async Task The_slots_are_the_distinct_dates_and_times_of_all_branches_in_exam_order()
-    {
-        var itCopy = await _service.SupervisionAsync(_itExam.ExamId);
-        var computerCopy = await _service.SupervisionAsync(_computerExam.ExamId);
-
-        Assert.Equal(_computerExam.ExamId, itCopy.Exam.ExamId);          // whichever copy is asked for
-        Assert.Equal(computerCopy.Slots.Select(s => (s.Date, s.Time)), itCopy.Slots.Select(s => (s.Date, s.Time)));
-        Assert.Equal(new[] { ("11-11-2026", Afternoon), ("12-11-2026", Morning), ("13-11-2026", Morning) },
-            itCopy.Slots.Select(s => (s.Date, s.Time)));
-        var shared = itCopy.Slots[1];
-        Assert.Equal(2, shared.Papers);
-        Assert.Equal(new[] { "Computer", "Information Technology" }, shared.Branches);
-        Assert.Equal(new[] { "Information Technology" }, itCopy.Slots[0].Branches);
-        Assert.Equal(SupervisionRoles.All, itCopy.Roles);
-    }
-
-    [Fact]
     public async Task Exam_group_helpers_find_every_copy_and_the_canonical_one()
     {
         var copies = await ExamGroups.CopyIdsAsync(_context, _itExam.ExamId);
@@ -187,118 +159,50 @@ public sealed class StaffLetterTests
         Assert.Null(await ExamGroups.CanonicalIdAsync(_context, Guid.NewGuid()));
     }
 
-    // ------------------------------------------------------------------ saving
+    // ------------------------------------------------------------------ letter numbers and settings
 
-    [Fact]
-    public async Task Saving_the_grid_creates_numbered_letters_against_the_canonical_exam()
+    private Task<AppointmentSaveResult> Appoint(SubjectMaster subject, params StaffMaster[] examiners) =>
+        _service.SaveAppointmentsAsync(new AppointmentSave
+        {
+            ExamId = _itExam.ExamId, LetterDate = "2026-10-20",
+            Subjects = new List<AppointmentSubjectSave> { new() { SubjectId = subject.SubjectId, Examiners = examiners.Select(e => e.StaffId).ToList() } }
+        });
+
+    private SubjectMaster NewPaper()
     {
-        var result = await Save("2026-10-20",
-            Assign(_asha, SupervisionRoles.Senior, Duty("13-11-2026", Morning), Duty("12-11-2026", Morning)),
-            Assign(_ravi, SupervisionRoles.Junior, Duty("11-11-2026", Afternoon)));
-
-        Assert.Equal((2, 0, 0, 0), (result.Created, result.Updated, result.Unchanged, result.Removed));
-        Assert.Equal("Saved: 2 new, 0 updated, 0 unchanged, 0 cancelled.", result.Message);
-        Assert.Equal(new[] { "VIT/EXAM/SUP/2026-27/0001", "VIT/EXAM/SUP/2026-27/0002" }, result.Letters.Select(l => l.LetterNo));
-        var asha = result.Letters[0];
-        Assert.Equal("Prof. Asha R. Patil", asha.StaffName);
-        Assert.Equal("2026-10-20", asha.LetterDate);
-        Assert.Equal(SupervisionRoles.Senior, asha.Role);
-        Assert.Equal(new[] { "12-11-2026", "13-11-2026" }, asha.Duties.Select(d => d.Date));   // exam order, not the order sent
-
-        var stored = await _context.StaffLetters.ToListAsync();
-        Assert.All(stored, l => Assert.Equal(_computerExam.ExamId, l.ExamId));
-        Assert.All(stored, l => Assert.Equal(StaffLetterTypes.Supervision, l.LetterType));
-        Assert.All(stored, l => Assert.Equal("December 2026 Regular", l.ExamTitle));
-        Assert.All(stored, l => Assert.Equal("First Half", l.Half));
-        Assert.All(stored, l => Assert.Equal(_college, l.CollegeId));
-        Assert.Equal(3, await _context.StaffLetterDuties.CountAsync());
-
-        var screen = await _service.SupervisionAsync(_computerExam.ExamId);
-        Assert.Equal(2, screen.Exam.LetterCount);
-        Assert.Equal(2, screen.Letters.Count);
-    }
-
-    [Fact]
-    public async Task Saving_again_updates_role_and_duties_but_keeps_the_number_and_date()
-    {
-        await Save("2026-10-20",
-            Assign(_asha, SupervisionRoles.Senior, Duty("12-11-2026", Morning)),
-            Assign(_ravi, SupervisionRoles.Junior, Duty("13-11-2026", Morning)));
-
-        var result = await Save("2026-11-01",
-            Assign(_asha, SupervisionRoles.ChiefConductor, Duty("12-11-2026", Morning), Duty("13-11-2026", Morning)),
-            Assign(_ravi, SupervisionRoles.Junior, Duty("13-11-2026", Morning)));
-
-        Assert.Equal((0, 1, 1, 0), (result.Created, result.Updated, result.Unchanged, result.Removed));
-        var asha = result.Letters.Single(l => l.StaffId == _asha.StaffId);
-        Assert.Equal("VIT/EXAM/SUP/2026-27/0001", asha.LetterNo);
-        Assert.Equal("2026-10-20", asha.LetterDate);                    // the new date is for new letters only
-        Assert.Equal(SupervisionRoles.ChiefConductor, asha.Role);
-        Assert.Equal(2, asha.Duties.Count);
-        Assert.Equal(3, await _context.StaffLetterDuties.CountAsync());  // the old duties are replaced, not piled up
-        Assert.Equal(2, await _context.StaffLetters.CountAsync());
-    }
-
-    [Fact]
-    public async Task A_person_left_out_of_the_grid_loses_the_letter_and_the_number_is_never_reused()
-    {
-        await Save("2026-10-20",
-            Assign(_asha, SupervisionRoles.Senior, Duty("12-11-2026", Morning)),
-            Assign(_ravi, SupervisionRoles.Junior, Duty("13-11-2026", Morning)));
-        var meena = Person("E103", "Dr.", "Meena", null, "Shah", "meena@viva.edu");
+        var subject = Paper(_computerExam, _computer, "S5-X", "14-11-2026", Morning, "Sem-5");
         _context.SaveChanges();
-
-        // Ravi (0002) is cancelled, Meena is new: she gets 0003, not 0002.
-        var result = await Save("2026-10-25",
-            Assign(_asha, SupervisionRoles.Senior, Duty("12-11-2026", Morning)),
-            Assign(meena, SupervisionRoles.Peon, Duty("13-11-2026", Morning)));
-
-        Assert.Equal((1, 0, 1, 1), (result.Created, result.Updated, result.Unchanged, result.Removed));
-        Assert.Equal(new[] { "VIT/EXAM/SUP/2026-27/0001", "VIT/EXAM/SUP/2026-27/0003" }, result.Letters.Select(l => l.LetterNo));
-        var cancelled = await _context.StaffLetters.IgnoreQueryFilters().SingleAsync(l => l.StaffId == _ravi.StaffId);
-        Assert.True(cancelled.IsDeleted);
-        Assert.Equal("VIT/EXAM/SUP/2026-27/0002", cancelled.LetterNo);
-
-        // Ravi can be given duty again: a fresh letter with the next number.
-        var again = await Save("2026-10-26",
-            Assign(_asha, SupervisionRoles.Senior, Duty("12-11-2026", Morning)),
-            Assign(meena, SupervisionRoles.Peon, Duty("13-11-2026", Morning)),
-            Assign(_ravi, SupervisionRoles.Junior, Duty("13-11-2026", Morning)));
-        Assert.Equal("VIT/EXAM/SUP/2026-27/0004", again.Letters.Single(l => l.StaffId == _ravi.StaffId).LetterNo);
+        return subject;
     }
 
     [Fact]
-    public async Task An_empty_grid_cancels_every_letter()
+    public async Task The_number_is_prefix_year_code_and_a_three_digit_serial()
     {
-        await Save("2026-10-20", Assign(_asha, SupervisionRoles.Senior, Duty("12-11-2026", Morning)));
+        var result = await Appoint(NewPaper(), _asha, _ravi);
 
-        var result = await Save("2026-10-20");
-
-        Assert.Equal(1, result.Removed);
-        Assert.Empty(result.Letters);
-        Assert.Empty(await _context.StaffLetters.ToListAsync());
+        Assert.Equal(new[] { "VIT/EXAM/2026-27/EXM-001", "VIT/EXAM/2026-27/EXM-002" }, result.Letters.Select(l => l.LetterNo));
+        Assert.Equal(new[] { 1, 2 }, (await _context.StaffLetters.OrderBy(l => l.SerialNo).ToListAsync()).Select(l => l.SerialNo));
     }
 
     [Fact]
-    public async Task The_number_starts_with_the_colleges_own_prefix_when_one_is_set_and_uses_the_short_year()
+    public async Task The_number_starts_with_the_colleges_own_prefix_when_one_is_set()
     {
         var saved = await _service.SaveSettingsAsync(new LetterSettingsSave { LetterPrefix = "  VIVA/EXAM-CELL ", CapContact = "98200 11111, 98200 22222" });
         Assert.Equal("VIVA/EXAM-CELL", saved.LetterPrefix);
         Assert.Equal("98200 11111, 98200 22222", saved.CapContact);
         Assert.Equal("VIT/EXAM", saved.DefaultPrefix);
 
-        var result = await Save("2026-10-20", Assign(_asha, SupervisionRoles.Senior, Duty("12-11-2026", Morning)));
-        Assert.Equal("VIVA/EXAM-CELL/SUP/2026-27/0001", result.Letters.Single().LetterNo);
+        var subject = NewPaper();
+        var result = await Appoint(subject, _asha);
+        Assert.Equal("VIVA/EXAM-CELL/2026-27/EXM-001", result.Letters.Single().LetterNo);
 
         // Cleared again: back to the college code.
         await _service.SaveSettingsAsync(new LetterSettingsSave { LetterPrefix = "", CapContact = " " });
         var settings = await _service.GetSettingsAsync();
         Assert.Null(settings.LetterPrefix);
         Assert.Null(settings.CapContact);
-        var next = await Save("2026-10-20",
-            Assign(_asha, SupervisionRoles.Senior, Duty("12-11-2026", Morning)),
-            Assign(_ravi, SupervisionRoles.Junior, Duty("12-11-2026", Morning)));
-        Assert.Equal("VIT/EXAM/SUP/2026-27/0002", next.Letters.Single(l => l.StaffId == _ravi.StaffId).LetterNo);
+        var next = await Appoint(subject, _asha, _ravi);
+        Assert.Equal("VIT/EXAM/2026-27/EXM-002", next.Letters.Single(l => l.StaffId == _ravi.StaffId).LetterNo);
     }
 
     [Fact]
@@ -308,9 +212,9 @@ public sealed class StaffLetterTests
         year.ShortDuration = "26-27";
         await _context.SaveChangesAsync();
 
-        var result = await Save("2026-10-20", Assign(_asha, SupervisionRoles.Senior, Duty("12-11-2026", Morning)));
+        var result = await Appoint(NewPaper(), _asha);
 
-        Assert.Equal("VIT/EXAM/SUP/26-27/0001", result.Letters.Single().LetterNo);
+        Assert.Equal("VIT/EXAM/26-27/EXM-001", result.Letters.Single().LetterNo);
         Assert.Equal("2026-27", StaffLetterService.ShortYear("2026-2027"));
         Assert.Equal("2026-27", StaffLetterService.ShortYear("2026-27"));
         Assert.Equal("FY 2026", StaffLetterService.ShortYear("FY 2026"));
@@ -326,82 +230,56 @@ public sealed class StaffLetterTests
         Assert.Empty(await _context.CollegeSettings.ToListAsync());
     }
 
-    // ------------------------------------------------------------------ refusals
-
     [Fact]
-    public async Task A_bad_grid_is_refused_with_every_problem_listed_and_nothing_is_saved()
+    public async Task The_reporting_place_and_guidelines_are_saved_cleaned_and_fall_back_to_the_defaults()
     {
-        var external = Person("", "Dr.", "Neha", null, "Iyer", "neha@other.edu", external: true);
-        var left = Person("E104", "Mr.", "Om", null, "Das", "om@viva.edu", active: false);
-        _context.SaveChanges();
-        var ok = Duty("12-11-2026", Morning);
+        var empty = await _service.GetSettingsAsync();
+        Assert.Null(empty.ReportingPlace);
+        Assert.Null(empty.DutyGuidelines);
+        Assert.Equal("the Examination Control Room", empty.DefaultReportingPlace);
+        Assert.Equal(3, empty.DefaultGuidelines.Count);
+        Assert.Equal("Follow the University's examination conduct rules and regulations.", empty.DefaultGuidelines[0]);
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => Save("2026-10-20",
-            Assign(_asha, "Head Boy", ok),
-            Assign(_ravi, SupervisionRoles.Junior, Duty("14-11-2026", Morning)),
-            Assign(external, SupervisionRoles.Junior, ok),
-            Assign(left, SupervisionRoles.Junior, ok),
-            Assign(_asha, SupervisionRoles.Junior, ok),
-            Assign(new StaffMaster { StaffId = Guid.NewGuid(), Title = "Mr.", FirstName = "Nobody", Email = "x@y.z" }, SupervisionRoles.Peon, ok)));
+        var saved = await _service.SaveSettingsAsync(new LetterSettingsSave
+        {
+            ReportingPlace = "  Room 12, Block A ", DutyGuidelines = " Be on time. \r\n\r\n  Carry your ID card.  \n"
+        });
+        Assert.Equal("Room 12, Block A", saved.ReportingPlace);
+        Assert.Equal("Be on time.\nCarry your ID card.", saved.DutyGuidelines);
+        Assert.Equal(new[] { "Be on time.", "Carry your ID card." }, DutyLetterDefaults.GuidelinesOf(saved.DutyGuidelines));
 
-        Assert.Contains("Prof. Asha R. Patil needs a role", ex.Message);
-        Assert.Contains("Dr. Ravi Kumar has a duty on 14-11-2026", ex.Message);
-        Assert.Contains("Dr. Neha Iyer is an external member of staff", ex.Message);
-        Assert.Contains("Mr. Om Das has left", ex.Message);
-        Assert.Contains("Prof. Asha R. Patil appears more than once", ex.Message);
-        Assert.Contains("a member of staff in the list was not found", ex.Message);
-        Assert.Empty(await _context.StaffLetters.ToListAsync());
-        Assert.Empty(await _context.StaffLetterDuties.ToListAsync());
+        var cleared = await _service.SaveSettingsAsync(new LetterSettingsSave { ReportingPlace = " ", DutyGuidelines = "\n " });
+        Assert.Null(cleared.ReportingPlace);
+        Assert.Null(cleared.DutyGuidelines);
+        Assert.Equal(DutyLetterDefaults.Guidelines, DutyLetterDefaults.GuidelinesOf(cleared.DutyGuidelines));
     }
 
     [Fact]
-    public async Task A_person_needs_a_role_and_at_least_one_date_and_the_date_must_be_a_real_slot()
+    public async Task The_reporting_place_and_guidelines_are_limited()
     {
-        var noDate = await Assert.ThrowsAsync<InvalidOperationException>(() => Save("2026-10-20", Assign(_asha, SupervisionRoles.Senior)));
-        Assert.Equal("Prof. Asha R. Patil needs at least one date.", noDate.Message);
-
-        var wrongTime = await Assert.ThrowsAsync<InvalidOperationException>(() => Save("2026-10-20", Assign(_asha, SupervisionRoles.Senior, Duty("12-11-2026", Afternoon))));
-        Assert.Contains("which is not a date and time of this exam", wrongTime.Message);
-
-        var noRole = await Assert.ThrowsAsync<InvalidOperationException>(() => Save("2026-10-20", Assign(_asha, " ", Duty("12-11-2026", Morning))));
-        Assert.Contains("needs a role", noRole.Message);
-
-        var badDate = await Assert.ThrowsAsync<InvalidOperationException>(() => Save("20/10/2026", Assign(_asha, SupervisionRoles.Senior, Duty("12-11-2026", Morning))));
-        Assert.Contains("letter date is not a valid date", badDate.Message);
-
-        var missingDate = await Assert.ThrowsAsync<InvalidOperationException>(() => Save("", Assign(_asha, SupervisionRoles.Senior, Duty("12-11-2026", Morning))));
-        Assert.Equal("Enter the letter date.", missingDate.Message);
-
-        Assert.Empty(await _context.StaffLetters.ToListAsync());
+        var place = await Assert.ThrowsAsync<InvalidOperationException>(() => _service.SaveSettingsAsync(new LetterSettingsSave { ReportingPlace = new string('R', 201) }));
+        Assert.Contains("200", place.Message);
+        var many = await Assert.ThrowsAsync<InvalidOperationException>(() => _service.SaveSettingsAsync(new LetterSettingsSave { DutyGuidelines = string.Join("\n", Enumerable.Range(1, 11).Select(i => "Rule " + i)) }));
+        Assert.Contains("more than 10", many.Message);
+        var longLine = await Assert.ThrowsAsync<InvalidOperationException>(() => _service.SaveSettingsAsync(new LetterSettingsSave { DutyGuidelines = new string('G', 301) }));
+        Assert.Contains("300", longLine.Message);
+        var total = await Assert.ThrowsAsync<InvalidOperationException>(() => _service.SaveSettingsAsync(new LetterSettingsSave { DutyGuidelines = string.Join("\n", Enumerable.Range(1, 8).Select(_ => new string('G', 290))) }));
+        Assert.Contains("2000", total.Message);
+        Assert.Empty(await _context.CollegeSettings.ToListAsync());
     }
 
-    [Fact]
-    public async Task A_bad_grid_leaves_the_existing_letters_as_they_were()
-    {
-        await Save("2026-10-20", Assign(_asha, SupervisionRoles.Senior, Duty("12-11-2026", Morning)));
-
-        await Assert.ThrowsAsync<InvalidOperationException>(() => Save("2026-10-20",
-            Assign(_ravi, SupervisionRoles.Junior, Duty("12-11-2026", Morning)),
-            Assign(_asha, "Nope", Duty("12-11-2026", Morning))));
-
-        var letter = await _context.StaffLetters.SingleAsync();
-        Assert.Equal(_asha.StaffId, letter.StaffId);
-        Assert.Equal(SupervisionRoles.Senior, letter.Role);
-        Assert.False(letter.IsDeleted);
-    }
+    // ------------------------------------------------------------------ refusals and tenancy
 
     [Fact]
-    public async Task Revaluation_exams_are_not_for_supervision()
+    public async Task Revaluation_exams_are_not_for_letters()
     {
         var reval = Exam("December 2026", _computer, revalFor: _computerExam.ExamId);
         _context.SaveChanges();
         Paper(reval, _computer, "S5-R", "01-02-2027", Morning, "Sem-5");
         _context.SaveChanges();
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => _service.SupervisionAsync(reval.ExamId));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _service.AppointmentsAsync(reval.ExamId));
     }
-
-    // ------------------------------------------------------------------ tenancy
 
     [Fact]
     public async Task Another_colleges_exams_and_staff_are_invisible()
@@ -414,9 +292,9 @@ public sealed class StaffLetterTests
         var theirStaff = Person("E900", "Mr.", "Their", null, "Person", "their@other.edu", college: _otherCollege);
         _context.StaffLetters.Add(new StaffLetter
         {
-            Id = Guid.NewGuid(), CollegeId = _otherCollege, StaffId = theirStaff.StaffId, LetterType = StaffLetterTypes.Supervision,
-            ExamId = theirExam.ExamId, AYID = _ay, SerialNo = 7, LetterNo = "OTH/EXAM/SUP/2026-27/0007", LetterDate = new DateTime(2026, 10, 1),
-            Role = SupervisionRoles.Senior, StaffName = "Mr. Their Person", ExamTitle = "December 2026 Regular"
+            Id = Guid.NewGuid(), CollegeId = _otherCollege, StaffId = theirStaff.StaffId, LetterType = StaffLetterTypes.Examiner,
+            ExamId = theirExam.ExamId, AYID = _ay, SerialNo = 7, LetterNo = "OTH/EXAM/2026-27/EXM-007", LetterDate = new DateTime(2026, 10, 1),
+            Role = "Examiner", StaffName = "Mr. Their Person", ExamTitle = "December 2026 Regular"
         });
         _context.SaveChanges();
 
@@ -424,14 +302,13 @@ public sealed class StaffLetterTests
         var exams = await _service.ExamsAsync(_ay);
         Assert.Equal(_computerExam.ExamId, Assert.Single(exams).ExamId);
         Assert.Equal(3, exams[0].SlotCount);
-        await Assert.ThrowsAsync<KeyNotFoundException>(() => _service.SupervisionAsync(theirExam.ExamId));
-        await Assert.ThrowsAsync<KeyNotFoundException>(() => _service.SaveSupervisionAsync(Grid(theirExam.ExamId, "2026-10-20")));
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => _service.AppointmentsAsync(theirExam.ExamId));
 
-        // Their staff cannot be given our duties, and their letters do not show up here or move our numbers.
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => Save("2026-10-20", Assign(theirStaff, SupervisionRoles.Senior, Duty("12-11-2026", Morning))));
+        // Their staff cannot be given our letters, and their letters do not show up here or move our numbers.
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => Appoint(NewPaper(), theirStaff));
         Assert.Contains("not found", ex.Message);
-        var ours = await Save("2026-10-20", Assign(_asha, SupervisionRoles.Senior, Duty("12-11-2026", Morning)));
-        Assert.Equal("VIT/EXAM/SUP/2026-27/0001", ours.Letters.Single().LetterNo);
-        Assert.Single((await _service.SupervisionAsync(_computerExam.ExamId)).Letters);
+        var ours = await Appoint(NewPaper(), _asha);
+        Assert.Equal("VIT/EXAM/2026-27/EXM-001", ours.Letters.Single().LetterNo);
+        Assert.Single((await _service.AppointmentsAsync(_computerExam.ExamId)).Letters);
     }
 }

@@ -150,24 +150,24 @@ public sealed class AppointmentLetterTests
     }
 
     [Fact]
-    public async Task Exams_count_appointment_letters_apart_from_supervision_letters()
+    public async Task Exams_count_their_appointment_letters_and_no_supervision_letters()
     {
         await Save("2026-10-20", Pick(_s5, new[] { _asha }, new[] { _ravi }));
+        // A duty chart's letter belongs to no exam and is not counted.
         _context.StaffLetters.Add(new StaffLetter
         {
             Id = Guid.NewGuid(), CollegeId = _college, StaffId = _meena.StaffId, LetterType = StaffLetterTypes.Supervision,
-            ExamId = _computerExam.ExamId, AYID = _ay, SerialNo = 1, LetterNo = "VIT/EXAM/SUP/2026-27/0001", LetterDate = new DateTime(2026, 10, 1),
-            Role = SupervisionRoles.Senior, StaffName = "Dr. Meena Shah", ExamTitle = "December 2026 Regular"
+            DutyChartId = Guid.NewGuid(), AYID = _ay, SerialNo = 1, LetterNo = "VIT/EXAM/2026-27/DUTY-001", LetterDate = new DateTime(2026, 10, 1),
+            Role = SupervisionRoles.Senior, StaffName = "Dr. Meena Shah", ExamTitle = "May 2026"
         });
         _context.SaveChanges();
 
         var exam = Assert.Single(await _service.ExamsAsync(_ay));
-        Assert.Equal(1, exam.LetterCount);
+        Assert.Equal(0, exam.LetterCount);
         Assert.Equal(2, exam.AppointmentCount);
         var screen = await _service.AppointmentsAsync(_computerExam.ExamId);
-        Assert.Equal((1, 2), (screen.Exam.LetterCount, screen.Exam.AppointmentCount));
-        Assert.Equal(2, (await _service.SupervisionAsync(_computerExam.ExamId)).Exam.AppointmentCount);
-        Assert.Single((await _service.SupervisionAsync(_computerExam.ExamId)).Letters);   // appointments are not supervision letters
+        Assert.Equal((0, 2), (screen.Exam.LetterCount, screen.Exam.AppointmentCount));
+        Assert.Equal(2, screen.Letters.Count);
     }
 
     [Fact]
@@ -196,8 +196,8 @@ public sealed class AppointmentLetterTests
         Assert.Equal("Saved: 5 new, 0 unchanged, 0 cancelled.", result.Message);
         var examiners = result.Letters.Where(l => l.Type == "EXAMINER").ToList();
         var moderators = result.Letters.Where(l => l.Type == "MODERATOR").ToList();
-        Assert.Equal(new[] { "VIT/EXAM/EXM/2026-27/0001", "VIT/EXAM/EXM/2026-27/0002", "VIT/EXAM/EXM/2026-27/0003" }, examiners.Select(l => l.LetterNo));
-        Assert.Equal(new[] { "VIT/EXAM/MOD/2026-27/0001", "VIT/EXAM/MOD/2026-27/0002" }, moderators.Select(l => l.LetterNo));
+        Assert.Equal(new[] { "VIT/EXAM/2026-27/EXM-001", "VIT/EXAM/2026-27/EXM-002", "VIT/EXAM/2026-27/EXM-003" }, examiners.Select(l => l.LetterNo));
+        Assert.Equal(new[] { "VIT/EXAM/2026-27/MOD-001", "VIT/EXAM/2026-27/MOD-002" }, moderators.Select(l => l.LetterNo));
         Assert.Equal(new[] { "EXAMINER", "EXAMINER", "EXAMINER", "MODERATOR", "MODERATOR" }, result.Letters.Select(l => l.Type));
         Assert.All(result.Letters, l => Assert.Equal("2026-10-20", l.LetterDate));
         Assert.Equal(_s5.SubjectId, examiners[0].SubjectId);
@@ -220,27 +220,6 @@ public sealed class AppointmentLetterTests
     }
 
     [Fact]
-    public async Task The_supervision_number_series_is_not_touched()
-    {
-        await Save("2026-10-20", Pick(_s5, new[] { _asha }));
-
-        var supervision = await _service.SaveSupervisionAsync(new SupervisionSave
-        {
-            ExamId = _itExam.ExamId, LetterDate = "2026-10-21",
-            Assignments = new List<SupervisionAssignment>
-            {
-                new() { StaffId = _ravi.StaffId, Role = SupervisionRoles.Senior, Duties = new List<DutyDto> { new() { Date = "12-11-2026", Time = Morning } } }
-            }
-        });
-
-        Assert.Equal("VIT/EXAM/SUP/2026-27/0001", supervision.Letters.Single().LetterNo);
-        var again = await Save("2026-10-22", Pick(_s5, new[] { _asha }), Pick(_s6First, new[] { _asha }));
-        Assert.Equal(new[] { "VIT/EXAM/EXM/2026-27/0001", "VIT/EXAM/EXM/2026-27/0002" }, again.Letters.Select(l => l.LetterNo));
-        Assert.Equal(1, again.Unchanged);
-        Assert.Single((await _service.SupervisionAsync(_computerExam.ExamId)).Letters);   // saving appointments did not touch supervision
-    }
-
-    [Fact]
     public async Task Saving_the_same_screen_again_keeps_every_number_and_date()
     {
         await Save("2026-10-20", Pick(_s5, new[] { _asha }, new[] { _ravi }));
@@ -250,7 +229,7 @@ public sealed class AppointmentLetterTests
         Assert.Equal((0, 2, 0), (result.Created, result.Unchanged, result.Removed));
         Assert.Equal("Saved: 0 new, 2 unchanged, 0 cancelled.", result.Message);
         Assert.All(result.Letters, l => Assert.Equal("2026-10-20", l.LetterDate));
-        Assert.Equal("VIT/EXAM/EXM/2026-27/0001", result.Letters.Single(l => l.Type == "EXAMINER").LetterNo);
+        Assert.Equal("VIT/EXAM/2026-27/EXM-001", result.Letters.Single(l => l.Type == "EXAMINER").LetterNo);
         Assert.Equal(2, await _context.StaffLetters.CountAsync());
 
         // No new letters: the date may be left out.
@@ -268,14 +247,14 @@ public sealed class AppointmentLetterTests
 
         Assert.Equal((1, 1, 2), (result.Created, result.Unchanged, result.Removed));
         Assert.Equal("Saved: 1 new, 1 unchanged, 2 cancelled.", result.Message);
-        Assert.Equal(new[] { "VIT/EXAM/EXM/2026-27/0001", "VIT/EXAM/EXM/2026-27/0003" }, result.Letters.Select(l => l.LetterNo));
+        Assert.Equal(new[] { "VIT/EXAM/2026-27/EXM-001", "VIT/EXAM/2026-27/EXM-003" }, result.Letters.Select(l => l.LetterNo));
         var cancelled = await _context.StaffLetters.IgnoreQueryFilters().Where(l => l.IsDeleted).ToListAsync();
-        Assert.Equal(new[] { "VIT/EXAM/EXM/2026-27/0002", "VIT/EXAM/MOD/2026-27/0001" }, cancelled.Select(l => l.LetterNo).OrderBy(n => n));
+        Assert.Equal(new[] { "VIT/EXAM/2026-27/EXM-002", "VIT/EXAM/2026-27/MOD-001" }, cancelled.Select(l => l.LetterNo).OrderBy(n => n));
 
         // Moderator numbers continue after the cancelled 0001, and Ravi can be appointed again with a new number.
         var again = await Save("2026-10-26", Pick(_s5, new[] { _asha, _ravi }, new[] { _meena }), Pick(_s6First, new[] { _meena }));
-        Assert.Equal("VIT/EXAM/MOD/2026-27/0002", again.Letters.Single(l => l.Type == "MODERATOR").LetterNo);
-        Assert.Equal("VIT/EXAM/EXM/2026-27/0004", again.Letters.Single(l => l.StaffId == _ravi.StaffId).LetterNo);
+        Assert.Equal("VIT/EXAM/2026-27/MOD-002", again.Letters.Single(l => l.Type == "MODERATOR").LetterNo);
+        Assert.Equal("VIT/EXAM/2026-27/EXM-004", again.Letters.Single(l => l.StaffId == _ravi.StaffId).LetterNo);
     }
 
     [Fact]

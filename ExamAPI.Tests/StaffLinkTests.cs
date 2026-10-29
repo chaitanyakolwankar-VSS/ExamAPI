@@ -18,7 +18,8 @@ using Xunit;
 namespace ExamAPI.Tests;
 
 /// <summary>
-/// Staff links: the exam office emails each person one link for an exam's letters, the queued email gets its token
+/// Staff links: the exam office emails each person one link for a duty chart's supervision letters or an exam's examiner and
+/// moderator letters, the queued email gets its token
 /// when it is written, the person opens the link, gets a 6-digit code and signs in to a session of their own, checks
 /// their details and downloads their own letters. Limits on codes and tries, and nobody sees anyone else's letters.
 /// </summary>
@@ -36,6 +37,9 @@ public sealed class StaffLinkTests
     private readonly Guid _itExam = Guid.NewGuid();     // the IT branch's copy of the same exam
     private readonly Guid _oldExam = Guid.NewGuid();
     private readonly Guid _otherExam = Guid.NewGuid();
+    private readonly Guid _chart = Guid.NewGuid();         // the December supervision chart (the newest)
+    private readonly Guid _oldChart = Guid.NewGuid();
+    private readonly Guid _otherChart = Guid.NewGuid();
     private readonly Guid _subject = Guid.NewGuid();
     private readonly Guid _asha = Guid.NewGuid();
     private readonly Guid _ravi = Guid.NewGuid();
@@ -48,6 +52,7 @@ public sealed class StaffLinkTests
     private readonly Guid _ashaExaminer = Guid.NewGuid();
     private readonly Guid _ashaOld = Guid.NewGuid();
     private readonly Guid _raviModerator = Guid.NewGuid();
+    private readonly Guid _raviSupervision = Guid.NewGuid();
     private readonly Guid _strangerLetter = Guid.NewGuid();
     private readonly SecretProtector _protector = new(ServerKey);
     private readonly StudentAccessSecrets _secrets = new(ServerKey);
@@ -86,7 +91,8 @@ public sealed class StaffLinkTests
         context.Colleges.Add(new College { CollegeId = _otherCollege, Name = "Other College", CollegeCode = "OTH", CollegeCenter = "Pune", ContactEmail = "o@o.in", ContactPhone = "2" });
         context.CourseMasters.Add(new CourseMaster { CourseId = _computer, Name = "Computer", CourseCode = "CMP", CollegeId = _college });
         context.CourseMasters.Add(new CourseMaster { CourseId = _it, Name = "Information Technology", CourseCode = "IT", CollegeId = _college });
-        // Created one after the other (the save stamps the time): the old exam, then December (Computer is the canonical copy), then its IT copy.
+        // Created one after the other (the save stamps the time): the old chart and exam, then December (Computer is the canonical copy), then its IT copy and the December chart.
+        context.DutyCharts.Add(new DutyChart { Id = _oldChart, CollegeId = _college, AYID = _ay, Name = "April 2026 Supervision", FromDate = DateTime.Today.AddDays(-200), ToDate = DateTime.Today.AddDays(-190) });
         context.Exams.Add(new ExamMaster { ExamId = _oldExam, Name = "April 2026", ExamType = "Regular", AcademicYearAYID = _ay, CourseId = _computer, IsActive = true, CollegeId = _college });
         context.SaveChanges();
         Thread.Sleep(20);
@@ -95,6 +101,10 @@ public sealed class StaffLinkTests
         Thread.Sleep(20);
         context.Exams.Add(new ExamMaster { ExamId = _itExam, Name = "December 2026", ExamType = "Regular", AcademicYearAYID = _ay, CourseId = _it, IsActive = true, CollegeId = _college });
         context.Exams.Add(new ExamMaster { ExamId = _otherExam, Name = "December 2026", ExamType = "Regular", AcademicYearAYID = _ay, IsActive = true, CollegeId = _otherCollege });
+        context.SaveChanges();
+        Thread.Sleep(20);
+        context.DutyCharts.Add(new DutyChart { Id = _chart, CollegeId = _college, AYID = _ay, Name = "December 2026 Supervision", FromDate = DateTime.Today.AddDays(10), ToDate = DateTime.Today.AddDays(20) });
+        context.DutyCharts.Add(new DutyChart { Id = _otherChart, CollegeId = _otherCollege, AYID = _ay, Name = "December 2026 Supervision", FromDate = DateTime.Today, ToDate = DateTime.Today.AddDays(5) });
         context.SubjectMasters.Add(new SubjectMaster { SubjectId = _subject, SubjectCode = "CSC601", Name = "System Programming", SemId = "Sem-6", Pattern = "NEP", CourseId = _computer, CollegeId = _college });
         context.TimeTables.Add(new TimeTableMaster { Id = Guid.NewGuid(), ExamId = _exam, CourseId = _computer, SubjectId = _subject, Date = Date(10), Time = "10:00 AM - 01:00 PM", CollegeId = _college });
         context.TimeTables.Add(new TimeTableMaster { Id = Guid.NewGuid(), ExamId = _itExam, CourseId = _it, Date = Date(20), Time = "10:00 AM - 01:00 PM", CollegeId = _college });
@@ -107,13 +117,16 @@ public sealed class StaffLinkTests
         Person(context, _external, null, "Dr.", "Sunil", null, "Rane", "sunil@other.in", external: true);
         Person(context, _stranger, "X1", "Mr.", "Stranger", null, "Other", "stranger@other.in", college: _otherCollege);
 
-        context.StaffLetters.Add(Letter(_ashaSupervision, _asha, StaffLetterTypes.Supervision, _exam, 1, "Prof. Asha R. Patil", role: SupervisionRoles.Junior, duties: 2));
-        context.StaffLetters.Add(Letter(_ashaExaminer, _asha, StaffLetterTypes.Examiner, _exam, 1, "Prof. Asha R. Patil", subject: _subject));
-        context.StaffLetters.Add(Letter(_ashaOld, _asha, StaffLetterTypes.Supervision, _oldExam, 2, "Prof. Asha R. Patil", role: SupervisionRoles.Senior, duties: 1, examTitle: "April 2026 Regular"));
-        context.StaffLetters.Add(Letter(_raviModerator, _ravi, StaffLetterTypes.Moderator, _itExam, 2, "Dr. Ravi Kumar", subject: _subject));
-        context.StaffLetters.Add(Letter(Guid.NewGuid(), _left, StaffLetterTypes.Supervision, _exam, 3, "Mr. Left Person", role: SupervisionRoles.Junior, duties: 1));
-        context.StaffLetters.Add(Letter(Guid.NewGuid(), _external, StaffLetterTypes.Examiner, _exam, 2, "Dr. Sunil Rane", subject: _subject));
-        context.StaffLetters.Add(Letter(_strangerLetter, _stranger, StaffLetterTypes.Supervision, _otherExam, 1, "Mr. Stranger Other", role: SupervisionRoles.Junior, duties: 1, college: _otherCollege));
+        // Supervision letters belong to a duty chart, examiner and moderator letters to an exam.
+        context.StaffLetters.Add(Letter(_ashaSupervision, _asha, StaffLetterTypes.Supervision, 1, "Prof. Asha R. Patil", chart: _chart, role: SupervisionRoles.Junior, duties: 2, examTitle: "December 2026 Supervision"));
+        context.StaffLetters.Add(Letter(_ashaExaminer, _asha, StaffLetterTypes.Examiner, 1, "Prof. Asha R. Patil", exam: _exam, subject: _subject));
+        context.StaffLetters.Add(Letter(_ashaOld, _asha, StaffLetterTypes.Supervision, 2, "Prof. Asha R. Patil", chart: _oldChart, role: SupervisionRoles.Senior, duties: 1, examTitle: "April 2026 Supervision"));
+        context.StaffLetters.Add(Letter(_raviModerator, _ravi, StaffLetterTypes.Moderator, 2, "Dr. Ravi Kumar", exam: _itExam, subject: _subject));
+        context.StaffLetters.Add(Letter(_raviSupervision, _ravi, StaffLetterTypes.Supervision, 4, "Dr. Ravi Kumar", chart: _chart, role: SupervisionRoles.NonTeaching, duties: 1, examTitle: "December 2026 Supervision"));
+        context.StaffLetters.Add(Letter(Guid.NewGuid(), _left, StaffLetterTypes.Supervision, 3, "Mr. Left Person", chart: _chart, role: SupervisionRoles.Junior, duties: 1, examTitle: "December 2026 Supervision"));
+        context.StaffLetters.Add(Letter(Guid.NewGuid(), _left, StaffLetterTypes.Examiner, 3, "Mr. Left Person", exam: _exam, subject: _subject));
+        context.StaffLetters.Add(Letter(Guid.NewGuid(), _external, StaffLetterTypes.Examiner, 2, "Dr. Sunil Rane", exam: _exam, subject: _subject));
+        context.StaffLetters.Add(Letter(_strangerLetter, _stranger, StaffLetterTypes.Supervision, 1, "Mr. Stranger Other", chart: _otherChart, role: SupervisionRoles.Junior, duties: 1, college: _otherCollege, examTitle: "December 2026 Supervision"));
 
         context.EmailAccounts.Add(new EmailAccount
         {
@@ -132,13 +145,13 @@ public sealed class StaffLinkTests
             Email = email, IsActive = active, IsExternal = external, ExternalCollege = external ? "Mumbai College" : null, ExternalCity = external ? "Mumbai" : null,
         });
 
-    private StaffLetter Letter(Guid id, Guid staff, string type, Guid exam, int serial, string name, string? role = null, int duties = 0,
+    private StaffLetter Letter(Guid id, Guid staff, string type, int serial, string name, Guid? exam = null, Guid? chart = null, string? role = null, int duties = 0,
         Guid? subject = null, string examTitle = "December 2026 Regular", Guid? college = null)
     {
         var letter = new StaffLetter
         {
-            Id = id, CollegeId = college ?? _college, StaffId = staff, LetterType = type, ExamId = exam, AYID = _ay, SubjectId = subject, SerialNo = serial,
-            LetterNo = $"VIT/EXAM/{StaffLetterTypes.Code(type)}/2026-27/{serial:D4}", LetterDate = new DateTime(2026, 10, 20), Role = role,
+            Id = id, CollegeId = college ?? _college, StaffId = staff, LetterType = type, ExamId = exam, DutyChartId = chart, AYID = _ay, SubjectId = subject, SerialNo = serial,
+            LetterNo = $"VIT/EXAM/2026-27/{StaffLetterTypes.Code(type)}-{serial:D3}", LetterDate = new DateTime(2026, 10, 20), Role = role,
             StaffName = name, ExamTitle = examTitle,
         };
         for (var i = 0; i < duties; i++)
@@ -168,8 +181,13 @@ public sealed class StaffLinkTests
             .ProcessAsync(100);
     }
 
+    /// <summary>The exam's examiner and moderator letters (asked through the IT copy of the exam).</summary>
     private StaffEmailRequest Request(string kind = "all", bool onlyNotSent = false, params Guid[] staff) =>
         new() { ExamId = _itExam, Kind = kind, OnlyNotSent = onlyNotSent, StaffIds = staff.Length == 0 ? null : staff.ToList() };
+
+    /// <summary>The December duty chart's supervision letters.</summary>
+    private StaffEmailRequest ChartRequest(string kind = "supervision", bool onlyNotSent = false, params Guid[] staff) =>
+        new() { DutyChartId = _chart, Kind = kind, OnlyNotSent = onlyNotSent, StaffIds = staff.Length == 0 ? null : staff.ToList() };
 
     private async Task<StaffEmailResult> SendAsync(StaffEmailRequest request)
     {
@@ -182,9 +200,9 @@ public sealed class StaffLinkTests
     private static string CodeIn(EmailMessage message) => Regex.Match(message.Subject, @"^(\d{6}) ").Groups[1].Value;
 
     /// <summary>Sends the person their link and the queue writes it; answers the token emailed to them.</summary>
-    private async Task<string> SendAndGetTokenAsync(string email = "asha@viva.in", Guid? staff = null)
+    private async Task<string> SendAndGetTokenAsync(string email = "asha@viva.in", Guid? staff = null, bool chart = false)
     {
-        await SendAsync(Request(staff: staff ?? _asha));
+        await SendAsync(chart ? ChartRequest(staff: staff ?? _asha) : Request(staff: staff ?? _asha));
         await RunQueueAsync();
         return TokenIn(_sender.Sent.Last(m => m.To == email));
     }
@@ -239,6 +257,7 @@ public sealed class StaffLinkTests
         var links = await context.StaffLinks.IgnoreQueryFilters().ToListAsync();
         Assert.Equal(3, links.Count);
         Assert.All(links, l => Assert.Equal((_exam, StaffLinkStatuses.Active, (Guid?)_college), (l.ExamId, l.Status, l.CollegeId)));   // the canonical exam, whichever copy was asked
+        Assert.All(links, l => Assert.Null(l.DutyChartId));
         Assert.All(links, l => Assert.Null(l.TokenHash));                                                                           // the token is made when the email is written
         Assert.Equal(new[] { "asha@viva.in", "ravi@viva.in", "sunil@other.in" }, (await context.EmailQueue.IgnoreQueryFilters().Where(m => m.Kind == StaffEmailKinds.Link).Select(m => m.ToAddress).ToListAsync()).OrderBy(x => x));
         var audit = await context.AuditLogs.IgnoreQueryFilters().SingleAsync(a => a.Event == "StaffLettersEmailed");
@@ -285,8 +304,8 @@ public sealed class StaffLinkTests
         var mail = _sender.Sent.Last(m => m.To == "asha@viva.in");
         Assert.Equal("VIVA Institute of Technology: your letters for December 2026 Regular", mail.Subject);
         Assert.Contains("Dear Asha,", mail.Text);
-        Assert.Contains("Supervision duty (Junior Supervisor, 2 dates)", mail.Text);
         Assert.Contains("Examiner — CSC601 System Programming", mail.Text);
+        Assert.DoesNotContain("Supervision duty", mail.Text);                // supervision letters go with a duty chart's link
         Assert.DoesNotContain("April 2026", mail.Text);                      // only this exam's letters are listed
         Assert.Contains("Open my letters", mail.Html);
         Assert.Contains($"{Site}/t#{token}", mail.Text);
@@ -345,14 +364,12 @@ public sealed class StaffLinkTests
         using (var context = Context(_college))
         {
             var preview = await Office(context).PreviewAsync(Request());
-            Assert.Equal((4, 3, 0, 5), (preview.People, preview.WithEmail, preview.AlreadySent, preview.Letters));   // Asha 2 (this exam only), Ravi, external, the one who left
+            Assert.Equal((4, 3, 0, 4), (preview.People, preview.WithEmail, preview.AlreadySent, preview.Letters));   // Asha, Ravi, the external examiner and the one who left: one letter each
             Assert.Equal(new[] { "Mr. Left Person" }, preview.NoEmail);
             Assert.True(preview.SenderReady);
 
-            var supervision = await Office(context).PreviewAsync(Request("supervision"));
-            Assert.Equal((2, 1, 2), (supervision.People, supervision.WithEmail, supervision.Letters));   // Asha and the one who left
             var appointment = await Office(context).PreviewAsync(Request("appointment"));
-            Assert.Equal((3, 3, 0), (appointment.People, appointment.WithEmail, appointment.NoEmail.Count));
+            Assert.Equal((4, 3, 1), (appointment.People, appointment.WithEmail, appointment.NoEmail.Count));
         }
 
         await SendAsync(Request(staff: _asha));
@@ -361,7 +378,7 @@ public sealed class StaffLinkTests
             var preview = await Office(context).PreviewAsync(Request());
             Assert.Equal((3, 1), (preview.WithEmail, preview.AlreadySent));
             var onlyAsha = await Office(context).PreviewAsync(Request(staff: _asha));
-            Assert.Equal((1, 1, 1, 2), (onlyAsha.People, onlyAsha.WithEmail, onlyAsha.AlreadySent, onlyAsha.Letters));
+            Assert.Equal((1, 1, 1, 1), (onlyAsha.People, onlyAsha.WithEmail, onlyAsha.AlreadySent, onlyAsha.Letters));
         }
     }
 
@@ -418,7 +435,16 @@ public sealed class StaffLinkTests
         var other = Request();
         other.ExamId = _otherExam;
         await Assert.ThrowsAsync<KeyNotFoundException>(() => Office(context).PreviewAsync(other));
-        await Assert.ThrowsAsync<KeyNotFoundException>(() => Office(context).StatusAsync(_otherExam));
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => Office(context).StatusAsync(_otherExam, null));
+
+        var otherChart = ChartRequest();
+        otherChart.DutyChartId = _otherChart;
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => Office(context).PreviewAsync(otherChart));
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => Office(context).SendAsync(otherChart, Site));
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => Office(context).StatusAsync(null, _otherChart));
+        var unknownChart = ChartRequest();
+        unknownChart.DutyChartId = Guid.NewGuid();
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => Office(context).PreviewAsync(unknownChart));
     }
 
     [Fact]
@@ -427,8 +453,186 @@ public sealed class StaffLinkTests
         using var context = Context(_college);
         var request = Request(staff: _stranger);
         request.ExamId = _exam;
-
         Assert.Equal(0, (await Office(context).PreviewAsync(request)).People);
+
+        Assert.Equal(0, (await Office(context).PreviewAsync(ChartRequest(staff: _stranger))).People);
+    }
+
+    [Fact]
+    public async Task A_request_is_for_exactly_one_of_an_exam_and_a_duty_chart_and_the_kind_must_fit()
+    {
+        using var context = Context(_college);
+        var both = Request();
+        both.DutyChartId = _chart;
+        var neither = Request();
+        neither.ExamId = null;
+
+        var tooMany = await Assert.ThrowsAsync<InvalidOperationException>(() => Office(context).PreviewAsync(both));
+        Assert.Equal("Choose a duty chart (for supervision letters) or an exam (for examiner letters).", tooMany.Message);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Office(context).PreviewAsync(neither));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Office(context).SendAsync(both, Site));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Office(context).StatusAsync(null, null));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Office(context).StatusAsync(_exam, _chart));
+
+        var supervisionOfAnExam = await Assert.ThrowsAsync<InvalidOperationException>(() => Office(context).PreviewAsync(Request("supervision")));
+        Assert.Equal("Supervision letters belong to a duty chart, not an exam.", supervisionOfAnExam.Message);
+        var examinerOfAChart = await Assert.ThrowsAsync<InvalidOperationException>(() => Office(context).PreviewAsync(ChartRequest("appointment")));
+        Assert.Equal("Examiner and moderator letters belong to an exam, not a duty chart.", examinerOfAChart.Message);
+        Assert.Empty(await context.StaffLinks.ToListAsync());
+    }
+
+    // ------------------------------------------------------------------ a duty chart's supervision letters
+
+    [Fact]
+    public async Task A_chart_preview_counts_the_people_with_supervision_letters_in_it()
+    {
+        using var context = Context(_college);
+
+        var preview = await Office(context).PreviewAsync(ChartRequest());
+        Assert.Equal((3, 2, 0, 3), (preview.People, preview.WithEmail, preview.AlreadySent, preview.Letters));   // Asha, Ravi and the one who left: one letter each (the old chart's letter is not counted)
+        Assert.Equal(new[] { "Mr. Left Person" }, preview.NoEmail);
+        Assert.Equal(3, (await Office(context).PreviewAsync(ChartRequest("all"))).People);                       // "all" of a chart is its supervision letters
+        Assert.Equal(1, (await Office(context).PreviewAsync(ChartRequest(staff: _ravi))).People);
+    }
+
+    [Fact]
+    public async Task Sending_for_a_chart_makes_a_link_for_the_chart_which_ends_a_month_after_its_last_day()
+    {
+        var result = await SendAsync(ChartRequest());
+
+        Assert.Equal((2, 1), (result.Queued, result.Skipped));       // Asha and Ravi; the one who left has no usable address
+        using var context = Context(null);
+        var links = await context.StaffLinks.IgnoreQueryFilters().ToListAsync();
+        Assert.Equal(new[] { _asha, _ravi }.OrderBy(x => x), links.Select(l => l.StaffId).OrderBy(x => x));
+        Assert.All(links, l => Assert.Equal(((Guid?)null, (Guid?)_chart, StaffLinkStatuses.Active), (l.ExamId, l.DutyChartId, l.Status)));
+        Assert.All(links, l => Assert.Equal(DateTime.Today.AddDays(20 + StaffLinkService.AfterExamDays), l.ExpiresAt.ToLocalTime().Date));
+        var audit = await context.AuditLogs.IgnoreQueryFilters().SingleAsync(a => a.Event == "StaffLettersEmailed");
+        Assert.Equal(_chart.ToString(), audit.RecordId);
+        Assert.Contains("2 links", audit.Details);
+    }
+
+    [Fact]
+    public async Task A_chart_link_lasts_at_least_a_week_even_when_the_chart_is_over()
+    {
+        using (var context = Context(_college))
+        {
+            (await context.DutyCharts.SingleAsync(c => c.Id == _chart)).ToDate = DateTime.Today.AddDays(-100);
+            await context.SaveChangesAsync();
+        }
+
+        await SendAsync(ChartRequest(staff: _asha));
+
+        using var check = Context(null);
+        var link = await check.StaffLinks.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal(DateTime.Today.AddDays(StaffLinkService.MinDays), link.ExpiresAt.ToLocalTime().Date);
+    }
+
+    [Fact]
+    public async Task The_chart_email_names_the_chart_and_lists_only_its_supervision_letters()
+    {
+        var token = await SendAndGetTokenAsync(chart: true);
+
+        var mail = _sender.Sent.Last(m => m.To == "asha@viva.in");
+        Assert.Equal("VIVA Institute of Technology: your letters for December 2026 Supervision", mail.Subject);
+        Assert.Contains("Supervision duty (Junior Supervisor, 2 dates)", mail.Text);
+        Assert.DoesNotContain("Examiner", mail.Text);                        // her examiner letter goes with the exam's link
+        Assert.DoesNotContain("April 2026", mail.Text);                      // and the earlier chart's letter with its own
+        Assert.Contains($"{Site}/t#{token}", mail.Text);
+    }
+
+    [Fact]
+    public async Task A_person_has_one_link_for_an_exam_and_one_for_a_chart_and_sending_again_replaces_only_its_own()
+    {
+        await SendAsync(Request(staff: _asha));
+        await SendAsync(ChartRequest(staff: _asha));
+        using (var context = Context(null))
+        {
+            var links = await context.StaffLinks.IgnoreQueryFilters().Where(l => l.Status == StaffLinkStatuses.Active).ToListAsync();
+            Assert.Equal(2, links.Count);                                    // neither stopped the other
+            Assert.Equal(new[] { false, true }, links.Select(l => l.DutyChartId != null).OrderBy(x => x));
+        }
+
+        await SendAsync(ChartRequest(staff: _asha));
+        using (var context = Context(null))
+        {
+            var all = await context.StaffLinks.IgnoreQueryFilters().OrderBy(l => l.CreatedAt).ToListAsync();
+            Assert.Equal(3, all.Count);
+            Assert.Equal(new[] { StaffLinkStatuses.Active, StaffLinkStatuses.Revoked, StaffLinkStatuses.Active }, all.Select(l => l.Status));
+            Assert.Equal(2, all.Count(l => l.Status == StaffLinkStatuses.Active));
+        }
+    }
+
+    [Fact]
+    public async Task Only_not_sent_works_per_chart()
+    {
+        await SendAsync(ChartRequest(staff: _asha));
+
+        var result = await SendAsync(ChartRequest(onlyNotSent: true));
+
+        Assert.Equal((1, 2), (result.Queued, result.Skipped));              // Ravi; Asha was emailed, the one who left has no usable address
+        using var context = Context(_college);
+        Assert.Equal(1, (await Office(context).PreviewAsync(ChartRequest(staff: _asha))).AlreadySent);
+    }
+
+    [Fact]
+    public async Task Opening_a_chart_link_names_the_chart()
+    {
+        var token = await SendAndGetTokenAsync(chart: true);
+
+        using var context = Context(null);
+        var info = await SignIn(context).OpenAsync(token);
+
+        Assert.Equal((LinkOpenStates.Ready, "Your letters for December 2026 Supervision"), (info.State, info.TaskName));
+    }
+
+    [Fact]
+    public async Task A_chart_link_marks_the_charts_letters_as_current_in_the_portal()
+    {
+        await SendAndGetTokenAsync(chart: true);
+        var link = await LinkIdAsync(_asha);
+
+        using var context = Context(_college);
+        var home = await Portal(context).HomeAsync(Session(link, _asha));
+
+        Assert.Equal("December 2026 Supervision", home.ExamTitle);
+        Assert.Equal(new[] { _ashaSupervision, _ashaExaminer, _ashaOld }, home.Letters.Select(l => l.LetterId));   // the same letters, whichever link
+        Assert.Equal(new[] { true, false, false }, home.Letters.Select(l => l.Current));
+    }
+
+    [Fact]
+    public async Task The_queue_does_not_write_an_email_for_a_chart_link_whose_letters_were_cancelled()
+    {
+        await SendAsync(ChartRequest(staff: _asha));
+        using (var context = Context(_college))
+        {
+            foreach (var l in await context.StaffLetters.Where(l => l.StaffId == _asha && l.DutyChartId == _chart).ToListAsync()) l.IsDeleted = true;
+            await context.SaveChangesAsync();
+        }
+        var before = _sender.Sent.Count;
+
+        await RunQueueAsync();
+
+        Assert.Equal(before, _sender.Sent.Count);
+        using var check = Context(null);
+        Assert.Equal(EmailStatuses.Cancelled, (await check.EmailQueue.IgnoreQueryFilters().SingleAsync(m => m.Kind == StaffEmailKinds.Link)).Status);
+    }
+
+    [Fact]
+    public async Task Chart_status_follows_the_latest_chart_link()
+    {
+        using (var context = Context(_college))
+            Assert.Empty(await Office(context).StatusAsync(null, _chart));
+
+        await SendAsync(ChartRequest(staff: _asha));
+        await RunQueueAsync();
+        using (var context = Context(_college))
+        {
+            var sent = Assert.Single(await Office(context).StatusAsync(null, _chart));
+            Assert.Equal(_asha, sent.StaffId);
+            Assert.NotNull(sent.SentAt);
+            Assert.Null(sent.OpenedAt);
+            Assert.Empty(await Office(context).StatusAsync(_exam, null));    // an exam link of hers would be separate
+        }
     }
 
     [Fact]
@@ -642,7 +846,7 @@ public sealed class StaffLinkTests
     // ------------------------------------------------------------------ after sign-in
 
     [Fact]
-    public async Task Me_shows_only_the_persons_own_letters_and_marks_the_ones_of_this_exam()
+    public async Task Me_shows_only_the_persons_own_letters_and_marks_the_ones_of_the_links_exam()
     {
         await SendAndGetTokenAsync();
         var link = await LinkIdAsync(_asha);
@@ -655,13 +859,13 @@ public sealed class StaffLinkTests
         Assert.Equal(3, home.Letters.Count);
         Assert.DoesNotContain(home.Letters, l => l.LetterId == _raviModerator || l.LetterId == _strangerLetter);
         Assert.Equal(new[] { _ashaSupervision, _ashaExaminer, _ashaOld }, home.Letters.Select(l => l.LetterId));   // newest exam first, supervision before examiner
-        Assert.Equal(new[] { true, true, false }, home.Letters.Select(l => l.Current));
+        Assert.Equal(new[] { false, true, false }, home.Letters.Select(l => l.Current));   // this link is for the exam: only her examiner letter is current
         Assert.Equal(new[] { "Supervision", "Examiner", "Supervision" }, home.Letters.Select(l => l.Kind));
         Assert.Equal("Supervision duty — Junior Supervisor, 2 dates", home.Letters[0].Title);
         Assert.Equal("Examiner — CSC601 System Programming", home.Letters[1].Title);
         Assert.Equal("Supervision duty — Senior Supervisor, 1 date", home.Letters[2].Title);
-        Assert.Equal("April 2026 Regular", home.Letters[2].ExamTitle);
-        Assert.Equal(("VIT/EXAM/SUP/2026-27/0001", "2026-10-20"), (home.Letters[0].LetterNo, home.Letters[0].LetterDate));
+        Assert.Equal("April 2026 Supervision", home.Letters[2].ExamTitle);
+        Assert.Equal(("VIT/EXAM/2026-27/DUTY-001", "2026-10-20"), (home.Letters[0].LetterNo, home.Letters[0].LetterDate));
 
         Assert.Equal(("Prof.", "Asha", "R.", "Patil", false), (home.Details.Title, home.Details.FirstName, home.Details.MiddleName, home.Details.LastName, home.Details.IsExternal));
         Assert.Equal(StaffTitles.All.ToList(), home.Options.Titles);
@@ -872,12 +1076,12 @@ public sealed class StaffLinkTests
     public async Task Status_follows_the_latest_link_from_emailed_to_opened_to_downloaded()
     {
         using (var context = Context(_college))
-            Assert.Empty(await Office(context).StatusAsync(_itExam));
+            Assert.Empty(await Office(context).StatusAsync(_itExam, null));
 
         await SendAsync(Request(staff: _asha));
         using (var context = Context(_college))
         {
-            var queued = Assert.Single(await Office(context).StatusAsync(_itExam));
+            var queued = Assert.Single(await Office(context).StatusAsync(_itExam, null));
             Assert.Equal(_asha, queued.StaffId);
             Assert.Null(queued.SentAt);                                                                                       // waiting in the queue
             Assert.Null(queued.OpenedAt);
@@ -888,7 +1092,7 @@ public sealed class StaffLinkTests
         var token = TokenIn(_sender.Sent.Last(m => m.To == "asha@viva.in"));
         using (var context = Context(_college))
         {
-            var sent = Assert.Single(await Office(context).StatusAsync(_itExam));
+            var sent = Assert.Single(await Office(context).StatusAsync(_itExam, null));
             Assert.NotNull(sent.SentAt);
             Assert.Null(sent.OpenedAt);
         }
@@ -899,7 +1103,7 @@ public sealed class StaffLinkTests
             await Portal(context).LetterPdfAsync(Session(link, _asha), _ashaSupervision);
         using (var context = Context(_college))
         {
-            var done = Assert.Single(await Office(context).StatusAsync(_exam));      // either copy of the exam will do
+            var done = Assert.Single(await Office(context).StatusAsync(_exam, null));      // either copy of the exam will do
             Assert.NotNull(done.SentAt);
             Assert.NotNull(done.OpenedAt);
             Assert.NotNull(done.DownloadedAt);
@@ -908,7 +1112,7 @@ public sealed class StaffLinkTests
         await SendAsync(Request(staff: _asha));                                       // a new link starts again
         using (var context = Context(_college))
         {
-            var again = Assert.Single(await Office(context).StatusAsync(_itExam));
+            var again = Assert.Single(await Office(context).StatusAsync(_itExam, null));
             Assert.Null(again.SentAt);
             Assert.Null(again.OpenedAt);
             Assert.Null(again.DownloadedAt);

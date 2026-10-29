@@ -44,11 +44,11 @@ namespace ExamAPI.Services.Staff
         public string Kind { get; set; } = "";
         public string Title { get; set; } = "";
         public string ExamTitle { get; set; } = "";
-        /// <summary>The letter belongs to the exam this link was sent for.</summary>
+        /// <summary>The letter belongs to the exam or duty chart this link was sent for.</summary>
         public bool Current { get; set; }
     }
 
-    /// <summary>What the staff site shows after sign-in: who, which exam, the details to check and all the person's letters.</summary>
+    /// <summary>What the staff site shows after sign-in: who, which exam or duty chart (ExamTitle), the details to check and all the person's letters.</summary>
     public class StaffHome
     {
         public string FirstName { get; set; } = "";
@@ -99,17 +99,26 @@ namespace ExamAPI.Services.Staff
         {
             var person = link.Staff!;
             var lines = await StaffLetterLine.LoadAsync(_context, _context.StaffLetters.Where(l => l.StaffId == person.StaffId), ignoreFilters: false);
-            var examIds = lines.Select(l => l.Letter.ExamId).Append(link.ExamId).Distinct().ToList();
+            var examIds = lines.Select(l => l.Letter.ExamId).Append(link.ExamId).Where(id => id != null).Select(id => id!.Value).Distinct().ToList();
             var exams = await _context.Exams.Where(e => examIds.Contains(e.ExamId)).Select(e => new { e.ExamId, e.Name, e.ExamType, e.CreatedAt }).ToListAsync();
+            var chartIds = lines.Select(l => l.Letter.DutyChartId).Append(link.DutyChartId).Where(id => id != null).Select(id => id!.Value).Distinct().ToList();
+            var charts = await _context.DutyCharts.Where(c => chartIds.Contains(c.Id)).Select(c => new { c.Id, c.Name, c.CreatedAt }).ToListAsync();
+
+            // A letter belongs to an exam (examiner, moderator) or a duty chart (supervision): newest first.
             var created = exams.ToDictionary(e => e.ExamId, e => e.CreatedAt);
+            foreach (var chart in charts) created[chart.Id] = chart.CreatedAt;
+            Guid? GroupOf(StaffLetterLine l) => l.Letter.DutyChartId ?? l.Letter.ExamId;
+
+            string examTitle;
             var linkExam = exams.FirstOrDefault(e => e.ExamId == link.ExamId);
-            var examTitle = linkExam != null
-                ? string.Join(' ', new[] { linkExam.Name, linkExam.ExamType }.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => p!.Trim()))
-                : lines.FirstOrDefault(l => l.Letter.ExamId == link.ExamId)?.Letter.ExamTitle ?? "your exam";
+            var linkChart = charts.FirstOrDefault(c => c.Id == link.DutyChartId);
+            if (linkChart != null) examTitle = linkChart.Name;
+            else if (linkExam != null) examTitle = string.Join(' ', new[] { linkExam.Name, linkExam.ExamType }.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => p!.Trim()));
+            else examTitle = lines.FirstOrDefault(l => GroupOf(l) == (link.DutyChartId ?? link.ExamId))?.Letter.ExamTitle ?? "your exam";
 
             int Rank(StaffLetterLine l) => l.Kind == "Supervision" ? 0 : l.Kind == "Examiner" ? 1 : 2;
             var ordered = lines
-                .OrderByDescending(l => (l.Letter.ExamId == null ? default : created.GetValueOrDefault(l.Letter.ExamId.Value))).ThenBy(l => l.Letter.ExamId)
+                .OrderByDescending(l => GroupOf(l) is Guid g ? created.GetValueOrDefault(g) : default).ThenBy(GroupOf)
                 .ThenBy(Rank).ThenBy(l => l.Letter.SerialNo);
 
             var options = await _context.StaffOptions.OrderBy(o => o.Name).ToListAsync();
@@ -149,7 +158,7 @@ namespace ExamAPI.Services.Staff
                     Kind = l.Kind,
                     Title = l.Title,
                     ExamTitle = l.Letter.ExamTitle,
-                    Current = l.Letter.ExamId == link.ExamId,
+                    Current = GroupOf(l) == (link.DutyChartId ?? link.ExamId),
                 }).ToList(),
             };
         }

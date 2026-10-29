@@ -5,8 +5,8 @@ using Microsoft.AspNetCore.Mvc;
 namespace ExamAPI.Controllers
 {
     /// <summary>
-    /// Staff letters > Email letters: the exam office previews and sends each person their letters link, and sees who
-    /// got it, opened it and downloaded. Signed-in office staff only (the fallback policy); scoped to their college by
+    /// Staff letters > Email letters: the exam office previews and sends each person their letters link (supervision letters
+    /// of a duty chart, or examiner and moderator letters of an exam), and sees who got it, opened it and downloaded. Signed-in office staff only (the fallback policy); scoped to their college by
     /// the tenant filter.
     /// </summary>
     [Route("api/StaffLetters/email")]
@@ -26,7 +26,7 @@ namespace ExamAPI.Controllers
         [HttpPost("preview")]
         public Task<IActionResult> Preview([FromBody] StaffEmailRequest request) => Answer(() => _service.PreviewAsync(request));
 
-        /// <summary>Emails each person their link (the older link of the same person and exam stops working).</summary>
+        /// <summary>Emails each person their link (the older link of the same person and exam or duty chart stops working).</summary>
         [HttpPost]
         public Task<IActionResult> Send([FromBody] StaffEmailRequest request) => Answer(async () =>
         {
@@ -35,9 +35,9 @@ namespace ExamAPI.Controllers
             return await _service.SendAsync(request, baseUrl);
         });
 
-        /// <summary>The latest link of each person for the exam: when it was emailed, opened and first downloaded.</summary>
+        /// <summary>The latest link of each person for the exam or duty chart: when it was emailed, opened and first downloaded.</summary>
         [HttpGet("status")]
-        public Task<IActionResult> Status([FromQuery] Guid examId) => Answer(() => _service.StatusAsync(examId));
+        public Task<IActionResult> Status([FromQuery] Guid? examId, [FromQuery] Guid? dutyChartId) => Answer(() => _service.StatusAsync(examId, dutyChartId));
 
         private async Task<IActionResult> Answer<T>(Func<Task<T>> action)
         {

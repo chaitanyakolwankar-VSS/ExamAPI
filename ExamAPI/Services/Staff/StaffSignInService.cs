@@ -60,9 +60,14 @@ namespace ExamAPI.Services.Staff
         private Task<string?> HelpEmailAsync(Guid? collegeId) =>
             _context.CollegeSettings.IgnoreQueryFilters().Where(s => s.CollegeId == collegeId).Select(s => s.ExamOfficeEmail).FirstOrDefaultAsync();
 
-        /// <summary>"{Name} {ExamType}" of the link's exam, as the letters print it.</summary>
+        /// <summary>The duty chart's name, or "{Name} {ExamType}" of the link's exam, as the letters print it.</summary>
         private async Task<string> ExamTitleAsync(StaffLink link)
         {
+            if (link.DutyChartId != null)
+            {
+                var chart = await _context.DutyCharts.IgnoreQueryFilters().Where(c => c.Id == link.DutyChartId).Select(c => c.Name).FirstOrDefaultAsync();
+                return string.IsNullOrWhiteSpace(chart) ? "your duties" : chart.Trim();
+            }
             var exam = await _context.Exams.IgnoreQueryFilters().Where(e => e.ExamId == link.ExamId)
                 .Select(e => new { e.Name, e.ExamType }).FirstOrDefaultAsync();
             return exam == null ? "your exam" : string.Join(' ', new[] { exam.Name, exam.ExamType }.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => p!.Trim()));

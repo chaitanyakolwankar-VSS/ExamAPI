@@ -19,10 +19,10 @@ public sealed class StaffServiceTests
     private readonly ApplicationDbContext _context;
     private readonly StaffService _service;
 
-    // EmployeeId, Title, FirstName, MiddleName, LastName, Email, Department, Designation, External, ExternalCollege, ExternalCity
-    private static readonly string[] Asha = { "E101", "Prof.", "Asha", "R.", "Patil", "asha@viva.edu", "Computer", "Assistant Professor", "No", "", "" };
-    private static readonly string[] Ravi = { "e102", "dr", "Ravi", "", "Kumar", "RAVI@viva.edu", "Computer", "Professor", "", "", "" };
-    private static readonly string[] Meena = { "", "Dr.", "Meena", "", "Shah", "meena@other.edu", "", "", "Yes", "Other College of Engineering", "Pune" };
+    // EmployeeId, Title, FirstName, MiddleName, LastName, Email, Department, Designation, Teaching, External, ExternalCollege, ExternalCity
+    private static readonly string[] Asha = { "E101", "Prof.", "Asha", "R.", "Patil", "asha@viva.edu", "Computer", "Assistant Professor", "", "No", "", "" };
+    private static readonly string[] Ravi = { "e102", "dr", "Ravi", "", "Kumar", "RAVI@viva.edu", "Computer", "Professor", "", "", "", "" };
+    private static readonly string[] Meena = { "", "Dr.", "Meena", "", "Shah", "meena@other.edu", "", "", "", "Yes", "Other College of Engineering", "Pune" };
 
     public StaffServiceTests()
     {
@@ -104,13 +104,14 @@ public sealed class StaffServiceTests
         {
             var sheet = workbook.Worksheet("Staff");
             Assert.Equal("E101", sheet.Cell(3, 1).GetString());
-            Assert.Equal("Yes", sheet.Cell(5, 9).GetString());
+            Assert.Equal("Yes", sheet.Cell(5, 10).GetString());
+            Assert.Equal("Yes", sheet.Cell(3, 9).GetString());   // Teaching
             Assert.Equal(XLWorksheetVisibility.Hidden, workbook.Worksheet("Lists").Visibility);
             Assert.Equal("Computer", workbook.Worksheet("Lists").Cell(2, 2).GetString());
         }
 
         var renamed = (string[])Asha.Clone(); renamed[4] = "Patil-Desai"; renamed[5] = "asha.pd@viva.edu";
-        var moved = (string[])Meena.Clone(); moved[10] = "Mumbai";
+        var moved = (string[])Meena.Clone(); moved[11] = "Mumbai";
         var result = await Import(false, renamed, Ravi, moved);
 
         Assert.Equal(new[] { StaffImportActions.Update, StaffImportActions.Unchanged, StaffImportActions.Update }, result.Rows.Select(r => r.Action));
@@ -124,15 +125,15 @@ public sealed class StaffServiceTests
     public async Task Any_bad_row_stops_the_whole_import_with_every_problem_listed()
     {
         await Import(false, Asha);
-        string[] noTitle = { "E201", "", "Sita", "", "Rao", "sita@viva.edu", "", "", "", "", "" };
-        string[] badTitle = { "E202", "Sir", "Ram", "", "Rao", "ram@viva.edu", "", "", "", "", "" };
-        string[] noCode = { "", "Mr.", "Amit", "", "Jain", "amit@viva.edu", "", "", "No", "", "" };
-        string[] externalNoCollege = { "", "Dr.", "Neha", "", "Iyer", "neha@other.edu", "", "", "Yes", "", "" };
-        string[] badExternal = { "E203", "Mr.", "Om", "", "Das", "om@viva.edu", "", "", "Maybe", "", "" };
-        string[] takenEmail = { "E204", "Mr.", "Raj", "", "Sen", "asha@viva.edu", "", "", "", "", "" };
-        string[] twiceA = { "E205", "Mr.", "Dev", "", "Roy", "dev@viva.edu", "", "", "", "", "" };
-        string[] twiceB = { "E205", "Mr.", "Dev", "", "Roy", "dev@viva.edu", "", "", "", "", "" };
-        string[] badEmail = { "E206", "Mr.", "Jay", "", "Pal", "jay-at-viva", "", "", "", "", "" };
+        string[] noTitle = { "E201", "", "Sita", "", "Rao", "sita@viva.edu", "", "", "", "", "", "" };
+        string[] badTitle = { "E202", "Sir", "Ram", "", "Rao", "ram@viva.edu", "", "", "", "", "", "" };
+        string[] noCode = { "", "Mr.", "Amit", "", "Jain", "amit@viva.edu", "", "", "", "No", "", "" };
+        string[] externalNoCollege = { "", "Dr.", "Neha", "", "Iyer", "neha@other.edu", "", "", "", "Yes", "", "" };
+        string[] badExternal = { "E203", "Mr.", "Om", "", "Das", "om@viva.edu", "", "", "", "Maybe", "", "" };
+        string[] takenEmail = { "E204", "Mr.", "Raj", "", "Sen", "asha@viva.edu", "", "", "", "", "", "" };
+        string[] twiceA = { "E205", "Mr.", "Dev", "", "Roy", "dev@viva.edu", "", "", "", "", "", "" };
+        string[] twiceB = { "E205", "Mr.", "Dev", "", "Roy", "dev@viva.edu", "", "", "", "", "", "" };
+        string[] badEmail = { "E206", "Mr.", "Jay", "", "Pal", "jay-at-viva", "", "", "", "", "", "" };
 
         var result = await Import(false, noTitle, badTitle, noCode, externalNoCollege, badExternal, takenEmail, twiceA, twiceB, badEmail);
 
@@ -189,6 +190,87 @@ public sealed class StaffServiceTests
         Assert.Equal(1, renamed.StaffCount);
         Assert.Equal("Computer Engg.", (await _service.ListAsync(new StaffFilter())).Single().Department);
         Assert.Single(await _service.OptionsAsync());
+    }
+
+    [Fact]
+    public async Task Staff_are_teaching_unless_the_sheet_or_the_form_says_otherwise()
+    {
+        string[] lab = { "E103", "Mr.", "Anil", "", "More", "anil@viva.edu", "Lab", "Lab Assistant", "No", "", "", "" };
+        string[] office = { "E104", "Mrs.", "Neela", "", "Joshi", "neela@viva.edu", "", "", "n", "", "", "" };   // N counts as No
+
+        var preview = await Import(true, Asha, lab, office);
+        Assert.True(preview.Success);
+        await Import(false, Asha, Ravi, lab, office);
+
+        var staff = (await _service.ListAsync(new StaffFilter())).ToDictionary(s => s.FirstName);
+        Assert.True(staff["Asha"].IsTeaching);      // blank means Yes
+        Assert.True(staff["Ravi"].IsTeaching);
+        Assert.False(staff["Anil"].IsTeaching);
+        Assert.False(staff["Neela"].IsTeaching);
+
+        // The downloaded sheet (by first name: Anil, Asha, Neela, Ravi) shows it, and importing it back changes nothing.
+        var (bytes, _) = await _service.TemplateAsync();
+        using (var workbook = new XLWorkbook(new MemoryStream(bytes)))
+        {
+            var sheet = workbook.Worksheet("Staff");
+            Assert.Equal("Teaching", sheet.Cell(2, 9).GetString());
+            Assert.Equal(new[] { "No", "Yes", "No", "Yes" }, Enumerable.Range(3, 4).Select(r => sheet.Cell(r, 9).GetString()));
+            Assert.Contains(sheet.DataValidations, v => v.Ranges.Any(r => r.RangeAddress.FirstAddress.ColumnNumber == 9));   // the Yes / No drop-down
+        }
+        var same = await Import(true, Asha, Ravi, lab, office);
+        Assert.All(same.Rows, r => Assert.Equal(StaffImportActions.Unchanged, r.Action));
+
+        // Changing only the Teaching cell is an update.
+        var teachesNow = (string[])lab.Clone(); teachesNow[8] = "Yes";
+        var changed = await Import(false, Asha, Ravi, teachesNow, office);
+        Assert.Equal(new[] { "Unchanged", "Unchanged", "Update", "Unchanged" }, changed.Rows.Select(r => r.Action));
+        Assert.True((await _service.ListAsync(new StaffFilter())).Single(s => s.FirstName == "Anil").IsTeaching);
+
+        var bad = (string[])Ravi.Clone(); bad[8] = "Maybe";
+        var refused = await Import(false, Asha, bad);
+        Assert.False(refused.Success);
+        Assert.Contains(refused.Errors, e => e.StartsWith("Row 4:") && e.Contains("Teaching must be Yes or No"));
+    }
+
+    [Fact]
+    public async Task A_sheet_from_before_the_teaching_column_is_still_accepted_and_leaves_the_flag_alone()
+    {
+        string[] lab = { "E103", "Mr.", "Anil", "", "More", "anil@viva.edu", "Lab", "Lab Assistant", "No", "", "", "" };
+        await Import(false, lab);
+
+        var (bytes, _) = await _service.TemplateAsync();
+        using var workbook = new XLWorkbook(new MemoryStream(bytes));
+        var sheet = workbook.Worksheet("Staff");
+        sheet.Cell(2, 9).Value = "Notes";               // an old sheet has no Teaching column (anything else in that place is not read)
+        sheet.Cell(3, 9).Value = "Yes";
+        var output = new MemoryStream();
+        workbook.SaveAs(output);
+        output.Position = 0;
+
+        var result = await _service.ImportAsync(new StaffImportRequest { File = new FormFile(output, 0, output.Length, "File", "old.xlsx"), Preview = false });
+
+        Assert.True(result.Success);
+        Assert.Equal(StaffImportActions.Unchanged, result.Rows.Single().Action);
+        Assert.False((await _service.ListAsync(new StaffFilter())).Single().IsTeaching);
+    }
+
+    [Fact]
+    public async Task The_form_saves_the_teaching_flag_and_the_list_filters_on_it()
+    {
+        var teaching = await _service.SaveAsync(null, Form("E1", "t@mail.com", first: "Tara"));
+        var lab = Form("E2", "l@mail.com", first: "Lalit");
+        lab.IsTeaching = false;
+        var nonTeaching = await _service.SaveAsync(null, lab);
+
+        Assert.True(teaching.IsTeaching);          // the form's default
+        Assert.False(nonTeaching.IsTeaching);
+        Assert.Equal(new[] { "Tara" }, (await _service.ListAsync(new StaffFilter { Teaching = "teaching" })).Select(s => s.FirstName));
+        Assert.Equal(new[] { "Lalit" }, (await _service.ListAsync(new StaffFilter { Teaching = "Non-Teaching" })).Select(s => s.FirstName));
+        Assert.Equal(2, (await _service.ListAsync(new StaffFilter { Teaching = "" })).Count);
+        Assert.Equal(2, (await _service.ListAsync(new StaffFilter())).Count);
+
+        var edited = Form("E2", "l@mail.com", first: "Lalit");   // saved again with the default
+        Assert.True((await _service.SaveAsync(nonTeaching.StaffId, edited)).IsTeaching);
     }
 
     [Fact]

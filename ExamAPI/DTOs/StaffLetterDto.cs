@@ -14,73 +14,10 @@ namespace ExamAPI.DTOs
         /// <summary>Branches that have papers on the timetable.</summary>
         public int BranchCount { get; set; }
         public int SlotCount { get; set; }
-        /// <summary>Supervision letters of the exam.</summary>
+        /// <summary>Always 0: supervision letters belong to duty charts, not to one exam.</summary>
         public int LetterCount { get; set; }
         /// <summary>Examiner and moderator letters of the exam.</summary>
         public int AppointmentCount { get; set; }
-    }
-
-    /// <summary>A date and time on which at least one paper is written.</summary>
-    public class SupervisionSlotDto
-    {
-        public string Date { get; set; } = "";
-        public string Time { get; set; } = "";
-        public int Papers { get; set; }
-        public List<string> Branches { get; set; } = new();
-    }
-
-    public class DutyDto
-    {
-        public string Date { get; set; } = "";
-        public string Time { get; set; } = "";
-    }
-
-    public class SupervisionLetterDto
-    {
-        public Guid LetterId { get; set; }
-        public Guid StaffId { get; set; }
-        public string StaffName { get; set; } = "";
-        public string LetterNo { get; set; } = "";
-        /// <summary>yyyy-MM-dd.</summary>
-        public string LetterDate { get; set; } = "";
-        public string Role { get; set; } = "";
-        public List<DutyDto> Duties { get; set; } = new();
-    }
-
-    /// <summary>Everything the Supervision Letters screen needs for one exam.</summary>
-    public class SupervisionDto
-    {
-        public ExamGroupDto Exam { get; set; } = new();
-        public List<string> Roles { get; set; } = new();
-        public List<SupervisionSlotDto> Slots { get; set; } = new();
-        public List<SupervisionLetterDto> Letters { get; set; } = new();
-    }
-
-    public class SupervisionAssignment
-    {
-        public Guid StaffId { get; set; }
-        public string? Role { get; set; }
-        public List<DutyDto> Duties { get; set; } = new();
-    }
-
-    /// <summary>The whole assignment grid of one exam: people missing from it lose their letter.</summary>
-    public class SupervisionSave
-    {
-        /// <summary>Any branch's copy of the exam.</summary>
-        public Guid ExamId { get; set; }
-        /// <summary>yyyy-MM-dd; given to the new letters only.</summary>
-        public string? LetterDate { get; set; }
-        public List<SupervisionAssignment> Assignments { get; set; } = new();
-    }
-
-    public class SupervisionSaveResult
-    {
-        public int Created { get; set; }
-        public int Updated { get; set; }
-        public int Unchanged { get; set; }
-        public int Removed { get; set; }
-        public string Message { get; set; } = "";
-        public List<SupervisionLetterDto> Letters { get; set; } = new();
     }
 
     /// <summary>A subject on the exam's timetable, which an examiner and a moderator can be appointed for.</summary>
@@ -147,13 +84,23 @@ namespace ExamAPI.DTOs
     {
         public string? LetterPrefix { get; set; }
         public string? CapContact { get; set; }
+        /// <summary>Where staff report before a session; empty = the default.</summary>
+        public string? ReportingPlace { get; set; }
+        /// <summary>The guidelines printed on duty letters, one per line; empty = the defaults.</summary>
+        public string? DutyGuidelines { get; set; }
         /// <summary>What the prefix is when none is set: "{college code}/EXAM".</summary>
         public string DefaultPrefix { get; set; } = "";
+        public string DefaultReportingPlace { get; set; } = "";
+        public List<string> DefaultGuidelines { get; set; } = new();
     }
 
     public class LetterSettingsSave
     {
         public string? LetterPrefix { get; set; }
         public string? CapContact { get; set; }
+        /// <summary>At most 200 characters.</summary>
+        public string? ReportingPlace { get; set; }
+        /// <summary>One guideline per line: at most 10 lines of 300 characters, 2000 in all.</summary>
+        public string? DutyGuidelines { get; set; }
     }
 }

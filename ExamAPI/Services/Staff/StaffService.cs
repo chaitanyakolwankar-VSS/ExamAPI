@@ -47,6 +47,9 @@ namespace ExamAPI.Services.Staff
             if (filter.DesignationId is Guid designation) query = query.Where(s => s.DesignationId == designation);
             if (string.Equals(filter.Type, "internal", StringComparison.OrdinalIgnoreCase)) query = query.Where(s => !s.IsExternal);
             if (string.Equals(filter.Type, "external", StringComparison.OrdinalIgnoreCase)) query = query.Where(s => s.IsExternal);
+            var teaching = (filter.Teaching ?? "").Trim();
+            if (string.Equals(teaching, "teaching", StringComparison.OrdinalIgnoreCase)) query = query.Where(s => s.IsTeaching);
+            if (string.Equals(teaching, "non-teaching", StringComparison.OrdinalIgnoreCase)) query = query.Where(s => !s.IsTeaching);
             var staff = await query.ToListAsync();
 
             // A college has hundreds of staff at most: search in memory, ignoring case, across name, email and ID.
@@ -93,6 +96,7 @@ namespace ExamAPI.Services.Staff
                 _context.StaffMasters.Add(staff);
             }
             Apply(staff, input);
+            staff.IsTeaching = dto.IsTeaching;
             staff.DepartmentId = dto.DepartmentId;
             staff.DesignationId = dto.DesignationId;
             staff.IsActive = dto.IsActive;
@@ -167,7 +171,9 @@ namespace ExamAPI.Services.Staff
 
         /// <summary>Columns of the staff sheet, in order. Row 1 is a title, row 2 these headings, data from row 3.</summary>
         public static readonly string[] Headers =
-            { "EmployeeId", "Title", "FirstName", "MiddleName", "LastName", "Email", "Department", "Designation", "External", "ExternalCollege", "ExternalCity" };
+            { "EmployeeId", "Title", "FirstName", "MiddleName", "LastName", "Email", "Department", "Designation", "Teaching", "External", "ExternalCollege", "ExternalCity" };
+        /// <summary>Sheets downloaded before the Teaching column existed are still accepted (the column is then left as it is).</summary>
+        private const string OptionalHeader = "Teaching";
         private const int TemplateRows = 1000;
         private static int Column(string header) => Array.IndexOf(Headers, header) + 1;
 
@@ -212,6 +218,7 @@ namespace ExamAPI.Services.Staff
                 sheet.Cell(row, Column("Email")).Value = s.Email;
                 sheet.Cell(row, Column("Department")).Value = s.Department?.Name ?? "";
                 sheet.Cell(row, Column("Designation")).Value = s.Designation?.Name ?? "";
+                sheet.Cell(row, Column("Teaching")).Value = s.IsTeaching ? "Yes" : "No";
                 sheet.Cell(row, Column("External")).Value = s.IsExternal ? "Yes" : "No";
                 sheet.Cell(row, Column("ExternalCollege")).Value = s.ExternalCollege ?? "";
                 sheet.Cell(row, Column("ExternalCity")).Value = s.ExternalCity ?? "";
@@ -258,6 +265,12 @@ namespace ExamAPI.Services.Staff
                 validation.InputMessage = "Optional. Used to find staff when assigning duties.";
             }
 
+            var teaching = Dropdown("Teaching");
+            teaching.List("\"Yes,No\"", true);
+            teaching.ShowInputMessage = true;
+            teaching.InputTitle = "Teaching";
+            teaching.InputMessage = "Yes for teaching staff, No for lab, office and other non-teaching staff. Empty means Yes. Decides the default duty role.";
+
             var external = Dropdown("External");
             external.List("\"No,Yes\"", true);
             external.ShowInputMessage = true;
@@ -279,7 +292,7 @@ namespace ExamAPI.Services.Staff
             emailHint.InputMessage = "Required. The person's own address: their letters are sent here.";
             sheet.Range(3, Column("EmployeeId"), TemplateRows + 2, Column("EmployeeId")).AddConditionalFormat().WhenIsDuplicate().Fill.SetBackgroundColor(XLColor.LightPink);
 
-            double[] widths = { 14, 8, 16, 16, 16, 32, 24, 24, 10, 32, 16 };
+            double[] widths = { 14, 8, 16, 16, 16, 32, 24, 24, 10, 10, 32, 16 };
             for (int i = 0; i < widths.Length; i++) sheet.Column(i + 1).Width = widths[i];
 
             using var stream = new MemoryStream();
@@ -312,21 +325,26 @@ namespace ExamAPI.Services.Staff
                 var columns = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
                 int lastColumn = sheet.Row(2).LastCellUsed()?.Address.ColumnNumber ?? 0;
                 for (int c = 1; c <= lastColumn; c++) columns.TryAdd(sheet.Cell(2, c).GetString().Trim(), c);
-                if (Headers.Any(h => !columns.ContainsKey(h)))
+                if (Headers.Any(h => h != OptionalHeader && !columns.ContainsKey(h)))
                     throw new InvalidOperationException("This is not the staff sheet. Download it again with the Excel button.");
 
                 var rows = new List<(int Row, Input Input, string Department, string Designation)>();
                 int lastRow = sheet.LastRowUsed()?.RowNumber() ?? 0;
                 for (int r = 3; r <= lastRow; r++)
                 {
-                    string Cell(string header) => sheet.Cell(r, columns[header]).GetFormattedString().Trim();
+                    string Cell(string header) => columns.TryGetValue(header, out var c) ? sheet.Cell(r, c).GetFormattedString().Trim() : "";
                     if (Headers.All(h => Cell(h) == "")) continue;
+                    var teachingText = Cell("Teaching");
+                    var isTeaching = !teachingText.Equals("No", StringComparison.OrdinalIgnoreCase) && !teachingText.Equals("N", StringComparison.OrdinalIgnoreCase);
                     var externalText = Cell("External");
                     var isExternal = externalText.Equals("Yes", StringComparison.OrdinalIgnoreCase) || externalText.Equals("Y", StringComparison.OrdinalIgnoreCase);
                     var input = Clean(Cell("EmployeeId"), Cell("Title"), Cell("FirstName"), Cell("MiddleName"), Cell("LastName"), Cell("Email"),
                         isExternal, Cell("ExternalCollege"), Cell("ExternalCity"));
                     if (externalText != "" && !isExternal && !externalText.Equals("No", StringComparison.OrdinalIgnoreCase) && !externalText.Equals("N", StringComparison.OrdinalIgnoreCase))
                         input.Errors.Add("External must be Yes or No.");
+                    if (teachingText != "" && isTeaching && !teachingText.Equals("Yes", StringComparison.OrdinalIgnoreCase) && !teachingText.Equals("Y", StringComparison.OrdinalIgnoreCase))
+                        input.Errors.Add("Teaching must be Yes or No.");
+                    input.Teaching = columns.ContainsKey("Teaching") ? isTeaching : null;
                     rows.Add((r, input, OptionName(Cell("Department")), OptionName(Cell("Designation"))));
                 }
                 if (rows.Count == 0)
@@ -427,6 +445,7 @@ namespace ExamAPI.Services.Staff
                             _context.StaffMasters.Add(staff);
                         }
                         Apply(staff, input);
+                        if (input.Teaching is bool teaches) staff.IsTeaching = teaches;
                         staff.DepartmentId = OptionId(StaffOptionKinds.Department, department);
                         staff.DesignationId = OptionId(StaffOptionKinds.Designation, designation);
                         staff.IsActive = true;
@@ -456,6 +475,8 @@ namespace ExamAPI.Services.Staff
             public string? Middle { get; set; }
             public string Last { get; set; } = "";
             public string Email { get; set; } = "";
+            /// <summary>From the sheet's Teaching column; null = the sheet has no such column (leave it as it is).</summary>
+            public bool? Teaching { get; set; }
             public bool IsExternal { get; set; }
             public string? College { get; set; }
             public string? City { get; set; }
@@ -519,6 +540,7 @@ namespace ExamAPI.Services.Staff
             s.EmployeeCode != input.Code || s.Title != input.Title || s.FirstName != input.First || s.MiddleName != input.Middle
             || s.LastName != input.Last || s.Email != input.Email || s.IsExternal != input.IsExternal
             || s.ExternalCollege != input.College || s.ExternalCity != input.City || !s.IsActive
+            || (input.Teaching is bool teaches && s.IsTeaching != teaches)
             || !string.Equals(s.Department?.Name ?? "", department, StringComparison.OrdinalIgnoreCase)
             || !string.Equals(s.Designation?.Name ?? "", designation, StringComparison.OrdinalIgnoreCase);
 
@@ -545,6 +567,7 @@ namespace ExamAPI.Services.Staff
             Department = s.Department?.Name,
             DesignationId = s.DesignationId,
             Designation = s.Designation?.Name,
+            IsTeaching = s.IsTeaching,
             IsExternal = s.IsExternal,
             ExternalCollege = s.ExternalCollege,
             ExternalCity = s.ExternalCity,

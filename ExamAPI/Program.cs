@@ -74,6 +74,7 @@ builder.Services.AddScoped<ExamAPI.Services.AttendenceReport.IAttendenceReportSe
 builder.Services.AddScoped<ExamAPI.Services.Staff.IStaffService, ExamAPI.Services.Staff.StaffService>();
 builder.Services.AddScoped<ExamAPI.Services.Staff.IStaffLetterService, ExamAPI.Services.Staff.StaffLetterService>();
 builder.Services.AddScoped<ExamAPI.Services.Staff.IStaffLetterPdfService, ExamAPI.Services.Staff.StaffLetterPdfService>();
+builder.Services.AddScoped<ExamAPI.Services.Staff.IDutyChartService, ExamAPI.Services.Staff.DutyChartService>();
 builder.Services.AddScoped<ExamAPI.Services.StudentPromotion.IStudentPromotionService, ExamAPI.Services.StudentPromotion.StudentPromotion>();
 builder.Services.AddScoped<ExamAPI.Services.ReleaseHallTicket.IReleaseHallticketService, ExamAPI.Services.ReleaseHallTicket.ReleaseHallticketService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
