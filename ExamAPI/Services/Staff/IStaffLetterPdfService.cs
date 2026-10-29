@@ -14,5 +14,8 @@ namespace ExamAPI.Services.Staff
         /// <paramref name="kind"/>: "supervision" or "appointment" (examiner and moderator letters).
         /// </summary>
         Task<(byte[] Bytes, string FileName)> ManyAsync(Guid examId, string kind);
+
+        /// <summary>Every live supervision letter of a duty chart in one PDF, one letter per page, in letter-number order.</summary>
+        Task<(byte[] Bytes, string FileName)> ChartAsync(Guid dutyChartId);
     }
 }

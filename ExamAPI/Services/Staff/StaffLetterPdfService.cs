@@ -52,6 +52,10 @@ namespace ExamAPI.Services.Staff
             return (Render(pages), CleanFileName(name));
         }
 
+        // Placeholder until the duty chart letters are built (step 5b).
+        public Task<(byte[] Bytes, string FileName)> ChartAsync(Guid dutyChartId) =>
+            throw new NotImplementedException("Duty chart letters are not built yet.");
+
         public async Task<(byte[] Bytes, string FileName)> ManyAsync(Guid examId, string kind)
         {
             var supervision = string.Equals((kind ?? "").Trim(), "supervision", StringComparison.OrdinalIgnoreCase);
