@@ -107,7 +107,7 @@ namespace ExamAPI.Services.Staff
             if (copies.Count == 0) throw new KeyNotFoundException("Exam not found.");
             var canonical = await ExamGroups.CanonicalIdAsync(_context, request.ExamId) ?? request.ExamId;
 
-            var letters = _context.StaffLetters.AsNoTracking().Where(l => copies.Contains(l.ExamId) && types.Contains(l.LetterType));
+            var letters = _context.StaffLetters.AsNoTracking().Where(l => (l.ExamId != null && copies.Contains(l.ExamId.Value)) && types.Contains(l.LetterType));
             if (request.StaffIds != null)
             {
                 var wanted = request.StaffIds;
@@ -144,7 +144,7 @@ namespace ExamAPI.Services.Staff
         private async Task<Dictionary<Guid, (StaffLink Link, string? MailStatus, DateTime? MailSentAt)>> LatestAsync(List<Guid> copies, List<Guid>? staffIds = null)
         {
             var links = await _context.StaffLinks.AsNoTracking()
-                .Where(l => copies.Contains(l.ExamId) && (staffIds == null || staffIds.Contains(l.StaffId)))
+                .Where(l => (l.ExamId != null && copies.Contains(l.ExamId.Value)) && (staffIds == null || staffIds.Contains(l.StaffId)))
                 .ToListAsync();
             var latest = links.GroupBy(l => l.StaffId).Select(g => g.OrderByDescending(l => l.CreatedAt).First()).ToList();
             var ids = latest.Select(l => l.Id).ToList();
@@ -205,7 +205,7 @@ namespace ExamAPI.Services.Staff
             // Their earlier open links stop (the sessions end, the emails not yet sent are cancelled): one link per person and exam.
             var targetIds = targets.Select(p => p.StaffId).ToList();
             var earlier = await _context.StaffLinks
-                .Where(l => targetIds.Contains(l.StaffId) && selection.Copies.Contains(l.ExamId) && l.Status == StaffLinkStatuses.Active)
+                .Where(l => targetIds.Contains(l.StaffId) && (l.ExamId != null && selection.Copies.Contains(l.ExamId.Value)) && l.Status == StaffLinkStatuses.Active)
                 .ToListAsync();
             var replaced = earlier.Count(l => l.ExpiresAt > now);
             await StopAsync(earlier, now);

@@ -43,6 +43,9 @@ namespace ExamAPI.Models
         [MaxLength(100)]
         public string? ExternalCity { get; set; }
 
+        /// <summary>Teaching or non-teaching (lab, office, workers): decides the default duty role.</summary>
+        public bool IsTeaching { get; set; } = true;
+
         /// <summary>Left the college: kept for old letters, not offered for new ones.</summary>
         public bool IsActive { get; set; } = true;
     }

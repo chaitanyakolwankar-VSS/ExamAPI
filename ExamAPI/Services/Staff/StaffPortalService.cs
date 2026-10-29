@@ -109,7 +109,7 @@ namespace ExamAPI.Services.Staff
 
             int Rank(StaffLetterLine l) => l.Kind == "Supervision" ? 0 : l.Kind == "Examiner" ? 1 : 2;
             var ordered = lines
-                .OrderByDescending(l => created.GetValueOrDefault(l.Letter.ExamId)).ThenBy(l => l.Letter.ExamId)
+                .OrderByDescending(l => (l.Letter.ExamId == null ? default : created.GetValueOrDefault(l.Letter.ExamId.Value))).ThenBy(l => l.Letter.ExamId)
                 .ThenBy(Rank).ThenBy(l => l.Letter.SerialNo);
 
             var options = await _context.StaffOptions.OrderBy(o => o.Name).ToListAsync();

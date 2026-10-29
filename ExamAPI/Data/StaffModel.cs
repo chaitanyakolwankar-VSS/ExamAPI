@@ -26,15 +26,39 @@ namespace ExamAPI.Data
             // Both are checked on live rows only: a cancelled letter keeps its number but lets the person be assigned again.
             var letter = modelBuilder.Entity<StaffLetter>();
             letter.HasIndex(l => new { l.CollegeId, l.LetterType, l.AYID, l.SerialNo }).IsUnique().HasFilter("[IsDeleted] = 0");
-            letter.HasIndex(l => new { l.StaffId, l.ExamId, l.LetterType, l.SubjectId }).IsUnique().HasFilter("[IsDeleted] = 0");
+            letter.HasIndex(l => new { l.StaffId, l.ExamId, l.DutyChartId, l.LetterType, l.SubjectId }).IsUnique().HasFilter("[IsDeleted] = 0");
             letter.HasOne<College>().WithMany().HasForeignKey(l => l.CollegeId).OnDelete(DeleteBehavior.Restrict);
             letter.HasOne(l => l.Staff).WithMany().HasForeignKey(l => l.StaffId).OnDelete(DeleteBehavior.Restrict);
             letter.HasOne<ExamMaster>().WithMany().HasForeignKey(l => l.ExamId).OnDelete(DeleteBehavior.Restrict);
+            letter.HasOne<DutyChart>().WithMany().HasForeignKey(l => l.DutyChartId).OnDelete(DeleteBehavior.Restrict);
             letter.Property(l => l.LetterDate).HasColumnType("date");
 
             var duty = modelBuilder.Entity<StaffLetterDuty>();
             duty.HasOne<College>().WithMany().HasForeignKey(d => d.CollegeId).OnDelete(DeleteBehavior.Restrict);
             duty.HasOne(d => d.Letter).WithMany(l => l.Duties).HasForeignKey(d => d.LetterId).OnDelete(DeleteBehavior.Restrict);
+            duty.Property(d => d.Kind).HasDefaultValue(DutyKinds.Duty);
+
+            // Existing staff are teaching staff until marked otherwise.
+            staff.Property(s => s.IsTeaching).HasDefaultValue(true);
+
+            // Duty charts: one row per day, one entry per person per day.
+            var chart = modelBuilder.Entity<DutyChart>();
+            chart.HasOne<College>().WithMany().HasForeignKey(c => c.CollegeId).OnDelete(DeleteBehavior.Restrict);
+            chart.Property(c => c.FromDate).HasColumnType("date");
+            chart.Property(c => c.ToDate).HasColumnType("date");
+
+            var day = modelBuilder.Entity<DutyChartDay>();
+            day.HasOne(d => d.Chart).WithMany(c => c.Days).HasForeignKey(d => d.ChartId).OnDelete(DeleteBehavior.Restrict);
+            day.HasOne<College>().WithMany().HasForeignKey(d => d.CollegeId).OnDelete(DeleteBehavior.Restrict);
+            day.HasIndex(d => new { d.ChartId, d.Date }).IsUnique();
+            day.Property(d => d.Date).HasColumnType("date");
+
+            var entry = modelBuilder.Entity<DutyChartEntry>();
+            entry.HasOne(e => e.Chart).WithMany(c => c.Entries).HasForeignKey(e => e.ChartId).OnDelete(DeleteBehavior.Restrict);
+            entry.HasOne(e => e.Staff).WithMany().HasForeignKey(e => e.StaffId).OnDelete(DeleteBehavior.Restrict);
+            entry.HasOne<College>().WithMany().HasForeignKey(e => e.CollegeId).OnDelete(DeleteBehavior.Restrict);
+            entry.HasIndex(e => new { e.ChartId, e.StaffId, e.Date }).IsUnique();
+            entry.Property(e => e.Date).HasColumnType("date");
         }
     }
 }

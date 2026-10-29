@@ -28,7 +28,9 @@ namespace ExamAPI.Models
         public StaffMaster? Staff { get; set; }
 
         /// <summary>The canonical copy of the exam (see ExamGroups): the letters of this exam are the "current" ones.</summary>
-        public Guid ExamId { get; set; }
+        public Guid? ExamId { get; set; }
+        /// <summary>Set instead of ExamId when the link is for a duty chart's supervision letters.</summary>
+        public Guid? DutyChartId { get; set; }
 
         /// <summary>SHA-256 of the raw token. Null until the email goes out: the token is made at send time.</summary>
         [Column(TypeName = "binary(32)")]

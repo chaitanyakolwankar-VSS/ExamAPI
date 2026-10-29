@@ -298,6 +298,14 @@ namespace ExamAPI.Models
         /// <summary>Contact numbers printed on supervision letters ("CAP contact").</summary>
         [MaxLength(100)]
         public string? CapContact { get; set; }
+
+        /// <summary>Supervision letters: where staff report before a session (e.g. "the Central Examination Control Room").</summary>
+        [MaxLength(200)]
+        public string? ReportingPlace { get; set; }
+
+        /// <summary>Supervision letters: the guidelines printed as bullets, one per line.</summary>
+        [MaxLength(2000)]
+        public string? DutyGuidelines { get; set; }
     }
 
     /// <summary>

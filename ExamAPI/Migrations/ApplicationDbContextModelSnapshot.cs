@@ -224,6 +224,10 @@ namespace ExamAPI.Migrations
                     b.Property<DateTime?>("DeletedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("DutyGuidelines")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
                     b.Property<string>("ExamOfficeEmail")
                         .HasMaxLength(255)
                         .HasColumnType("nvarchar(255)");
@@ -236,6 +240,10 @@ namespace ExamAPI.Migrations
                     b.Property<string>("LetterPrefix")
                         .HasMaxLength(40)
                         .HasColumnType("nvarchar(40)");
+
+                    b.Property<string>("ReportingPlace")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
@@ -372,6 +380,145 @@ namespace ExamAPI.Migrations
                     b.HasIndex("CollegeId");
 
                     b.ToTable("DeclareResult");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.DutyChart", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AYID")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CollegeId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("FromDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Half")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime>("ToDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CollegeId");
+
+                    b.ToTable("DutyChart");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.DutyChartDay", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Afternoon")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<Guid>("ChartId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CollegeId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("Date")
+                        .HasColumnType("date");
+
+                    b.Property<bool>("FromTimetable")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Morning")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CollegeId");
+
+                    b.HasIndex("ChartId", "Date")
+                        .IsUnique();
+
+                    b.ToTable("DutyChartDay");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.DutyChartEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ChartId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CollegeId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("Date")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Role")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<string>("Session")
+                        .HasMaxLength(5)
+                        .HasColumnType("nvarchar(5)");
+
+                    b.Property<Guid>("StaffId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CollegeId");
+
+                    b.HasIndex("StaffId");
+
+                    b.HasIndex("ChartId", "StaffId", "Date")
+                        .IsUnique();
+
+                    b.ToTable("DutyChartEntry");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.EmailAccount", b =>
@@ -1297,7 +1444,10 @@ namespace ExamAPI.Migrations
                     b.Property<DateTime?>("DeletedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<Guid>("ExamId")
+                    b.Property<Guid?>("DutyChartId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("ExamId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("ExamTitle")
@@ -1351,13 +1501,15 @@ namespace ExamAPI.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("DutyChartId");
+
                     b.HasIndex("ExamId");
 
                     b.HasIndex("CollegeId", "LetterType", "AYID", "SerialNo")
                         .IsUnique()
                         .HasFilter("[IsDeleted] = 0");
 
-                    b.HasIndex("StaffId", "ExamId", "LetterType", "SubjectId")
+                    b.HasIndex("StaffId", "ExamId", "DutyChartId", "LetterType", "SubjectId")
                         .IsUnique()
                         .HasFilter("[IsDeleted] = 0");
 
@@ -1378,8 +1530,19 @@ namespace ExamAPI.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
 
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasDefaultValue("duty");
+
                     b.Property<Guid>("LetterId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Role")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
 
                     b.Property<int>("SortOrder")
                         .HasColumnType("int");
@@ -1416,7 +1579,10 @@ namespace ExamAPI.Migrations
                     b.Property<DateTime?>("DownloadedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<Guid>("ExamId")
+                    b.Property<Guid?>("DutyChartId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("ExamId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime>("ExpiresAt")
@@ -1517,6 +1683,11 @@ namespace ExamAPI.Migrations
 
                     b.Property<bool>("IsExternal")
                         .HasColumnType("bit");
+
+                    b.Property<bool>("IsTeaching")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
 
                     b.Property<string>("LastName")
                         .IsRequired()
@@ -2701,6 +2872,54 @@ namespace ExamAPI.Migrations
                     b.Navigation("OwningCollege");
                 });
 
+            modelBuilder.Entity("ExamAPI.Models.DutyChart", b =>
+                {
+                    b.HasOne("ExamAPI.Models.College", null)
+                        .WithMany()
+                        .HasForeignKey("CollegeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.DutyChartDay", b =>
+                {
+                    b.HasOne("ExamAPI.Models.DutyChart", "Chart")
+                        .WithMany("Days")
+                        .HasForeignKey("ChartId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ExamAPI.Models.College", null)
+                        .WithMany()
+                        .HasForeignKey("CollegeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Chart");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.DutyChartEntry", b =>
+                {
+                    b.HasOne("ExamAPI.Models.DutyChart", "Chart")
+                        .WithMany("Entries")
+                        .HasForeignKey("ChartId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ExamAPI.Models.College", null)
+                        .WithMany()
+                        .HasForeignKey("CollegeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ExamAPI.Models.StaffMaster", "Staff")
+                        .WithMany()
+                        .HasForeignKey("StaffId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Chart");
+
+                    b.Navigation("Staff");
+                });
+
             modelBuilder.Entity("ExamAPI.Models.EmailAccount", b =>
                 {
                     b.HasOne("ExamAPI.Models.College", null)
@@ -2944,11 +3163,15 @@ namespace ExamAPI.Migrations
                         .HasForeignKey("CollegeId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("ExamAPI.Models.DutyChart", null)
+                        .WithMany()
+                        .HasForeignKey("DutyChartId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("ExamAPI.Models.ExamMaster", null)
                         .WithMany()
                         .HasForeignKey("ExamId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("ExamAPI.Models.StaffMaster", "Staff")
                         .WithMany()
@@ -2985,8 +3208,7 @@ namespace ExamAPI.Migrations
                     b.HasOne("ExamAPI.Models.ExamMaster", null)
                         .WithMany()
                         .HasForeignKey("ExamId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("ExamAPI.Models.StaffMaster", "Staff")
                         .WithMany()
@@ -3356,6 +3578,13 @@ namespace ExamAPI.Migrations
                     b.Navigation("Exams");
 
                     b.Navigation("Subjects");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.DutyChart", b =>
+                {
+                    b.Navigation("Days");
+
+                    b.Navigation("Entries");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.ExamMaster", b =>

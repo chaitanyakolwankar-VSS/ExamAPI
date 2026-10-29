@@ -62,7 +62,7 @@ namespace ExamAPI.Services.Staff
             if (copyIds.Count == 0) throw new KeyNotFoundException("Exam not found.");
 
             var query = _context.StaffLetters.AsNoTracking().Include(l => l.Duties)
-                .Where(l => !l.IsDeleted && copyIds.Contains(l.ExamId));
+                .Where(l => !l.IsDeleted && (l.ExamId != null && copyIds.Contains(l.ExamId.Value)));
             query = supervision
                 ? query.Where(l => l.LetterType == StaffLetterTypes.Supervision)
                 : query.Where(l => l.LetterType == StaffLetterTypes.Examiner || l.LetterType == StaffLetterTypes.Moderator);

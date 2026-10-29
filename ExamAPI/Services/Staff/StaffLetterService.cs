@@ -56,7 +56,7 @@ namespace ExamAPI.Services.Staff
             var examIds = exams.Select(e => e.ExamId).ToList();
             var papers = await PapersAsync(examIds);
             var lettered = await _context.StaffLetters.AsNoTracking()
-                .Where(l => examIds.Contains(l.ExamId))
+                .Where(l => (l.ExamId != null && examIds.Contains(l.ExamId.Value)))
                 .Select(l => new { l.ExamId, l.LetterType }).ToListAsync();
 
             var result = new List<ExamGroupDto>();
@@ -66,8 +66,8 @@ namespace ExamAPI.Services.Staff
                 var group = Describe(copies.ToList(), papers.Where(p => ids.Contains(p.ExamId)).ToList());
                 if (group.Slots.Count == 0) continue;
                 result.Add(ToDto(group,
-                    lettered.Count(l => ids.Contains(l.ExamId) && l.LetterType == StaffLetterTypes.Supervision),
-                    lettered.Count(l => ids.Contains(l.ExamId) && IsAppointment(l.LetterType))));
+                    lettered.Count(l => l.ExamId != null && ids.Contains(l.ExamId.Value) && l.LetterType == StaffLetterTypes.Supervision),
+                    lettered.Count(l => l.ExamId != null && ids.Contains(l.ExamId.Value) && IsAppointment(l.LetterType))));
             }
             return result.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase).ThenBy(e => e.ExamType, StringComparer.OrdinalIgnoreCase).ToList();
         }
@@ -167,7 +167,7 @@ namespace ExamAPI.Services.Staff
         private async Task<List<SupervisionLetterDto>> LettersAsync(Group group)
         {
             var letters = await _context.StaffLetters.AsNoTracking().Include(l => l.Duties)
-                .Where(l => l.LetterType == StaffLetterTypes.Supervision && group.CopyIds.Contains(l.ExamId)).ToListAsync();
+                .Where(l => l.LetterType == StaffLetterTypes.Supervision && (l.ExamId != null && group.CopyIds.Contains(l.ExamId.Value))).ToListAsync();
             return letters.OrderBy(l => l.SerialNo).Select(ToDto).ToList();
         }
 
@@ -244,7 +244,7 @@ namespace ExamAPI.Services.Staff
                 throw new InvalidOperationException(Sentence(errors));
 
             var existing = await _context.StaffLetters.Include(l => l.Duties)
-                .Where(l => l.LetterType == StaffLetterTypes.Supervision && group.CopyIds.Contains(l.ExamId)).ToListAsync();
+                .Where(l => l.LetterType == StaffLetterTypes.Supervision && (l.ExamId != null && group.CopyIds.Contains(l.ExamId.Value))).ToListAsync();
             if (letterDate == null && plan.Any(p => existing.All(l => l.StaffId != p.Staff.StaffId)))
                 throw new InvalidOperationException("Enter the letter date.");
 
@@ -351,7 +351,7 @@ namespace ExamAPI.Services.Staff
             var group = await GroupAsync(examId, "Appointment letters");
             var letters = await AppointmentLettersAsync(group);
             var supervision = await _context.StaffLetters.AsNoTracking()
-                .CountAsync(l => l.LetterType == StaffLetterTypes.Supervision && group.CopyIds.Contains(l.ExamId));
+                .CountAsync(l => l.LetterType == StaffLetterTypes.Supervision && (l.ExamId != null && group.CopyIds.Contains(l.ExamId.Value)));
             return new AppointmentsDto
             {
                 Exam = ToDto(group, supervision, letters.Count),
@@ -400,14 +400,14 @@ namespace ExamAPI.Services.Staff
         private async Task<List<AppointmentLetterDto>> AppointmentLettersAsync(Group group)
         {
             var letters = await _context.StaffLetters.AsNoTracking()
-                .Where(l => (l.LetterType == StaffLetterTypes.Examiner || l.LetterType == StaffLetterTypes.Moderator) && group.CopyIds.Contains(l.ExamId))
+                .Where(l => (l.LetterType == StaffLetterTypes.Examiner || l.LetterType == StaffLetterTypes.Moderator) && (l.ExamId != null && group.CopyIds.Contains(l.ExamId.Value)))
                 .ToListAsync();
             return letters.OrderBy(l => l.LetterType, StringComparer.Ordinal).ThenBy(l => l.SerialNo).Select(ToAppointmentDto).ToList();
         }
 
         private Task<int> AppointmentLettersCountAsync(Group group) =>
             _context.StaffLetters.AsNoTracking()
-                .CountAsync(l => (l.LetterType == StaffLetterTypes.Examiner || l.LetterType == StaffLetterTypes.Moderator) && group.CopyIds.Contains(l.ExamId));
+                .CountAsync(l => (l.LetterType == StaffLetterTypes.Examiner || l.LetterType == StaffLetterTypes.Moderator) && (l.ExamId != null && group.CopyIds.Contains(l.ExamId.Value)));
 
         private static AppointmentLetterDto ToAppointmentDto(StaffLetter l) => new()
         {
@@ -437,7 +437,7 @@ namespace ExamAPI.Services.Staff
 
             // Someone who has left keeps a letter they already hold; they just cannot be given a new one.
             var held = (await _context.StaffLetters.AsNoTracking()
-                    .Where(l => (l.LetterType == StaffLetterTypes.Examiner || l.LetterType == StaffLetterTypes.Moderator) && group.CopyIds.Contains(l.ExamId))
+                    .Where(l => (l.LetterType == StaffLetterTypes.Examiner || l.LetterType == StaffLetterTypes.Moderator) && (l.ExamId != null && group.CopyIds.Contains(l.ExamId.Value)))
                     .Select(l => new { l.StaffId, l.SubjectId, l.LetterType }).ToListAsync())
                 .Select(l => (l.StaffId, l.SubjectId ?? Guid.Empty, l.LetterType)).ToHashSet();
 
@@ -494,7 +494,7 @@ namespace ExamAPI.Services.Staff
                 throw new InvalidOperationException(Sentence(errors.Distinct().ToList()));
 
             var existing = await _context.StaffLetters
-                .Where(l => (l.LetterType == StaffLetterTypes.Examiner || l.LetterType == StaffLetterTypes.Moderator) && group.CopyIds.Contains(l.ExamId))
+                .Where(l => (l.LetterType == StaffLetterTypes.Examiner || l.LetterType == StaffLetterTypes.Moderator) && (l.ExamId != null && group.CopyIds.Contains(l.ExamId.Value)))
                 .ToListAsync();
             var byKey = new Dictionary<(Guid Staff, Guid Subject, string Type), StaffLetter>();
             foreach (var l in existing.Where(l => l.SubjectId != null).OrderBy(l => l.SerialNo))

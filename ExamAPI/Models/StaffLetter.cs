@@ -19,9 +19,11 @@ namespace ExamAPI.Models
         [MaxLength(20)]
         public required string LetterType { get; set; }   // StaffLetterTypes
 
-        /// <summary>The group's canonical copy of the exam (see ExamGroups), whichever branch's copy the screen sent.</summary>
-        public Guid ExamId { get; set; }
-        /// <summary>The exam's academic year; the serial number runs per year.</summary>
+        /// <summary>Examiner / moderator letters: the group's canonical copy of the exam (see ExamGroups). Null for supervision.</summary>
+        public Guid? ExamId { get; set; }
+        /// <summary>Supervision letters: the duty chart (exam period) the letter is for. Null for examiner / moderator.</summary>
+        public Guid? DutyChartId { get; set; }
+        /// <summary>The academic year; the serial number runs per year.</summary>
         public Guid AYID { get; set; }
 
         /// <summary>Examiner / moderator letters only; null for supervision.</summary>
@@ -33,7 +35,7 @@ namespace ExamAPI.Models
         /// <summary>Date only.</summary>
         public DateTime LetterDate { get; set; }
 
-        /// <summary>Supervision duty role (SupervisionRoles).</summary>
+        /// <summary>Supervision: the highest role among the duties (printed in the title). Examiner / Moderator otherwise.</summary>
         [MaxLength(40)]
         public string? Role { get; set; }
 
@@ -47,7 +49,7 @@ namespace ExamAPI.Models
         public ICollection<StaffLetterDuty> Duties { get; set; } = new List<StaffLetterDuty>();
     }
 
-    /// <summary>One date and time a supervisor is on duty, copied from the timetable slot. Replaced wholesale when the letter is saved.</summary>
+    /// <summary>One line of a supervision letter: a day, its session time and the role (or a valuation / other day), copied from the duty chart. Replaced wholesale when the letter is saved.</summary>
     public class StaffLetterDuty : ICollegeScoped
     {
         [Key]
@@ -61,6 +63,12 @@ namespace ExamAPI.Models
         public required string Date { get; set; }
         [MaxLength(50)]
         public required string Time { get; set; }
+        /// <summary>DutyKinds: duty, valuation or other.</summary>
+        [MaxLength(20)]
+        public string Kind { get; set; } = DutyKinds.Duty;
+        /// <summary>SupervisionRoles for a duty; a short label for valuation / other.</summary>
+        [MaxLength(40)]
+        public string? Role { get; set; }
         public int SortOrder { get; set; }
     }
 
@@ -73,7 +81,7 @@ namespace ExamAPI.Models
         /// <summary>The letter type's part of the letter number.</summary>
         public static string Code(string type) => type switch
         {
-            Supervision => "SUP",
+            Supervision => "DUTY",
             Examiner => "EXM",
             Moderator => "MOD",
             _ => type
@@ -82,11 +90,15 @@ namespace ExamAPI.Models
 
     public static class SupervisionRoles
     {
+        public const string ChiefConductor = "Chief Conductor";
         public const string Senior = "Senior Supervisor";
         public const string Junior = "Junior Supervisor";
-        public const string ChiefConductor = "Chief Conductor";
-        public const string Peon = "Peon";
+        public const string NonTeaching = "Non-Teaching Staff";
 
-        public static readonly IReadOnlyList<string> All = new[] { Senior, Junior, ChiefConductor, Peon };
+        /// <summary>Highest first: a letter's title uses the highest role among its duties.</summary>
+        public static readonly IReadOnlyList<string> All = new[] { ChiefConductor, Senior, Junior, NonTeaching };
+
+        /// <summary>The role a new duty gets: Junior Supervisor for teaching staff, Non-Teaching Staff otherwise.</summary>
+        public static string DefaultFor(StaffMaster staff) => staff.IsTeaching ? Junior : NonTeaching;
     }
 }
