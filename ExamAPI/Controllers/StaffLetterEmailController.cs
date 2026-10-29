@@ -35,7 +35,11 @@ namespace ExamAPI.Controllers
             return await _service.SendAsync(request, baseUrl);
         });
 
-        /// <summary>The latest link of each person for the exam or duty chart: when it was emailed, opened and first downloaded.</summary>
+        /// <summary>Stops the emailed links of everyone (or only the given people) for the exam or duty chart: they can't open their letters until emailed again.</summary>
+        [HttpPost("stop")]
+        public Task<IActionResult> Stop([FromBody] StaffStopRequest request) => Answer(() => _service.StopLinksAsync(request));
+
+        /// <summary>The latest link of each person for the exam or duty chart: when it was emailed, opened, first downloaded and (if the office stopped it) stopped.</summary>
         [HttpGet("status")]
         public Task<IActionResult> Status([FromQuery] Guid? examId, [FromQuery] Guid? dutyChartId) => Answer(() => _service.StatusAsync(examId, dutyChartId));
 

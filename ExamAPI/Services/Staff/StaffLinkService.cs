@@ -50,6 +50,24 @@ namespace ExamAPI.Services.Staff
         public string Message { get; set; } = "";
     }
 
+    /// <summary>Whose emailed links to stop: those of one duty chart or exam, optionally only some people. Exactly one of <see cref="ExamId"/> and <see cref="DutyChartId"/>.</summary>
+    public class StaffStopRequest
+    {
+        /// <summary>Any branch's copy of the exam; for examiner and moderator links.</summary>
+        public Guid? ExamId { get; set; }
+        /// <summary>The duty chart; for supervision links.</summary>
+        public Guid? DutyChartId { get; set; }
+        /// <summary>Only these people. Absent: everyone with an open link; an empty list: nobody.</summary>
+        public List<Guid>? StaffIds { get; set; }
+    }
+
+    public class StaffStopResult
+    {
+        /// <summary>People whose link was stopped.</summary>
+        public int Stopped { get; set; }
+        public string Message { get; set; } = "";
+    }
+
     /// <summary>The latest link of one person for an exam or a duty chart, as the Letters tab shows it.</summary>
     public class StaffLinkStatus
     {
@@ -57,12 +75,15 @@ namespace ExamAPI.Services.Staff
         public DateTime? SentAt { get; set; }
         public DateTime? OpenedAt { get; set; }
         public DateTime? DownloadedAt { get; set; }
+        /// <summary>When the office stopped the link, while it is still the latest (a new send starts the status over).</summary>
+        public DateTime? StoppedAt { get; set; }
     }
 
     public interface IStaffLinkService
     {
         Task<StaffEmailPreview> PreviewAsync(StaffEmailRequest request);
         Task<StaffEmailResult> SendAsync(StaffEmailRequest request, string linkBaseUrl);
+        Task<StaffStopResult> StopLinksAsync(StaffStopRequest request);
         Task<List<StaffLinkStatus>> StatusAsync(Guid? examId, Guid? dutyChartId);
     }
 
@@ -310,7 +331,53 @@ namespace ExamAPI.Services.Staff
                 SentAt = kv.Value.MailStatus == EmailStatuses.Sent ? kv.Value.MailSentAt : null,
                 OpenedAt = kv.Value.Link.OpenedAt,
                 DownloadedAt = kv.Value.Link.DownloadedAt,
+                StoppedAt = kv.Value.Link.Status == StaffLinkStatuses.Revoked ? kv.Value.Link.RevokedAt : null,
             }).ToList();
+        }
+
+        /// <summary>
+        /// Stops the open links of the exam or duty chart (all of them, or only the given people's): their sessions end and their
+        /// unsent emails are cancelled, so they can't open their letters until the office emails them again. One audit row per person.
+        /// </summary>
+        public async Task<StaffStopResult> StopLinksAsync(StaffStopRequest request)
+        {
+            var collegeId = CollegeId;
+            var (scope, _) = await ScopeAsync(request.ExamId, request.DutyChartId, "all");
+            var now = DateTime.UtcNow;
+            var wanted = request.StaffIds;
+            var open = (await LinksOf(_context.StaffLinks, scope)
+                    .Where(l => l.Status == StaffLinkStatuses.Active && l.ExpiresAt > now && (wanted == null || wanted.Contains(l.StaffId)))
+                    .ToListAsync())
+                .ToList();
+            if (open.Count == 0)
+                return new StaffStopResult { Stopped = 0, Message = "There was no active link to stop." };
+
+            var ids = open.Select(l => l.StaffId).Distinct().ToList();
+            var staff = await _context.StaffMasters.AsNoTracking().Where(s => ids.Contains(s.StaffId)).ToDictionaryAsync(s => s.StaffId);
+            await StopAsync(open, now);
+            foreach (var link in open)
+            {
+                var name = staff.TryGetValue(link.StaffId, out var s) ? StaffService.Letter(s.Title, s.FirstName, s.MiddleName, s.LastName) : "a person who is no longer on the staff list";
+                _context.AuditLogs.Add(new AuditLog
+                {
+                    Id = Guid.NewGuid(),
+                    CollegeId = collegeId,
+                    Action = "UPDATE",
+                    TableName = nameof(StaffLink),
+                    RecordId = link.Id.ToString(),
+                    PerformedBy = _context.CurrentUserId,
+                    UserType = "Staff",
+                    Event = "StaffLinkStopped",
+                    Details = $"Link of {name} for the {(scope.Chart != null ? "duty chart" : "exam")} stopped.",
+                });
+            }
+            await _context.SaveChangesAsync();
+
+            return new StaffStopResult
+            {
+                Stopped = ids.Count,
+                Message = $"Stopped the link{(ids.Count == 1 ? "" : "s")} of {ids.Count} {(ids.Count == 1 ? "person" : "people")}. They can't open their letters until you email them again.",
+            };
         }
 
         /// <summary>30 days after the chart's last day (or the exam's last timetable date), or 30 days from now when the exam has none; never less than a week from now.</summary>

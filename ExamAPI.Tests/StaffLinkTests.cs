@@ -1119,6 +1119,203 @@ public sealed class StaffLinkTests
         }
     }
 
+    // ------------------------------------------------------------------ stopping emailed links
+
+    private async Task<StaffStopResult> StopAsync(StaffStopRequest request, Guid? college = null)
+    {
+        using var context = Context(college ?? _college);
+        return await Office(context).StopLinksAsync(request);
+    }
+
+    private StaffStopRequest StopExam(params Guid[] staff) =>
+        new() { ExamId = _itExam, StaffIds = staff.Length == 0 ? null : staff.ToList() };
+
+    private StaffStopRequest StopChart(params Guid[] staff) =>
+        new() { DutyChartId = _chart, StaffIds = staff.Length == 0 ? null : staff.ToList() };
+
+    [Fact]
+    public async Task Stopping_everyone_closes_every_open_link_of_the_exam_and_writes_an_audit_row_for_each_person()
+    {
+        await SendAsync(Request());
+        await RunQueueAsync();
+        var ashaToken = TokenIn(_sender.Sent.Last(m => m.To == "asha@viva.in"));
+
+        var result = await StopAsync(StopExam());
+
+        Assert.Equal(3, result.Stopped);                      // Asha, Ravi and the external examiner; the person who left had no email
+        Assert.Equal("Stopped the links of 3 people. They can't open their letters until you email them again.", result.Message);
+        using var check = Context(null);
+        var links = await check.StaffLinks.IgnoreQueryFilters().ToListAsync();
+        Assert.Equal(3, links.Count);
+        Assert.All(links, l =>
+        {
+            Assert.Equal(StaffLinkStatuses.Revoked, l.Status);
+            Assert.NotNull(l.RevokedAt);
+        });
+        var audits = await check.AuditLogs.IgnoreQueryFilters().Where(a => a.Event == "StaffLinkStopped").ToListAsync();
+        Assert.Equal(3, audits.Count);
+        Assert.Equal(links.Select(l => l.Id.ToString()).OrderBy(x => x), audits.Select(a => a.RecordId).OrderBy(x => x));
+        Assert.All(audits, a => Assert.Equal(_college, a.CollegeId));
+        Assert.Contains(audits, a => a.Details!.Contains("Asha"));
+
+        // The stopped link opens as "closed" on the staff site and sends no code.
+        var info = await SignIn(check).OpenAsync(ashaToken);
+        Assert.Equal(LinkOpenStates.Closed, info.State);
+        Assert.Null(info.FirstName);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => SignIn(check).SendCodeAsync(ashaToken));
+    }
+
+    [Fact]
+    public async Task Stopping_one_person_leaves_the_others_working()
+    {
+        await SendAsync(Request());
+        var ravi = await StopAsync(StopExam(_ravi));
+
+        Assert.Equal(1, ravi.Stopped);
+        Assert.Equal("Stopped the link of 1 person. They can't open their letters until you email them again.", ravi.Message);
+        using var check = Context(null);
+        var links = await check.StaffLinks.IgnoreQueryFilters().ToListAsync();
+        Assert.Equal(StaffLinkStatuses.Revoked, links.Single(l => l.StaffId == _ravi).Status);
+        Assert.All(links.Where(l => l.StaffId != _ravi), l => Assert.Equal(StaffLinkStatuses.Active, l.Status));
+        Assert.Single(await check.AuditLogs.IgnoreQueryFilters().Where(a => a.Event == "StaffLinkStopped").ToListAsync());
+    }
+
+    [Fact]
+    public async Task Stopping_ends_the_open_session_at_once_and_cancels_an_email_not_yet_sent()
+    {
+        var token = await SendAndGetTokenAsync();
+        var signedIn = await SignInAsync(token);
+        Assert.True((await AuthenticateAsync(signedIn.SessionToken)).Succeeded);
+        await SendAsync(Request(staff: _ravi));               // Ravi's email is still waiting in the queue
+
+        await StopAsync(StopExam());
+
+        Assert.False((await AuthenticateAsync(signedIn.SessionToken)).Succeeded);
+        var before = _sender.Sent.Count;
+        await RunQueueAsync();
+        Assert.Equal(before, _sender.Sent.Count);             // nothing goes out for the stopped link
+        using var check = Context(null);
+        Assert.All(await check.StaffSessions.IgnoreQueryFilters().ToListAsync(), s => Assert.NotNull(s.EndedAt));
+        Assert.Equal(EmailStatuses.Cancelled, (await check.EmailQueue.IgnoreQueryFilters().SingleAsync(m => m.Kind == StaffEmailKinds.Link && m.ToAddress == "ravi@viva.in")).Status);
+    }
+
+    [Fact]
+    public async Task Status_shows_when_a_link_was_stopped_and_sending_again_gives_a_new_working_link()
+    {
+        var oldToken = await SendAndGetTokenAsync();
+        using (var context = Context(_college))
+            Assert.Null(Assert.Single(await Office(context).StatusAsync(_itExam, null)).StoppedAt);
+
+        var before = DateTime.UtcNow;
+        await StopAsync(StopExam(_asha));
+        using (var context = Context(_college))
+        {
+            var stopped = Assert.Single(await Office(context).StatusAsync(_itExam, null));
+            Assert.NotNull(stopped.StoppedAt);
+            Assert.True(stopped.StoppedAt >= before.AddSeconds(-1) && stopped.StoppedAt <= DateTime.UtcNow);
+            Assert.NotNull(stopped.SentAt);                  // it was emailed before it was stopped
+        }
+
+        var newToken = await SendAndGetTokenAsync();
+        Assert.NotEqual(oldToken, newToken);
+        using (var context = Context(_college))
+        {
+            var again = Assert.Single(await Office(context).StatusAsync(_itExam, null));
+            Assert.Null(again.StoppedAt);                    // a new send starts the status over
+            Assert.NotNull(again.SentAt);
+        }
+        using var open = Context(null);
+        Assert.Equal(LinkOpenStates.Closed, (await SignIn(open).OpenAsync(oldToken)).State);
+        Assert.Equal(LinkOpenStates.Ready, (await SignIn(open).OpenAsync(newToken)).State);
+        Assert.True((await AuthenticateAsync((await SignInAsync(newToken)).SessionToken)).Succeeded);
+    }
+
+    [Fact]
+    public async Task Stopping_a_duty_chart_leaves_the_same_persons_exam_link_working()
+    {
+        await SendAsync(Request(staff: _asha));
+        await SendAsync(ChartRequest(staff: _asha));
+
+        var result = await StopAsync(StopChart());
+
+        Assert.Equal(1, result.Stopped);
+        using var check = Context(null);
+        var links = await check.StaffLinks.IgnoreQueryFilters().ToListAsync();
+        Assert.Equal(StaffLinkStatuses.Revoked, links.Single(l => l.DutyChartId == _chart && l.StaffId == _asha).Status);
+        Assert.Equal(StaffLinkStatuses.Active, links.Single(l => l.ExamId == _exam).Status);
+        using var office = Context(_college);
+        Assert.NotNull(Assert.Single(await Office(office).StatusAsync(null, _chart), x => x.StaffId == _asha).StoppedAt);
+        Assert.Null(Assert.Single(await Office(office).StatusAsync(_exam, null)).StoppedAt);
+    }
+
+    [Fact]
+    public async Task Nothing_to_stop_says_so_and_stopping_twice_changes_nothing()
+    {
+        var none = await StopAsync(StopExam());
+        Assert.Equal(0, none.Stopped);
+        Assert.Equal("There was no active link to stop.", none.Message);
+
+        await SendAsync(Request());
+        var nobody = await StopAsync(new StaffStopRequest { ExamId = _itExam, StaffIds = new List<Guid>() });    // an empty list is nobody
+        Assert.Equal(0, nobody.Stopped);
+        Assert.Equal("There was no active link to stop.", nobody.Message);
+        var someoneWithout = await StopAsync(StopExam(_left));
+        Assert.Equal(0, someoneWithout.Stopped);
+
+        Assert.Equal(3, (await StopAsync(StopExam())).Stopped);
+        var again = await StopAsync(StopExam());
+        Assert.Equal(0, again.Stopped);
+        using var check = Context(null);
+        Assert.Equal(3, await check.AuditLogs.IgnoreQueryFilters().CountAsync(a => a.Event == "StaffLinkStopped"));
+
+        // An expired link is already closed, so it is not stopped.
+        await SendAsync(Request(staff: _asha));
+        foreach (var l in await check.StaffLinks.IgnoreQueryFilters().Where(l => l.Status == StaffLinkStatuses.Active).ToListAsync())
+            l.ExpiresAt = DateTime.UtcNow.AddMinutes(-1);
+        await check.SaveChangesAsync();
+        Assert.Equal(0, (await StopAsync(StopExam())).Stopped);
+    }
+
+    [Fact]
+    public async Task Stopping_is_for_exactly_one_of_an_exam_and_a_duty_chart_and_one_that_exists()
+    {
+        await SendAsync(Request());
+        var both = new StaffStopRequest { ExamId = _itExam, DutyChartId = _chart };
+        var neither = new StaffStopRequest();
+
+        var tooMany = await Assert.ThrowsAsync<InvalidOperationException>(() => StopAsync(both));
+        Assert.Equal("Choose a duty chart (for supervision letters) or an exam (for examiner letters).", tooMany.Message);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => StopAsync(neither));
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => StopAsync(new StaffStopRequest { ExamId = Guid.NewGuid() }));
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => StopAsync(new StaffStopRequest { DutyChartId = Guid.NewGuid() }));
+
+        using var check = Context(null);
+        Assert.All(await check.StaffLinks.IgnoreQueryFilters().ToListAsync(), l => Assert.Equal(StaffLinkStatuses.Active, l.Status));
+        Assert.Empty(await check.AuditLogs.IgnoreQueryFilters().Where(a => a.Event == "StaffLinkStopped").ToListAsync());
+    }
+
+    [Fact]
+    public async Task Another_colleges_links_cannot_be_seen_or_stopped()
+    {
+        using (var other = Context(_otherCollege))
+            await Office(other).SendAsync(new StaffEmailRequest { DutyChartId = _otherChart, Kind = "supervision" }, Site);
+        await SendAsync(ChartRequest());
+
+        // The other college's chart and exam are not found, and its people are not in our chart.
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => StopAsync(new StaffStopRequest { DutyChartId = _otherChart }));
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => StopAsync(new StaffStopRequest { ExamId = _otherExam }));
+        Assert.Equal(0, (await StopAsync(StopChart(_stranger))).Stopped);
+
+        // Stopping our whole chart leaves theirs working.
+        Assert.Equal(2, (await StopAsync(StopChart())).Stopped);
+        using var check = Context(null);
+        var theirs = await check.StaffLinks.IgnoreQueryFilters().SingleAsync(l => l.StaffId == _stranger);
+        Assert.Equal(StaffLinkStatuses.Active, theirs.Status);
+        Assert.Null(theirs.RevokedAt);
+        Assert.Equal(2, await check.AuditLogs.IgnoreQueryFilters().CountAsync(a => a.Event == "StaffLinkStopped" && a.CollegeId == _college));
+        Assert.Equal(0, await check.AuditLogs.IgnoreQueryFilters().CountAsync(a => a.Event == "StaffLinkStopped" && a.CollegeId == _otherCollege));
+    }
+
     [Fact]
     public async Task The_queue_does_not_write_an_email_for_a_link_that_was_replaced_or_whose_letters_were_cancelled()
     {
