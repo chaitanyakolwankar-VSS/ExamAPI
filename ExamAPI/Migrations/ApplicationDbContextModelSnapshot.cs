@@ -521,6 +521,36 @@ namespace ExamAPI.Migrations
                     b.ToTable("DutyChartEntry");
                 });
 
+            modelBuilder.Entity("ExamAPI.Models.DutyChartMember", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ChartId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CollegeId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("StaffId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CollegeId");
+
+                    b.HasIndex("StaffId");
+
+                    b.HasIndex("ChartId", "StaffId")
+                        .IsUnique();
+
+                    b.ToTable("DutyChartMember");
+                });
+
             modelBuilder.Entity("ExamAPI.Models.EmailAccount", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2900,6 +2930,30 @@ namespace ExamAPI.Migrations
                 {
                     b.HasOne("ExamAPI.Models.DutyChart", "Chart")
                         .WithMany("Entries")
+                        .HasForeignKey("ChartId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ExamAPI.Models.College", null)
+                        .WithMany()
+                        .HasForeignKey("CollegeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ExamAPI.Models.StaffMaster", "Staff")
+                        .WithMany()
+                        .HasForeignKey("StaffId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Chart");
+
+                    b.Navigation("Staff");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.DutyChartMember", b =>
+                {
+                    b.HasOne("ExamAPI.Models.DutyChart", "Chart")
+                        .WithMany()
                         .HasForeignKey("ChartId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();

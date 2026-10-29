@@ -48,11 +48,11 @@ namespace ExamAPI.Controllers
         [HttpPut("{id:guid}/days")]
         public Task<IActionResult> SaveDays(Guid id, [FromBody] List<DutyChartDaySave> days) => Answer(() => _service.SaveDaysAsync(id, days));
 
-        /// <summary>Saves the whole chart: entries, and new, changed and cancelled letters.</summary>
+        /// <summary>Saves the whole chart: the people on it, their entries, and new, changed and cancelled letters.</summary>
         [HttpPut("{id:guid}/entries")]
         public Task<IActionResult> SaveEntries(Guid id, [FromBody] DutyChartEntriesSave dto) => Answer(() => _service.SaveEntriesAsync(id, dto));
 
-        /// <summary>The chart as a sheet with all active staff: download, fill in, upload.</summary>
+        /// <summary>The chart as a sheet with its people (a blank template when nobody is on it): download, fill in, upload.</summary>
         [HttpGet("{id:guid}/excel")]
         public async Task<IActionResult> Excel(Guid id)
         {

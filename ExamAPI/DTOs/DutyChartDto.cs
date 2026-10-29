@@ -13,7 +13,7 @@ namespace ExamAPI.DTOs
         public string ToDate { get; set; } = "";
         public string? Note { get; set; }
         public int DayCount { get; set; }
-        /// <summary>People with anything on the chart (duty, valuation or other work).</summary>
+        /// <summary>People on the chart (its members).</summary>
         public int StaffCount { get; set; }
         /// <summary>Duty sessions: a morning or an afternoon counts one, both count two.</summary>
         public int DutyCount { get; set; }
@@ -62,6 +62,13 @@ namespace ExamAPI.DTOs
         public string? Note { get; set; }
     }
 
+    /// <summary>A person on the chart. The list is in chart order.</summary>
+    public class DutyChartMemberDto
+    {
+        public Guid StaffId { get; set; }
+        public int SortOrder { get; set; }
+    }
+
     public class DutyLineDto
     {
         /// <summary>yyyy-MM-dd.</summary>
@@ -88,6 +95,8 @@ namespace ExamAPI.DTOs
     {
         public DutyChartSummaryDto Chart { get; set; } = new();
         public List<DutyChartDayDto> Days { get; set; } = new();
+        /// <summary>The people on the chart, in chart order. A new chart has nobody.</summary>
+        public List<DutyChartMemberDto> Members { get; set; } = new();
         public List<DutyChartEntryDto> Entries { get; set; } = new();
         public List<string> Roles { get; set; } = new();
         public List<DutyChartLetterDto> Letters { get; set; } = new();
@@ -106,6 +115,8 @@ namespace ExamAPI.DTOs
     {
         /// <summary>yyyy-MM-dd; given to the new letters only.</summary>
         public string? LetterDate { get; set; }
+        /// <summary>The people on the chart, in order. Anyone with an entry who is missing here is added at the end. Null = the people with entries.</summary>
+        public List<Guid>? Members { get; set; }
         public List<DutyChartEntryDto> Entries { get; set; } = new();
     }
 

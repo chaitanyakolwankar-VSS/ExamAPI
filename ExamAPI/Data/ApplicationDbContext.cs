@@ -129,6 +129,7 @@ namespace ExamAPI.Data
         public DbSet<DutyChart> DutyCharts { get; set; }
         public DbSet<DutyChartDay> DutyChartDays { get; set; }
         public DbSet<DutyChartEntry> DutyChartEntries { get; set; }
+        public DbSet<DutyChartMember> DutyChartMembers { get; set; }
         public DbSet<StaffLetter> StaffLetters { get; set; }
         public DbSet<StaffLetterDuty> StaffLetterDuties { get; set; }
         public DbSet<StaffLink> StaffLinks { get; set; }

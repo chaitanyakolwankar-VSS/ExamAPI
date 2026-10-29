@@ -137,6 +137,13 @@ public sealed class DutyChartTests
     private async Task<string> Refused(Guid chartId, string? letterDate, params DutyChartEntryDto[] entries) =>
         (await Assert.ThrowsAsync<InvalidOperationException>(() => Save(chartId, letterDate, entries))).Message;
 
+    private Task<DutyChartSaveResult> SaveWith(Guid chartId, string? letterDate, Guid[]? members, params DutyChartEntryDto[] entries) =>
+        _service.SaveEntriesAsync(chartId, new DutyChartEntriesSave { LetterDate = letterDate, Members = members?.ToList(), Entries = entries.ToList() });
+
+    private Guid[] Everyone => new[] { _asha.StaffId, _ravi.StaffId, _meena.StaffId, _om.StaffId };
+
+    private static Guid[] MemberIds(DutyChartDetailDto chart) => chart.Members.Select(m => m.StaffId).ToArray();
+
     private static string Sig(IEnumerable<DutyChartEntryDto> entries) =>
         string.Join("|", entries.OrderBy(e => e.StaffId).ThenBy(e => e.Date).Select(e => $"{e.StaffId}/{e.Date}/{e.Kind}/{e.Session}/{e.Role}/{e.Note}"));
 
@@ -688,7 +695,7 @@ public sealed class DutyChartTests
     {
         var chart = await NewChart();
         var id = chart.Chart.Id;
-        await Save(id, "2026-04-30", Duty(_asha, "2026-05-11", "M"), Duty(_ravi, "2026-05-12", "M"), Duty(_om, "2026-05-11", "M"));
+        await SaveWith(id, "2026-04-30", Everyone, Duty(_asha, "2026-05-11", "M"), Duty(_ravi, "2026-05-12", "M"), Duty(_om, "2026-05-11", "M"));
         var file = await EditedSheet(id, sheet =>
         {
             sheet.Cell(RowOf(sheet, "E101"), ColumnOf(sheet, "11-05")).Value = "M/A";   // changed
@@ -700,10 +707,10 @@ public sealed class DutyChartTests
         var preview = await Import(id, file);
 
         Assert.True(preview.Success);
-        Assert.Equal(new[] { ("Dr. Meena Shah", "New"), ("Dr. Ravi Kumar", "Update"), ("Mr. Om Das", "Update"), ("Prof. Asha R. Patil", "Update") },
+        Assert.Equal(new[] { ("Dr. Meena Shah", "Update"), ("Dr. Ravi Kumar", "Update"), ("Mr. Om Das", "Update"), ("Prof. Asha R. Patil", "Update") },
             preview.Rows.OrderBy(r => r.Name).Select(r => (r.Name, r.Action)));
         Assert.Equal("All duties are removed.", preview.Rows.Single(r => r.Name == "Dr. Ravi Kumar").Note);
-        Assert.Equal("Ready: 1 new, 3 updated, 0 unchanged. Check the list, then press Save.", preview.Message);
+        Assert.Equal("Ready: 0 new, 4 updated, 0 unchanged. Check the list, then press Save.", preview.Message);
         Assert.Equal(3, (await _service.GetAsync(id)).Entries.Count);   // a preview saves nothing
 
         var saved = await Import(id, file, preview: false);
@@ -720,18 +727,20 @@ public sealed class DutyChartTests
     {
         var chart = await NewChart();
         var id = chart.Chart.Id;
-        await Save(id, "2026-04-30", Duty(_asha, "2026-05-11", "M"), Duty(_ravi, "2026-05-12", "M"));
+        await SaveWith(id, "2026-04-30", Everyone, Duty(_asha, "2026-05-11", "M"), Duty(_ravi, "2026-05-12", "M"));
         var file = await EditedSheet(id, sheet =>
         {
             sheet.Row(RowOf(sheet, "E102")).Delete();   // Ravi's row is gone from the file
         });
 
         var preview = await Import(id, file);
-        Assert.Equal("Ready: 0 new, 0 updated, 1 unchanged. 1 person not in the sheet will lose their duties. Check the list, then press Save.", preview.Message);
+        Assert.Equal("Ready: 0 new, 0 updated, 3 unchanged. 1 person not in the sheet will be removed from the chart, with any duties they had. Check the list, then press Save.", preview.Message);
 
         var saved = await Import(id, file, preview: false);
-        Assert.StartsWith("Saved: 0 new, 0 updated, 1 unchanged, 1 cancelled.", saved.Message);
-        Assert.Equal(new[] { _asha.StaffId }, (await _service.GetAsync(id)).Entries.Select(e => e.StaffId));
+        Assert.StartsWith("Saved: 0 new, 0 updated, 1 unchanged, 1 cancelled. 1 person not in the sheet was removed from the chart", saved.Message);
+        var after = await _service.GetAsync(id);
+        Assert.Equal(new[] { _asha.StaffId }, after.Entries.Select(e => e.StaffId));
+        Assert.Equal(new[] { _asha.StaffId, _meena.StaffId, _om.StaffId }, MemberIds(after));
     }
 
     [Fact]
@@ -739,7 +748,7 @@ public sealed class DutyChartTests
     {
         var chart = await NewChart();
         var id = chart.Chart.Id;
-        await Save(id, "2026-04-30", Duty(_meena, "2026-05-11", "M"));
+        await SaveWith(id, "2026-04-30", Everyone, Duty(_meena, "2026-05-11", "M"));
         var file = await EditedSheet(id, sheet =>
         {
             var asha = RowOf(sheet, "E101");
@@ -775,6 +784,7 @@ public sealed class DutyChartTests
     {
         var chart = await NewChart();
         var id = chart.Chart.Id;
+        await SaveWith(id, null, Everyone);
         var file = await EditedSheet(id, sheet =>
         {
             sheet.Cell(RowOf(sheet, "E101"), 3).Value = "Someone Else";
@@ -786,9 +796,11 @@ public sealed class DutyChartTests
         var preview = await Import(id, file);
 
         Assert.True(preview.Success);
-        var row = Assert.Single(preview.Rows);
-        Assert.Equal(("Prof. Asha R. Patil", "New", false), (row.Name, row.Action, row.HasErrors));
+        Assert.Equal(4, preview.Rows.Count);   // everyone on the chart is in the sheet
+        var row = preview.Rows.Single(r => r.Name == "Prof. Asha R. Patil");
+        Assert.Equal(("Update", false), (row.Action, row.HasErrors));
         Assert.Contains("differs from Staff Master", row.Note);
+        Assert.Null(preview.Rows.Single(r => r.Name == "Dr. Ravi Kumar").Note);
 
         var empty = new XLWorkbook();
         empty.AddWorksheet("Sheet1").Cell(1, 1).Value = "Names";
@@ -806,6 +818,7 @@ public sealed class DutyChartTests
     {
         var chart = await NewChart();
         var id = chart.Chart.Id;
+        await SaveWith(id, null, Everyone);
         var file = await EditedSheet(id, sheet =>
         {
             sheet.Cell(3, ColumnOf(sheet, "11-05")).Value = new DateTime(2026, 5, 11);           // a real Excel date
@@ -821,6 +834,248 @@ public sealed class DutyChartTests
         Assert.True(saved.Saved);
         Assert.Equal(new[] { ("2026-05-11", "M"), ("2026-05-12", "M"), ("2026-05-13", "A") },
             (await _service.GetAsync(id)).Entries.OrderBy(e => e.Date).Select(e => (e.Date, e.Session!)));
+    }
+
+    // ------------------------------------------------------------------ chart members
+
+    [Fact]
+    public async Task A_new_chart_has_nobody_on_it()
+    {
+        var chart = await NewChart();
+
+        Assert.Empty(chart.Members);
+        Assert.Equal(0, chart.Chart.StaffCount);
+        Assert.Equal(0, Assert.Single(await _service.ListAsync(_ay)).StaffCount);
+    }
+
+    [Fact]
+    public async Task Members_without_entries_are_kept_in_order_and_make_no_letters()
+    {
+        var chart = await NewChart();
+        var id = chart.Chart.Id;
+
+        var result = await SaveWith(id, null, new[] { _om.StaffId, _asha.StaffId, _ravi.StaffId });   // no letter date needed: no letters
+
+        Assert.Equal("Saved: 0 new, 0 updated, 0 unchanged, 0 cancelled.", result.Message);
+        var detail = await _service.GetAsync(id);
+        Assert.Equal(new[] { _om.StaffId, _asha.StaffId, _ravi.StaffId }, MemberIds(detail));
+        Assert.Equal(new[] { 0, 1, 2 }, detail.Members.Select(m => m.SortOrder));
+        Assert.Empty(detail.Entries);
+        Assert.Empty(detail.Letters);
+        Assert.Equal((3, 0, 0), (detail.Chart.StaffCount, detail.Chart.DutyCount, detail.Chart.LetterCount));
+
+        // A new order is kept, and a duplicate in the list counts once.
+        await SaveWith(id, null, new[] { _ravi.StaffId, _om.StaffId, _ravi.StaffId, _meena.StaffId });
+        Assert.Equal(new[] { _ravi.StaffId, _om.StaffId, _meena.StaffId }, MemberIds(await _service.GetAsync(id)));
+    }
+
+    [Fact]
+    public async Task Members_get_a_letter_only_when_they_have_a_duty()
+    {
+        var chart = await NewChart();
+        var id = chart.Chart.Id;
+
+        await SaveWith(id, "2026-04-30", new[] { _asha.StaffId, _ravi.StaffId, _meena.StaffId }, Duty(_ravi, "2026-05-11", "M"), Valuation(_meena, "2026-05-12"));
+
+        var detail = await _service.GetAsync(id);
+        Assert.Equal(3, detail.Chart.StaffCount);
+        Assert.Equal(new[] { _ravi.StaffId }, detail.Letters.Select(l => l.StaffId));
+    }
+
+    [Fact]
+    public async Task Entries_for_somebody_not_on_the_list_add_them_to_the_end()
+    {
+        var chart = await NewChart();
+        var id = chart.Chart.Id;
+
+        await SaveWith(id, "2026-04-30", new[] { _asha.StaffId }, Duty(_ravi, "2026-05-11", "M"), Duty(_asha, "2026-05-12", "M"), Duty(_om, "2026-05-13", "A"));
+
+        var detail = await _service.GetAsync(id);
+        Assert.Equal(new[] { _asha.StaffId, _ravi.StaffId, _om.StaffId }, MemberIds(detail));
+        Assert.Equal(3, detail.Letters.Count);
+
+        // Without a list the people with entries stay, in the order they had; members without entries go.
+        await SaveWith(id, "2026-04-30", Everyone, Duty(_ravi, "2026-05-11", "M"), Duty(_asha, "2026-05-12", "M"));
+        Assert.Equal(new[] { _asha.StaffId, _ravi.StaffId, _meena.StaffId, _om.StaffId }, MemberIds(await _service.GetAsync(id)));
+        await Save(id, "2026-04-30", Duty(_ravi, "2026-05-11", "M"), Duty(_om, "2026-05-13", "A"), Duty(_asha, "2026-05-12", "M"));
+        Assert.Equal(new[] { _asha.StaffId, _ravi.StaffId, _om.StaffId }, MemberIds(await _service.GetAsync(id)));
+        await Save(id, "2026-04-30", Duty(_meena, "2026-05-12", "M"), Duty(_asha, "2026-05-12", "M"));
+        Assert.Equal(new[] { _asha.StaffId, _meena.StaffId }, MemberIds(await _service.GetAsync(id)));
+    }
+
+    [Fact]
+    public async Task Taking_a_member_off_the_chart_removes_their_entries_and_cancels_their_letter()
+    {
+        var chart = await NewChart();
+        var id = chart.Chart.Id;
+        await SaveWith(id, "2026-04-30", new[] { _asha.StaffId, _ravi.StaffId, _meena.StaffId },
+            Duty(_asha, "2026-05-11", "M"), Duty(_ravi, "2026-05-11", "A"), Valuation(_ravi, "2026-05-12"));
+        Assert.Equal(2, (await _service.GetAsync(id)).Letters.Count);
+
+        // Ravi and Meena are left out of the list and Ravi's entries are not sent.
+        var result = await SaveWith(id, null, new[] { _asha.StaffId }, Duty(_asha, "2026-05-11", "M"));
+
+        Assert.Equal("Saved: 0 new, 0 updated, 1 unchanged, 1 cancelled.", result.Message);
+        var detail = await _service.GetAsync(id);
+        Assert.Equal(new[] { _asha.StaffId }, MemberIds(detail));
+        Assert.Equal(new[] { _asha.StaffId }, detail.Entries.Select(e => e.StaffId).Distinct());
+        Assert.Equal(new[] { _asha.StaffId }, detail.Letters.Select(l => l.StaffId));
+        Assert.Equal(1, detail.Chart.StaffCount);
+    }
+
+    [Fact]
+    public async Task Members_must_exist_be_active_and_internal_and_nothing_is_saved_otherwise()
+    {
+        var chart = await NewChart();
+        var id = chart.Chart.Id;
+        var gone = Person("E105", "Mr.", "Gone", null, "Away", "gone@viva.edu", active: false);
+        var visitor = Person("", "Dr.", "Neha", null, "Iyer", "neha@other.edu", external: true);
+        var theirs = Person("E900", "Mr.", "Their", null, "Person", "their@other.edu", college: _otherCollege);
+        _context.SaveChanges();
+        await SaveWith(id, null, new[] { _asha.StaffId });
+
+        var problems = (await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            SaveWith(id, null, new[] { _ravi.StaffId, gone.StaffId, visitor.StaffId, Guid.NewGuid(), theirs.StaffId }))).Message;
+
+        Assert.Contains("Mr. Gone Away has left", problems);
+        Assert.Contains("Dr. Neha Iyer is an external member of staff", problems);
+        Assert.Contains("not found", problems);
+        Assert.Equal(new[] { _asha.StaffId }, MemberIds(await _service.GetAsync(id)));   // all or nothing
+    }
+
+    [Fact]
+    public async Task Another_colleges_chart_members_are_invisible()
+    {
+        var theirs = new DutyChart { Id = Guid.NewGuid(), CollegeId = _otherCollege, AYID = _ay, Name = "Their chart", FromDate = new DateTime(2026, 5, 1), ToDate = new DateTime(2026, 5, 5) };
+        _context.DutyCharts.Add(theirs);
+        _context.DutyChartMembers.Add(new DutyChartMember { Id = Guid.NewGuid(), CollegeId = _otherCollege, ChartId = theirs.Id, StaffId = _asha.StaffId, SortOrder = 0 });
+        _context.SaveChanges();
+        var chart = await NewChart();
+
+        Assert.Empty(chart.Members);
+        Assert.Equal(0, Assert.Single(await _service.ListAsync(_ay)).StaffCount);
+    }
+
+    [Fact]
+    public async Task A_chart_with_nobody_gives_a_blank_template_that_can_be_filled_in_and_imported()
+    {
+        var chart = await NewChart();
+        var id = chart.Chart.Id;
+
+        var (bytes, _) = await _service.ExcelAsync(id);
+
+        using (var workbook = new XLWorkbook(new MemoryStream(bytes)))
+        {
+            var sheet = workbook.Worksheet(1);
+            Assert.Equal("Duty Chart — May 2026 End-Semester (11 May 2026 to 15 May 2026)", sheet.Cell(1, 1).GetString());
+            Assert.Equal("Be on campus for 8 hours", sheet.Cell(2, 1).GetString());
+            Assert.Equal(new[] { "Sr. No.", "Employee ID", "Employee Name", "11-05-2026\nMon", "12-05-2026\nTue", "13-05-2026\nWed", "Duties" },
+                Enumerable.Range(1, 7).Select(c => sheet.Cell(3, c).GetString()));
+            // 30 empty numbered lines, no group rows, nobody's name.
+            Assert.Equal(Enumerable.Range(1, 30), Enumerable.Range(4, 30).Select(r => sheet.Cell(r, 1).GetValue<int>()));
+            Assert.All(Enumerable.Range(4, 30), r => Assert.Equal("", sheet.Cell(r, 2).GetString() + sheet.Cell(r, 3).GetString() + sheet.Cell(r, 4).GetString()));
+            Assert.Contains(Enumerable.Range(35, 3), r => sheet.Cell(r, 1).GetString() == "Legend");
+            Assert.DoesNotContain(Enumerable.Range(4, 30), r => sheet.Cell(r, 1).GetString().Contains("staff") || sheet.Cell(r, 1).GetString().Contains("Supervisors"));
+        }
+
+        // The untouched template adds nobody.
+        var blank = await Import(id, File(bytes));
+        Assert.True(blank.Success);
+        Assert.Empty(blank.Rows);
+        Assert.Equal("Ready: 0 new, 0 updated, 0 unchanged. Check the list, then press Save.", blank.Message);
+
+        // Type three people (the last one only with an ID) into the template.
+        var file = await EditedSheet(id, sheet =>
+        {
+            sheet.Cell(4, 2).Value = "E104";
+            sheet.Cell(4, 6).Value = "A";
+            sheet.Cell(5, 2).Value = "E101";
+            sheet.Cell(5, 4).Value = "m/a";
+            sheet.Cell(5, 5).Value = "V";
+            sheet.Cell(6, 2).Value = "E102";
+        });
+        var preview = await Import(id, file);
+        Assert.True(preview.Success);
+        Assert.Equal(new[] { "New", "New", "New" }, preview.Rows.Select(r => r.Action));
+        Assert.Equal("Ready: 3 new, 0 updated, 0 unchanged. 3 people will be added to the chart. Check the list, then press Save.", preview.Message);
+        Assert.Empty((await _service.GetAsync(id)).Members);   // a preview saves nothing
+
+        var saved = await Import(id, file, preview: false);
+        Assert.True(saved.Saved);
+        Assert.StartsWith("Saved: 2 new, 0 updated, 0 unchanged, 0 cancelled. 3 people were added to the chart.", saved.Message);
+        var detail = await _service.GetAsync(id);
+        Assert.Equal(new[] { _om.StaffId, _asha.StaffId, _ravi.StaffId }, MemberIds(detail));   // file order
+        Assert.Equal(new[] { "2026-05-11/MA", "2026-05-12/", "2026-05-13/A" }, detail.Entries.OrderBy(e => e.Date).Select(e => $"{e.Date}/{e.Session}"));
+        Assert.Equal(new[] { _om.StaffId, _asha.StaffId }, detail.Letters.Select(l => l.StaffId).OrderBy(i => i == _om.StaffId ? 0 : 1));
+    }
+
+    [Fact]
+    public async Task The_sheet_lists_only_the_members_and_the_round_trip_keeps_members_and_their_order()
+    {
+        var chart = await NewChart();
+        var id = chart.Chart.Id;
+        var order = new[] { _meena.StaffId, _asha.StaffId, _ravi.StaffId, _om.StaffId };   // already in group order: teaching, then non-teaching
+        await SaveWith(id, "2026-04-30", order, Duty(_asha, "2026-05-11", "M"), Duty(_om, "2026-05-13", "A"));
+        var before = await _service.GetAsync(id);
+        Assert.Equal(order, MemberIds(before));
+        var (bytes, _) = await _service.ExcelAsync(id);
+
+        using (var workbook = new XLWorkbook(new MemoryStream(bytes)))
+        {
+            var sheet = workbook.Worksheet(1);
+            var ids = Enumerable.Range(4, 12).Select(r => sheet.Cell(r, 2).GetString()).Where(i => i != "").ToList();
+            Assert.Equal(new[] { "E103", "E101", "E102", "E104" }, ids);   // members only, chart order
+        }
+
+        // An untouched sheet changes nothing, not even the order.
+        var same = await Import(id, File(bytes));
+        Assert.Equal("Ready: 0 new, 0 updated, 4 unchanged. Check the list, then press Save.", same.Message);
+
+        // Take everybody off, then import the downloaded sheet: members (also those without entries) and order are back.
+        await SaveWith(id, null, Array.Empty<Guid>());
+        Assert.Empty((await _service.GetAsync(id)).Members);
+        var restored = await Import(id, File(bytes), preview: false, letterDate: "2026-05-01");
+        Assert.True(restored.Saved);
+        Assert.Contains("4 people were added to the chart.", restored.Message);
+
+        var after = await _service.GetAsync(id);
+        Assert.Equal(order, MemberIds(after));
+        Assert.Equal(new[] { 0, 1, 2, 3 }, after.Members.Select(m => m.SortOrder));
+        Assert.Equal(Sig(before.Entries), Sig(after.Entries));
+        Assert.Equal(2, after.Letters.Count);
+    }
+
+    [Fact]
+    public async Task The_sheet_puts_chief_conductors_and_senior_supervisors_first_and_keeps_chart_order_inside_each_group()
+    {
+        var chart = await NewChart();
+        var id = chart.Chart.Id;
+        await SaveWith(id, "2026-04-30", new[] { _om.StaffId, _meena.StaffId, _asha.StaffId, _ravi.StaffId }, Duty(_ravi, "2026-05-11", "M", SupervisionRoles.Senior));
+
+        var (bytes, _) = await _service.ExcelAsync(id);
+
+        using var workbook = new XLWorkbook(new MemoryStream(bytes));
+        var sheet = workbook.Worksheet(1);
+        Assert.Equal(new[] { "E102", "E103", "E101", "E104" }, Enumerable.Range(4, 12).Select(r => sheet.Cell(r, 2).GetString()).Where(i => i != ""));
+    }
+
+    [Fact]
+    public async Task Importing_a_sheet_removes_the_people_who_are_not_in_it_from_the_chart()
+    {
+        var chart = await NewChart();
+        var id = chart.Chart.Id;
+        await SaveWith(id, "2026-04-30", Everyone, Duty(_asha, "2026-05-11", "M"));
+        var file = await EditedSheet(id, sheet =>
+        {
+            sheet.Row(RowOf(sheet, "E103")).Delete();
+            sheet.Row(RowOf(sheet, "E104")).Delete();
+        });
+
+        var preview = await Import(id, file);
+        Assert.Equal("Ready: 0 new, 0 updated, 2 unchanged. 2 people not in the sheet will be removed from the chart, with any duties they had. Check the list, then press Save.", preview.Message);
+
+        await Import(id, file, preview: false);
+        Assert.Equal(new[] { _asha.StaffId, _ravi.StaffId }, MemberIds(await _service.GetAsync(id)));
     }
 
     // ------------------------------------------------------------------ reading codes

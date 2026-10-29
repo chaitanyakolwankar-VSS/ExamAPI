@@ -144,7 +144,7 @@ namespace ExamAPI.Services.Staff
 
         // ------------------------------------------------------------------ list and detail
 
-        private static DutyChartSummaryDto Summary(DutyChart c, int dayCount, IEnumerable<(Guid StaffId, string Kind, string? Session)> entries, int letterCount)
+        private static DutyChartSummaryDto Summary(DutyChart c, int dayCount, int memberCount, IEnumerable<(string Kind, string? Session)> entries, int letterCount)
         {
             var list = entries.ToList();
             return new DutyChartSummaryDto
@@ -156,7 +156,7 @@ namespace ExamAPI.Services.Staff
                 ToDate = Iso(c.ToDate),
                 Note = c.Note,
                 DayCount = dayCount,
-                StaffCount = list.Select(e => e.StaffId).Distinct().Count(),
+                StaffCount = memberCount,
                 DutyCount = list.Where(e => e.Kind == DutyKinds.Duty).Sum(e => e.Session == DutySessions.Both ? 2 : 1),
                 LetterCount = letterCount
             };
@@ -168,14 +168,16 @@ namespace ExamAPI.Services.Staff
             var ids = charts.Select(c => c.Id).ToList();
             var dayCounts = (await _context.DutyChartDays.AsNoTracking().Where(d => ids.Contains(d.ChartId))
                 .GroupBy(d => d.ChartId).Select(g => new { Id = g.Key, Count = g.Count() }).ToListAsync()).ToDictionary(g => g.Id, g => g.Count);
+            var memberCounts = (await _context.DutyChartMembers.AsNoTracking().Where(m => ids.Contains(m.ChartId))
+                .GroupBy(m => m.ChartId).Select(g => new { Id = g.Key, Count = g.Count() }).ToListAsync()).ToDictionary(g => g.Id, g => g.Count);
             var entries = (await _context.DutyChartEntries.AsNoTracking().Where(e => ids.Contains(e.ChartId))
-                .Select(e => new { e.ChartId, e.StaffId, e.Kind, e.Session }).ToListAsync()).ToLookup(e => e.ChartId);
+                .Select(e => new { e.ChartId, e.Kind, e.Session }).ToListAsync()).ToLookup(e => e.ChartId);
             var letterCounts = (await _context.StaffLetters.AsNoTracking()
                 .Where(l => l.DutyChartId != null && ids.Contains(l.DutyChartId.Value) && l.LetterType == StaffLetterTypes.Supervision)
                 .GroupBy(l => l.DutyChartId!.Value).Select(g => new { Id = g.Key, Count = g.Count() }).ToListAsync()).ToDictionary(g => g.Id, g => g.Count);
 
             return charts.OrderByDescending(c => c.FromDate).ThenByDescending(c => c.CreatedAt)
-                .Select(c => Summary(c, dayCounts.GetValueOrDefault(c.Id), entries[c.Id].Select(e => (e.StaffId, e.Kind, e.Session)), letterCounts.GetValueOrDefault(c.Id)))
+                .Select(c => Summary(c, dayCounts.GetValueOrDefault(c.Id), memberCounts.GetValueOrDefault(c.Id), entries[c.Id].Select(e => (e.Kind, e.Session)), letterCounts.GetValueOrDefault(c.Id)))
                 .ToList();
         }
 
@@ -183,6 +185,7 @@ namespace ExamAPI.Services.Staff
         {
             var chart = await _context.DutyCharts.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id) ?? throw new KeyNotFoundException("Duty chart not found.");
             var days = await _context.DutyChartDays.AsNoTracking().Where(d => d.ChartId == id).OrderBy(d => d.Date).ToListAsync();
+            var members = await _context.DutyChartMembers.AsNoTracking().Where(m => m.ChartId == id).OrderBy(m => m.SortOrder).ThenBy(m => m.StaffId).ToListAsync();
             var entries = await _context.DutyChartEntries.AsNoTracking().Where(e => e.ChartId == id).OrderBy(e => e.Date).ThenBy(e => e.StaffId).ToListAsync();
             var letters = await _context.StaffLetters.AsNoTracking().Include(l => l.Duties)
                 .Where(l => l.DutyChartId == id && l.LetterType == StaffLetterTypes.Supervision).ToListAsync();
@@ -190,12 +193,13 @@ namespace ExamAPI.Services.Staff
 
             return new DutyChartDetailDto
             {
-                Chart = Summary(chart, days.Count, entries.Select(e => (e.StaffId, e.Kind, e.Session)), letters.Count),
+                Chart = Summary(chart, days.Count, members.Count, entries.Select(e => (e.Kind, e.Session)), letters.Count),
                 Days = days.Select(d => new DutyChartDayDto
                 {
                     Date = Iso(d.Date), Weekday = Weekday(d.Date), Morning = d.Morning, Afternoon = d.Afternoon,
                     FromTimetable = d.FromTimetable, Papers = papers.GetValueOrDefault(d.Date.Date)
                 }).ToList(),
+                Members = members.Select(m => new DutyChartMemberDto { StaffId = m.StaffId, SortOrder = m.SortOrder }).ToList(),
                 Entries = entries.Select(e => new DutyChartEntryDto
                 {
                     StaffId = e.StaffId, Date = Iso(e.Date), Kind = e.Kind, Session = e.Session, Role = e.Role, Note = e.Note
@@ -418,10 +422,19 @@ namespace ExamAPI.Services.Staff
             var chart = await LoadChartAsync(id, withDays: true);
             var days = chart.Days.ToDictionary(d => d.Date.Date);
             var requested = dto.Entries ?? new List<DutyChartEntryDto>();
-            var staffIds = requested.Select(e => e.StaffId).Distinct().ToList();
+            var listed = dto.Members?.Distinct().ToList();
+            var staffIds = requested.Select(e => e.StaffId).Concat(listed ?? new List<Guid>()).Distinct().ToList();
             var staff = await _context.StaffMasters.AsNoTracking().Where(s => staffIds.Contains(s.StaffId)).ToDictionaryAsync(s => s.StaffId);
 
             var errors = new List<string>();
+            // People who are only on the list (no entries) are checked like the people with entries.
+            var withEntries = requested.Select(e => e.StaffId).ToHashSet();
+            foreach (var memberId in (listed ?? new List<Guid>()).Where(m => !withEntries.Contains(m)))
+            {
+                if (!staff.TryGetValue(memberId, out var member)) errors.Add("a member of staff in the list was not found.");
+                else if (!member.IsActive) errors.Add($"{WhoIs(member)} has left and cannot be on the chart.");
+                else if (member.IsExternal) errors.Add($"{WhoIs(member)} is an external member of staff; charts are for our own staff.");
+            }
             var plan = new List<Planned>();
             var seen = new HashSet<(Guid, DateTime)>();
             foreach (var e in requested)
@@ -478,7 +491,18 @@ namespace ExamAPI.Services.Staff
                 else errors.Add("the letter date is not a valid date.");
             }
             if (errors.Count > 0) throw new InvalidOperationException(Sentence(errors));
-            return await ApplyAsync(chart, plan, letterDate);
+
+            // The members in order; people with entries who are not listed are added at the end. Without a list, the
+            // people with entries stay in the order they already had.
+            List<Guid> members;
+            if (listed != null) members = listed.ToList();
+            else
+            {
+                var current = await _context.DutyChartMembers.AsNoTracking().Where(m => m.ChartId == chart.Id).OrderBy(m => m.SortOrder).Select(m => m.StaffId).ToListAsync();
+                members = current.Where(withEntries.Contains).ToList();
+            }
+            members.AddRange(requested.Select(e => e.StaffId).Distinct().Where(s => !members.Contains(s)));
+            return await ApplyAsync(chart, plan, members, letterDate);
         }
 
         /// <summary>One line of a supervision letter.</summary>
@@ -489,7 +513,7 @@ namespace ExamAPI.Services.Staff
         /// (a new one, or the existing one with its number and date kept); letters of people without a duty are cancelled.
         /// Nothing is saved unless the letter date is there when a new letter needs it.
         /// </summary>
-        private async Task<DutyChartSaveResult> ApplyAsync(DutyChart chart, List<Planned> plan, DateTime? letterDate)
+        private async Task<DutyChartSaveResult> ApplyAsync(DutyChart chart, List<Planned> plan, List<Guid> members, DateTime? letterDate)
         {
             var days = chart.Days.ToDictionary(d => d.Date.Date);
             var existingEntries = await _context.DutyChartEntries.Where(e => e.ChartId == chart.Id).ToListAsync();
@@ -525,6 +549,16 @@ namespace ExamAPI.Services.Staff
             var byStaff = existingLetters.GroupBy(l => l.StaffId).ToDictionary(g => g.Key, g => g.First());
             if (letterDate == null && wanted.Any(w => !byStaff.ContainsKey(w.Staff.StaffId)))
                 throw new InvalidOperationException("Enter the letter date.");
+
+            // Members: keep the rows, set the order, add the new, remove the gone (their entries go with them: the plan only has members).
+            var existingMembers = await _context.DutyChartMembers.Where(m => m.ChartId == chart.Id).ToListAsync();
+            var memberRows = existingMembers.GroupBy(m => m.StaffId).ToDictionary(g => g.Key, g => g.First());
+            for (int i = 0; i < members.Count; i++)
+            {
+                if (memberRows.TryGetValue(members[i], out var row)) row.SortOrder = i;
+                else _context.DutyChartMembers.Add(new DutyChartMember { Id = Guid.NewGuid(), CollegeId = chart.CollegeId, ChartId = chart.Id, StaffId = members[i], SortOrder = i });
+            }
+            _context.DutyChartMembers.RemoveRange(existingMembers.Where(m => !members.Contains(m.StaffId) || memberRows[m.StaffId] != m));
 
             // Entries: update in place, add, remove.
             var byKey = existingEntries.ToDictionary(e => (e.StaffId, e.Date.Date));
@@ -627,17 +661,22 @@ namespace ExamAPI.Services.Staff
         // ------------------------------------------------------------------ Excel
 
         private const string LegendLabel = "Legend";
+        /// <summary>Empty numbered lines of the sheet of a chart with nobody on it.</summary>
+        private const int BlankRows = 30;
 
         /// <summary>
-        /// The chart as a sheet to fill in: every active internal member of staff (so it doubles as the template), the
-        /// exam days across, the codes of the current entries in the cells.
+        /// The chart as a sheet to fill in: the people on the chart (in chart order inside each group), the exam days
+        /// across, the codes of the current entries in the cells. A chart with nobody on it gives a blank template: the
+        /// headings and empty numbered rows to type the people into.
         /// </summary>
         public async Task<(byte[] Bytes, string FileName)> ExcelAsync(Guid id)
         {
             var chart = await _context.DutyCharts.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id) ?? throw new KeyNotFoundException("Duty chart not found.");
             var days = await _context.DutyChartDays.AsNoTracking().Where(d => d.ChartId == id).OrderBy(d => d.Date).ToListAsync();
             var entries = await _context.DutyChartEntries.AsNoTracking().Where(e => e.ChartId == id).ToListAsync();
-            var staff = await _context.StaffMasters.AsNoTracking().Where(s => s.IsActive && !s.IsExternal).ToListAsync();
+            var memberIds = await _context.DutyChartMembers.AsNoTracking().Where(m => m.ChartId == id).OrderBy(m => m.SortOrder).ThenBy(m => m.StaffId).Select(m => m.StaffId).ToListAsync();
+            var found = (await _context.StaffMasters.AsNoTracking().Where(s => memberIds.Contains(s.StaffId) && s.IsActive && !s.IsExternal).ToListAsync()).ToDictionary(s => s.StaffId);
+            var staff = memberIds.Where(found.ContainsKey).Select(i => found[i]).ToList();   // chart order
             var cells = entries.ToDictionary(e => (e.StaffId, e.Date.Date));
             var leaders = entries.Where(e => e.Kind == DutyKinds.Duty && (e.Role == SupervisionRoles.ChiefConductor || e.Role == SupervisionRoles.Senior))
                 .Select(e => e.StaffId).ToHashSet();
@@ -683,7 +722,7 @@ namespace ExamAPI.Services.Staff
                 groupRow.Style.Font.Bold = true;
                 groupRow.Style.Fill.BackgroundColor = XLColor.FromHtml("#F3F4F6");
                 row++;
-                foreach (var person in people.OrderBy(p => p.FirstName, StringComparer.OrdinalIgnoreCase).ThenBy(p => p.LastName, StringComparer.OrdinalIgnoreCase))
+                foreach (var person in people)
                 {
                     sheet.Cell(row, 1).Value = serial++;
                     sheet.Cell(row, 2).Value = person.EmployeeCode ?? "";
@@ -700,6 +739,12 @@ namespace ExamAPI.Services.Staff
                     row++;
                 }
             }
+            if (staff.Count == 0)
+            {
+                // Nobody on the chart yet: empty numbered lines, so the sheet works as a blank template.
+                for (int n = 1; n <= BlankRows; n++) sheet.Cell(row++, 1).Value = n;
+                sheet.Range(4, 2, row - 1, 2).Style.NumberFormat.Format = "@";
+            }
             var lastData = row - 1;
             sheet.Range(4, FirstDay, Math.Max(lastData, 4), lastColumn).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             sheet.Range(4, 1, Math.Max(lastData, 4), 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
@@ -715,7 +760,7 @@ namespace ExamAPI.Services.Staff
                 "M = morning, A = afternoon, M/A = both sessions of the day.",
                 "CC = Chief Conductor, SS = Senior Supervisor, written before the session, e.g. CC (M/A). Other duties are Junior Supervisor (teaching staff) or Non-Teaching Staff.",
                 "V = valuation (CAP assessment) day. Any other text = other work that day (e.g. Exam cell).",
-                "Fill in the cells, then upload the sheet again. People missing from the sheet lose their duties."
+                "Type the Employee ID of each person on duty (the name is optional) and fill in the cells, then upload the sheet again. The people in the sheet are the people on the chart; people missing from it are removed and lose their duties."
             })
             {
                 sheet.Cell(row++, 1).Value = line;
@@ -799,10 +844,13 @@ namespace ExamAPI.Services.Staff
                 var byCode = new Dictionary<string, StaffMaster>(StringComparer.OrdinalIgnoreCase);
                 foreach (var s in allStaff.OrderByDescending(s => s.IsActive && !s.IsExternal)) byCode.TryAdd(s.EmployeeCode!.Trim(), s);
                 var existing = (await _context.DutyChartEntries.AsNoTracking().Where(e => e.ChartId == id).ToListAsync()).ToLookup(e => e.StaffId);
+                var wasMember = (await _context.DutyChartMembers.AsNoTracking().Where(m => m.ChartId == id).Select(m => m.StaffId).ToListAsync()).ToHashSet();
+                wasMember.UnionWith(existing.Select(g => g.Key));
 
                 var rows = new List<StaffImportRow>();
                 var plan = new List<Planned>();
                 var seenStaff = new HashSet<Guid>();
+                var members = new List<Guid>();   // the people of the sheet, in sheet order
                 var lastRow = sheet.LastRowUsed()?.RowNumber() ?? headerRow;
                 for (int r = headerRow + 1; r <= lastRow; r++)
                 {
@@ -825,6 +873,7 @@ namespace ExamAPI.Services.Staff
                     if (!person.IsActive) { AddRowError(rows, errors, r, who, $"{who} has left and cannot be given duties."); continue; }
                     if (person.IsExternal) { AddRowError(rows, errors, r, who, $"{who} is an external member of staff; duties are for our own staff."); continue; }
                     if (!seenStaff.Add(person.StaffId)) { AddRowError(rows, errors, r, who, $"Employee ID {code} is in the sheet more than once."); continue; }
+                    members.Add(person.StaffId);
 
                     var rowErrors = new List<string>();
                     var mine = new List<Planned>();
@@ -853,13 +902,13 @@ namespace ExamAPI.Services.Staff
                     }
 
                     var before = existing[person.StaffId].ToList();
-                    if (rowErrors.Count == 0 && mine.Count == 0 && before.Count == 0) continue;   // nothing before, nothing now
 
                     var notes = new List<string>();
                     if (typedName != "" && !SameName(typedName, person)) notes.Add($"the name in the sheet (\"{typedName}\") differs from Staff Master, which is used");
                     string action;
                     if (rowErrors.Count > 0) action = "";
-                    else if (before.Count == 0) action = StaffImportActions.New;
+                    else if (!wasMember.Contains(person.StaffId)) action = StaffImportActions.New;   // added to the chart
+                    else if (mine.Count == 0 && before.Count == 0) action = StaffImportActions.Unchanged;
                     else if (mine.Count == before.Count && mine.All(m => before.Any(b => Same(b, m)))) action = StaffImportActions.Unchanged;
                     else
                     {
@@ -883,21 +932,32 @@ namespace ExamAPI.Services.Staff
                     return result;
                 }
 
-                var losing = existing.Select(g => g.Key).Count(s => !seenStaff.Contains(s));
-                var counts = $"{rows.Count(r => r.Action == StaffImportActions.New)} new, {rows.Count(r => r.Action == StaffImportActions.Update)} updated, {rows.Count(r => r.Action == StaffImportActions.Unchanged)} unchanged";
-                var lose = losing == 0 ? "" : $" {losing} {(losing == 1 ? "person" : "people")} not in the sheet will lose their duties.";
+                var added = rows.Count(r => r.Action == StaffImportActions.New);
+                var removed = wasMember.Count(s => !seenStaff.Contains(s));
+                var counts = $"{added} new, {rows.Count(r => r.Action == StaffImportActions.Update)} updated, {rows.Count(r => r.Action == StaffImportActions.Unchanged)} unchanged";
                 result.Success = true;
                 if (request.Preview)
                 {
-                    result.Message = $"Ready: {counts}.{lose} Check the list, then press Save.";
+                    result.Message = $"Ready: {counts}.{Membership(added, removed, past: false)} Check the list, then press Save.";
                     return result;
                 }
 
-                var saved = await ApplyAsync(chart, plan, letterDate.Date);
+                var saved = await ApplyAsync(chart, plan, members, letterDate.Date);
                 result.Saved = true;
-                result.Message = $"{saved.Message}{lose.Replace("will lose", "lost")}";
+                result.Message = $"{saved.Message}{Membership(added, removed, past: true)}";
                 return result;
             }
+        }
+
+        /// <summary>How many people the sheet adds to the chart and removes from it, as a sentence (empty when nobody).</summary>
+        private static string Membership(int added, int removed, bool past)
+        {
+            static string People(int n) => n == 1 ? "1 person" : $"{n} people";
+            static string Verb(int n, bool past) => past ? (n == 1 ? "was" : "were") : "will be";
+            var text = "";
+            if (added > 0) text += $" {People(added)} {Verb(added, past)} added to the chart.";
+            if (removed > 0) text += $" {People(removed)} not in the sheet {Verb(removed, past)} removed from the chart, with any duties they had.";
+            return text;
         }
 
         private static void AddRowError(List<StaffImportRow> rows, List<string> errors, int row, string name, string problem)

@@ -59,6 +59,12 @@ namespace ExamAPI.Data
             entry.HasOne<College>().WithMany().HasForeignKey(e => e.CollegeId).OnDelete(DeleteBehavior.Restrict);
             entry.HasIndex(e => new { e.ChartId, e.StaffId, e.Date }).IsUnique();
             entry.Property(e => e.Date).HasColumnType("date");
+
+            var member = modelBuilder.Entity<DutyChartMember>();
+            member.HasOne(m => m.Chart).WithMany().HasForeignKey(m => m.ChartId).OnDelete(DeleteBehavior.Restrict);
+            member.HasOne(m => m.Staff).WithMany().HasForeignKey(m => m.StaffId).OnDelete(DeleteBehavior.Restrict);
+            member.HasOne<College>().WithMany().HasForeignKey(m => m.CollegeId).OnDelete(DeleteBehavior.Restrict);
+            member.HasIndex(m => new { m.ChartId, m.StaffId }).IsUnique();
         }
     }
 }

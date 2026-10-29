@@ -83,6 +83,22 @@ namespace ExamAPI.Models
         public string? Note { get; set; }
     }
 
+    /// <summary>A person on a chart's list: the people who are on duty in the period. A chart starts with nobody. Everyone with an entry is a member; a member without entries gets no letter.</summary>
+    public class DutyChartMember : ICollegeScoped
+    {
+        [Key]
+        public Guid Id { get; set; }
+        public Guid? CollegeId { get; set; }
+
+        public Guid ChartId { get; set; }
+        public DutyChart? Chart { get; set; }
+        public Guid StaffId { get; set; }
+        public StaffMaster? Staff { get; set; }
+
+        /// <summary>Position on the chart, 0 = first.</summary>
+        public int SortOrder { get; set; }
+    }
+
     public static class DutyKinds
     {
         public const string Duty = "duty";
