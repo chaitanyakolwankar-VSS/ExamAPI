@@ -32,7 +32,7 @@ namespace ExamAPI.Services.Platform
             ("Students Admin", "Release Hallticket"),
             ("Students Admin", "Student Master"),
             ("Staff Admin", "Staff Master"),
-            ("Staff Admin", "Duty Chart"),
+            ("Staff Admin", "Supervision Letters"),
             ("Staff Admin", "Examiner Letters"),
             ("Conduct Exam", "Regular Exam"),
             ("Conduct Exam", "ATKT/Reval Exam"),
@@ -46,6 +46,8 @@ namespace ExamAPI.Services.Platform
             ("Reports", "Student Assign Report"),
             ("Reports", "ATKT Cummulative Report"),
             ("Reports", "Statistic Report"),
+            ("Reports", "Attendance Report"),
+            ("Reports", "Resolution Report"),
         };
 
         public const int MinPasswordLength = 8;
