@@ -88,6 +88,8 @@ namespace ExamAPI.DTOs
         public string? ReportingPlace { get; set; }
         /// <summary>The guidelines printed on duty letters, one per line; empty = the defaults.</summary>
         public string? DutyGuidelines { get; set; }
+        /// <summary>The end of the letter emails to staff, one line per line; empty = "Exam Office" and the college name.</summary>
+        public string? LetterEmailSignature { get; set; }
         /// <summary>What the prefix is when none is set: "{college code}/EXAM".</summary>
         public string DefaultPrefix { get; set; } = "";
         public string DefaultReportingPlace { get; set; } = "";
@@ -102,5 +104,7 @@ namespace ExamAPI.DTOs
         public string? ReportingPlace { get; set; }
         /// <summary>One guideline per line: at most 10 lines of 300 characters, 2000 in all.</summary>
         public string? DutyGuidelines { get; set; }
+        /// <summary>At most 1000 characters; line ends are tidied and empty lines at the start and end dropped.</summary>
+        public string? LetterEmailSignature { get; set; }
     }
 }

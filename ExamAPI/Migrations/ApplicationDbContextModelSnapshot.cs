@@ -237,6 +237,10 @@ namespace ExamAPI.Migrations
                         .HasColumnType("bit")
                         .HasDefaultValue(false);
 
+                    b.Property<string>("LetterEmailSignature")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
                     b.Property<string>("LetterPrefix")
                         .HasMaxLength(40)
                         .HasColumnType("nvarchar(40)");

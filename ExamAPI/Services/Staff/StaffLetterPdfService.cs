@@ -328,7 +328,7 @@ namespace ExamAPI.Services.Staff
         private static void SupervisionBody(IContainer container, LetterPage page)
         {
             var letter = page.Letter;
-            var lines = letter.Duties.OrderBy(d => d.SortOrder).ToList();
+            var lines = letter.Duties.Where(d => d.Kind != DutyKinds.RetiredValuation).OrderBy(d => d.SortOrder).ToList();
             var posting = string.Join(" — ", new[] { page.Designation, page.Department }.Where(p => !string.IsNullOrWhiteSpace(p)));
             var reporting = ReportingTimes(lines);
 
@@ -402,12 +402,18 @@ namespace ExamAPI.Services.Staff
                         table.Cell().Element(Cell).Text(AssignedDate(line.Date)).FontSize(10);
                         if (IsDuty(line))
                         {
-                            var morning = ExamSlotOrder.StartTime(line.Time) < TimeSpan.FromHours(12);
+                            // A session without a time is saved as "Morning session" / "Afternoon session": print just that.
+                            var noTime = line.Time == DutySessions.MorningNoTime || line.Time == DutySessions.AfternoonNoTime;
+                            var morning = line.Time == DutySessions.MorningNoTime || (!noTime && ExamSlotOrder.StartTime(line.Time) < TimeSpan.FromHours(12));
                             table.Cell().Element(Cell).Text(t =>
                             {
                                 t.DefaultTextStyle(x => x.FontSize(10));
-                                t.Span(morning ? "Morning" : "Afternoon").Bold();
-                                t.Span($" ({line.Time})");
+                                if (noTime) t.Span(line.Time).Bold();
+                                else
+                                {
+                                    t.Span(morning ? "Morning" : "Afternoon").Bold();
+                                    t.Span($" ({line.Time})");
+                                }
                             });
                         }
                         else

@@ -306,6 +306,10 @@ namespace ExamAPI.Models
         /// <summary>Supervision letters: the guidelines printed as bullets, one per line.</summary>
         [MaxLength(2000)]
         public string? DutyGuidelines { get; set; }
+
+        /// <summary>The end of the letters-link emails sent to staff, one line per line ("Thanks &amp; Regards, ..."). Empty = "Exam Office" and the college name.</summary>
+        [MaxLength(1000)]
+        public string? LetterEmailSignature { get; set; }
     }
 
     /// <summary>

@@ -41,6 +41,8 @@ namespace ExamAPI.Services.Staff
         public List<string> NoEmail { get; set; } = new();
         /// <summary>The college can send email (an account of its own or the platform default).</summary>
         public bool SenderReady { get; set; }
+        /// <summary>What the email ends with (the college's signature, or "Exam Office" and the college name), plain text with line breaks.</summary>
+        public string Signature { get; set; } = "";
     }
 
     public class StaffEmailResult
@@ -77,6 +79,12 @@ namespace ExamAPI.Services.Staff
         public DateTime? DownloadedAt { get; set; }
         /// <summary>When the office stopped the link, while it is still the latest (a new send starts the status over).</summary>
         public DateTime? StoppedAt { get; set; }
+        /// <summary>When the link ran out (not stopped, past its last day), while it is still the latest.</summary>
+        public DateTime? ExpiredAt { get; set; }
+        /// <summary>When the email was put in the queue, while it is still waiting to go out (it goes within a minute or so).</summary>
+        public DateTime? QueuedAt { get; set; }
+        /// <summary>The email could not be sent (the sending account refused it); send again.</summary>
+        public bool Failed { get; set; }
     }
 
     public interface IStaffLinkService
@@ -242,6 +250,8 @@ namespace ExamAPI.Services.Staff
                 Letters = selection.People.Sum(p => p.Letters),
                 NoEmail = selection.People.Where(p => !p.Usable).Select(p => p.Name).ToList(),
                 SenderReady = await SenderReadyAsync(collegeId),
+                Signature = StaffEmailSignature.Effective(await StaffEmailSignature.SavedAsync(_context, collegeId, ignoreFilters: false),
+                    await StudentLinkEmails.CollegeNameAsync(_context, collegeId)),
             };
         }
 
@@ -325,6 +335,7 @@ namespace ExamAPI.Services.Staff
             _ = CollegeId;
             var (scope, _) = await ScopeAsync(examId, dutyChartId, "all");
             var latest = await LatestAsync(scope);
+            var now = DateTime.UtcNow;
             return latest.Select(kv => new StaffLinkStatus
             {
                 StaffId = kv.Key,
@@ -332,6 +343,9 @@ namespace ExamAPI.Services.Staff
                 OpenedAt = kv.Value.Link.OpenedAt,
                 DownloadedAt = kv.Value.Link.DownloadedAt,
                 StoppedAt = kv.Value.Link.Status == StaffLinkStatuses.Revoked ? kv.Value.Link.RevokedAt : null,
+                ExpiredAt = kv.Value.Link.Status != StaffLinkStatuses.Revoked && !StaffAccessAuth.IsOpen(kv.Value.Link, now) ? kv.Value.Link.ExpiresAt : null,
+                QueuedAt = kv.Value.Link.Status != StaffLinkStatuses.Revoked && kv.Value.MailStatus is EmailStatuses.Pending or EmailStatuses.Sending ? kv.Value.Link.CreatedAt : null,
+                Failed = kv.Value.Link.Status != StaffLinkStatuses.Revoked && kv.Value.MailStatus == EmailStatuses.Failed,
             }).ToList();
         }
 

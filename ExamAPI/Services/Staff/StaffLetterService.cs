@@ -371,6 +371,7 @@ namespace ExamAPI.Services.Staff
                 CapContact = settings?.CapContact,
                 ReportingPlace = settings?.ReportingPlace,
                 DutyGuidelines = settings?.DutyGuidelines,
+                LetterEmailSignature = settings?.LetterEmailSignature,
                 DefaultPrefix = await LetterNumbering.DefaultPrefixAsync(_context, _context.CurrentCollegeId),
                 DefaultReportingPlace = DutyLetterDefaults.ReportingPlace,
                 DefaultGuidelines = DutyLetterDefaults.Guidelines.ToList()
@@ -394,6 +395,8 @@ namespace ExamAPI.Services.Staff
             if (lines.Count > 10) throw new InvalidOperationException("There are more than 10 guidelines.");
             if (lines.Any(l => l.Length > 300)) throw new InvalidOperationException("A guideline is longer than 300 characters.");
             if (guidelines.Length > 2000) throw new InvalidOperationException("The guidelines are longer than 2000 characters in all.");
+            var signature = StaffEmailSignature.Clean(dto.LetterEmailSignature);
+            if (signature.Length > StaffEmailSignature.MaxLength) throw new InvalidOperationException($"The email signature is longer than {StaffEmailSignature.MaxLength} characters.");
 
             var settings = await _context.CollegeSettings.FirstOrDefaultAsync();
             if (settings == null)
@@ -405,6 +408,7 @@ namespace ExamAPI.Services.Staff
             settings.CapContact = contact == "" ? null : contact;
             settings.ReportingPlace = place == "" ? null : place;
             settings.DutyGuidelines = guidelines == "" ? null : guidelines;
+            settings.LetterEmailSignature = signature == "" ? null : signature;
             _context.AuditLogs.Add(new AuditLog
             {
                 Id = Guid.NewGuid(),
@@ -414,7 +418,7 @@ namespace ExamAPI.Services.Staff
                 PerformedBy = _context.CurrentUserId,
                 UserType = "Staff",
                 Event = "LetterSettingsChanged",
-                Details = $"Letter prefix: {(prefix == "" ? "(default)" : prefix)}; CAP contact: {(contact == "" ? "(none)" : contact)}; reporting place: {(place == "" ? "(default)" : place)}; guidelines: {(lines.Count == 0 ? "(default)" : lines.Count + " line(s)")}.",
+                Details = $"Letter prefix: {(prefix == "" ? "(default)" : prefix)}; CAP contact: {(contact == "" ? "(none)" : contact)}; reporting place: {(place == "" ? "(default)" : place)}; guidelines: {(lines.Count == 0 ? "(default)" : lines.Count + " line(s)")}; email signature: {(signature == "" ? "(default)" : "set")}.",
             });
             await _context.SaveChangesAsync();
             return await GetSettingsAsync();

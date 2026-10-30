@@ -117,6 +117,19 @@ Shown to college and platform admins. Other users see the current prefix, read-o
 
 - **Prefix:** up to 40 characters: letters, digits, `/`, `-` and `.` only. Empty means the default, shown as the placeholder.
 - **CAP contact:** the CAP contact numbers, saved with the prefix.
+- **Email signature:** the end of the letters-link email to staff (up to 1000 characters, one line per line). Line ends are tidied and empty lines at the start and end dropped. Empty means "Exam Office" and the college name. The code email and student emails have no signature. The email preview returns the text the email will end with (`signature`).
+
+### Days and sessions of a duty chart
+
+- A day can be any date. Saving a day outside the chart's From and To widens them (timetable days are not added for the wider range). An Excel sheet with a date column that is not a chart day adds that day when it is saved (no times); the preview says how many days will be added.
+- Session times are only labels. A day may have no morning time, no afternoon time, or neither, and a session can be given a duty either way. A letter line for a session with no time reads "Morning session" or "Afternoon session" (the Excel legend does too).
+- A day that someone has an entry on still cannot be removed.
+
+### Kinds of entry and the Excel codes
+
+- An entry is a **duty** (session and role) or **other work** (a short note). There is no valuation kind: in the office's sheet, V means *vacation*.
+- Reading the sheet: M, A, M/A (with CC or SS) are duties; a cell with V, VAC, VACATION or LEAVE (any case) means the person is away and is read as an empty cell (no entry, no error); any other text is other work with that text. The exported legend says so.
+- Entries and letter lines already saved with the old kind "valuation" (demo data only) are left out of the chart, counts, export and PDFs; the next save of the chart drops them. The screen save refuses kind "valuation" like any unknown kind.
 
 ## 3b. Examiner and moderator letters
 

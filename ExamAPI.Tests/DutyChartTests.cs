@@ -127,7 +127,15 @@ public sealed class DutyChartTests
     private static DutyChartEntryDto Duty(StaffMaster who, string date, string session, string? role = null) =>
         new() { StaffId = who.StaffId, Date = date, Kind = "duty", Session = session, Role = role };
 
-    private static DutyChartEntryDto Valuation(StaffMaster who, string date) => new() { StaffId = who.StaffId, Date = date, Kind = "valuation" };
+    /// <summary>A row of the retired "valuation" kind, as an old demo database still has them (the screen can no longer save one).</summary>
+    private void OldValuationRow(Guid chartId, StaffMaster who, string date)
+    {
+        _context.DutyChartEntries.Add(new DutyChartEntry
+        {
+            Id = Guid.NewGuid(), CollegeId = _college, ChartId = chartId, StaffId = who.StaffId, Date = DateTime.Parse(date), Kind = "valuation"
+        });
+        _context.SaveChanges();
+    }
 
     private static DutyChartEntryDto Other(StaffMaster who, string date, string? note) => new() { StaffId = who.StaffId, Date = date, Kind = "other", Note = note };
 
@@ -208,7 +216,7 @@ public sealed class DutyChartTests
         var first = await NewChart();
         var later = Fields("2026-06-01", "2026-06-05", "June 2026"); later.Ayid = _ay;
         var second = await _service.CreateAsync(later);
-        await Save(first.Chart.Id, "2026-04-30", Duty(_asha, "2026-05-11", "MA"), Duty(_ravi, "2026-05-12", "M"), Valuation(_meena, "2026-05-11"));
+        await Save(first.Chart.Id, "2026-04-30", Duty(_asha, "2026-05-11", "MA"), Duty(_ravi, "2026-05-12", "M"), Other(_meena, "2026-05-11", "Exam cell"));
 
         var list = await _service.ListAsync(_ay);
 
@@ -282,7 +290,7 @@ public sealed class DutyChartTests
     }
 
     [Fact]
-    public async Task Saving_days_refuses_bad_days_and_removing_a_day_or_session_that_people_use()
+    public async Task Saving_days_refuses_bad_days_and_removing_a_day_that_people_use()
     {
         var chart = await NewChart();
         var id = chart.Chart.Id;
@@ -293,14 +301,10 @@ public sealed class DutyChartTests
         var dayGone = await Assert.ThrowsAsync<InvalidOperationException>(() => _service.SaveDaysAsync(id, Keep(("2026-05-11", Morning, Afternoon), ("2026-05-13", null, Afternoon))));
         Assert.Contains("Dr. Ravi Kumar has an entry on 12-05-2026", dayGone.Message);
 
-        var sessionGone = await Assert.ThrowsAsync<InvalidOperationException>(() => _service.SaveDaysAsync(id, Keep(("2026-05-11", Morning, null), ("2026-05-12", Morning, null), ("2026-05-13", null, Afternoon))));
-        Assert.Contains("Prof. Asha R. Patil is on duty in the afternoon of 11-05-2026", sessionGone.Message);
-
         var bad = await Assert.ThrowsAsync<InvalidOperationException>(() => _service.SaveDaysAsync(id, Keep(
-            ("2026-05-11", Morning, Afternoon), ("2026-05-11", Morning, null), ("2026-05-12", Morning, null), ("2026-06-01", Morning, null), ("2026-05-14", null, null), ("tomorrow", Morning, null))));
+            ("2026-05-11", Morning, Afternoon), ("2026-05-11", Morning, null), ("2026-05-12", Morning, null), ("2026-05-14", new string('x', 51), null), ("tomorrow", Morning, null))));
         Assert.Contains("11-05-2026 is listed more than once", bad.Message);
-        Assert.Contains("01-06-2026 is outside the dates", bad.Message);
-        Assert.Contains("14-05-2026 needs a morning or an afternoon time", bad.Message);
+        Assert.Contains("The times on 14-05-2026 are longer than 50 characters", bad.Message);
         Assert.Contains("\"tomorrow\" is not a valid date", bad.Message);
 
         // Nothing changed.
@@ -310,6 +314,71 @@ public sealed class DutyChartTests
         var saved = await _service.SaveDaysAsync(id, Keep(("2026-05-11", Morning, Afternoon), ("2026-05-12", Morning, null), ("2026-05-14", Morning, null)));
         Assert.Equal(new[] { "2026-05-11", "2026-05-12", "2026-05-14" }, saved.Days.Select(d => d.Date));
         Assert.Equal(new[] { true, true, false }, saved.Days.Select(d => d.FromTimetable));
+    }
+
+    [Fact]
+    public async Task A_day_outside_the_chart_dates_widens_the_chart_and_a_day_may_have_no_times()
+    {
+        var chart = await NewChart();
+        var id = chart.Chart.Id;
+        var days = chart.Days.Select(d => new DutyChartDaySave { Date = d.Date, Morning = d.Morning, Afternoon = d.Afternoon }).ToList();
+        days.Add(new DutyChartDaySave { Date = "2026-06-03" });                         // later than the chart, no times
+        days.Add(new DutyChartDaySave { Date = "2026-05-05", Morning = Morning });      // earlier than the chart
+
+        var saved = await _service.SaveDaysAsync(id, days);
+
+        Assert.Equal(("2026-05-05", "2026-06-03"), (saved.Chart.FromDate, saved.Chart.ToDate));
+        Assert.Equal(new[] { "2026-05-05", "2026-05-11", "2026-05-12", "2026-05-13", "2026-06-03" }, saved.Days.Select(d => d.Date));
+        var june = saved.Days.Single(d => d.Date == "2026-06-03");
+        Assert.Equal((null, null, false), (june.Morning, june.Afternoon, june.FromTimetable));
+        // The wider range does not pull in timetable days (20 May has a paper).
+        Assert.DoesNotContain(saved.Days, d => d.Date == "2026-05-20");
+    }
+
+    [Fact]
+    public async Task Clearing_a_session_time_is_allowed_while_people_are_on_that_session()
+    {
+        var chart = await NewChart();
+        var id = chart.Chart.Id;
+        await Save(id, "2026-04-30", Duty(_asha, "2026-05-11", "MA"));
+
+        var cleared = await _service.SaveDaysAsync(id, new List<DutyChartDaySave>
+        {
+            new() { Date = "2026-05-11", Morning = Morning }, new() { Date = "2026-05-12", Morning = Morning }, new() { Date = "2026-05-13", Afternoon = Afternoon }
+        });
+
+        Assert.Null(cleared.Days[0].Afternoon);
+        Assert.Single(cleared.Entries);   // Asha is still on the afternoon of Monday, by session and not by time
+        Assert.Equal("MA", cleared.Entries[0].Session);
+    }
+
+    [Fact]
+    public async Task A_duty_on_a_session_without_a_time_gives_the_letter_line_Morning_session_or_Afternoon_session()
+    {
+        var chart = await NewChart();
+        var id = chart.Chart.Id;
+        // Wednesday has no morning time (afternoon only); Thursday is added by hand with no times at all.
+        var days = chart.Days.Select(d => new DutyChartDaySave { Date = d.Date, Morning = d.Morning, Afternoon = d.Afternoon }).ToList();
+        days.Add(new DutyChartDaySave { Date = "2026-05-14" });
+        await _service.SaveDaysAsync(id, days);
+
+        await Save(id, "2026-04-30", Duty(_ravi, "2026-05-13", "MA"), Duty(_ravi, "2026-05-14", "MA"), Duty(_asha, "2026-05-11", "MA"), Duty(_meena, "2026-05-12", "A"));
+
+        var detail = await _service.GetAsync(id);
+        var ravi = detail.Letters.Single(l => l.StaffId == _ravi.StaffId);
+        Assert.Equal(new[] { ("2026-05-13", "Morning session"), ("2026-05-13", Afternoon), ("2026-05-14", "Morning session"), ("2026-05-14", "Afternoon session") },
+            ravi.Lines.Select(l => (l.Date, l.Time)));
+        var asha = detail.Letters.Single(l => l.StaffId == _asha.StaffId);
+        Assert.Equal(new[] { Morning, Afternoon }, asha.Lines.Select(l => l.Time));   // a time that is set is printed as before
+        Assert.Equal("Afternoon session", detail.Letters.Single(l => l.StaffId == _meena.StaffId).Lines.Single().Time);   // Tuesday has no afternoon time
+
+        // The Excel legend says the same.
+        var (bytes, _) = await _service.ExcelAsync(id);
+        using var workbook = new XLWorkbook(new MemoryStream(bytes));
+        var sheet = workbook.Worksheet(1);
+        var legendRow = Enumerable.Range(4, sheet.LastRowUsed()!.RowNumber()).First(r => sheet.Cell(r, 3).GetString() == "Morning");
+        Assert.Equal(new[] { Morning, Morning, "Morning session", "Morning session" }, Enumerable.Range(4, 4).Select(c => sheet.Cell(legendRow, c).GetString()));
+        Assert.Equal(new[] { Afternoon, "Afternoon session", Afternoon, "Afternoon session" }, Enumerable.Range(4, 4).Select(c => sheet.Cell(legendRow + 1, c).GetString()));
     }
 
     // ------------------------------------------------------------------ entries: validation
@@ -327,8 +396,6 @@ public sealed class DutyChartTests
         var message = await Refused(id, "2026-04-30",
             Duty(_asha, "2026-05-14", "M"),                                   // not a day of the chart
             Duty(_asha, "2026-05-12", "AM"),                                  // not a session code
-            Duty(_ravi, "2026-05-13", "M"),                                   // Wednesday has no morning
-            Duty(_ravi, "2026-05-12", "A"),                                   // Tuesday has no afternoon
             Duty(_ravi, "2026-05-11", "M", "Head Boy"),                       // not a role
             new DutyChartEntryDto { StaffId = _ravi.StaffId, Date = "2026-05-12", Kind = "party" },
             Other(_om, "2026-05-11", new string('x', 101)),                   // note too long
@@ -340,10 +407,10 @@ public sealed class DutyChartTests
 
         Assert.Contains("Prof. Asha R. Patil has an entry on 14-05-2026, which is not a day of this chart", message);
         Assert.Contains("Prof. Asha R. Patil needs a session (M, A or MA) on 12-05-2026", message);
-        Assert.Contains("Dr. Ravi Kumar is given the morning of 13-05-2026, but there is no morning session that day", message);
-        Assert.Contains("Dr. Ravi Kumar is given the afternoon of 12-05-2026, but there is no afternoon session that day", message);
+        Assert.DoesNotContain("no morning session", message);   // sessions no longer depend on times
+        Assert.DoesNotContain("no afternoon session", message);
         Assert.Contains("Dr. Ravi Kumar has the role \"Head Boy\"", message);
-        Assert.Contains("Dr. Ravi Kumar has an entry on 12-05-2026 that is not a duty, valuation or other work", message);
+        Assert.Contains("Dr. Ravi Kumar has an entry on 12-05-2026 that is not a duty or other work", message);
         Assert.Contains("The note for Mr. Om Das on 11-05-2026 is longer than 100 characters", message);
         Assert.Contains("Mr. Om Das appears more than once on 11-05-2026", message);
         Assert.Contains("Mr. Gone Away has left", message);
@@ -357,7 +424,7 @@ public sealed class DutyChartTests
     }
 
     [Fact]
-    public async Task A_duty_without_a_role_gets_the_default_and_valuation_and_other_ignore_session_and_role()
+    public async Task A_duty_without_a_role_gets_the_default_and_other_work_ignores_session_and_role()
     {
         var chart = await NewChart();
 
@@ -365,7 +432,7 @@ public sealed class DutyChartTests
             Duty(_asha, "2026-05-11", "ma"),
             Duty(_om, "2026-05-11", "M"),
             Duty(_ravi, "2026-05-12", "M", "senior supervisor"),
-            new DutyChartEntryDto { StaffId = _meena.StaffId, Date = "2026-05-11", Kind = "Valuation", Session = "M", Role = "Chief Conductor", Note = "ignored" },
+            new DutyChartEntryDto { StaffId = _meena.StaffId, Date = "2026-05-11", Kind = "Other", Session = "M", Role = "Chief Conductor" },
             new DutyChartEntryDto { StaffId = _meena.StaffId, Date = "2026-05-12", Kind = "other", Session = "A", Role = SupervisionRoles.Junior, Note = "  Exam   cell " });
 
         var entries = (await _service.GetAsync(chart.Chart.Id)).Entries;
@@ -373,9 +440,9 @@ public sealed class DutyChartTests
         Assert.Equal(("duty", "MA", SupervisionRoles.Junior, null), (asha.Kind, asha.Session, asha.Role, asha.Note));
         Assert.Equal(SupervisionRoles.NonTeaching, entries.Single(e => e.StaffId == _om.StaffId).Role);
         Assert.Equal(SupervisionRoles.Senior, entries.Single(e => e.StaffId == _ravi.StaffId).Role);
-        var valuation = entries.Single(e => e.StaffId == _meena.StaffId && e.Kind == "valuation");
-        Assert.Equal((null, null, null), (valuation.Session, valuation.Role, valuation.Note));
-        var other = entries.Single(e => e.StaffId == _meena.StaffId && e.Kind == "other");
+        var bare = entries.Single(e => e.StaffId == _meena.StaffId && e.Date == "2026-05-11");
+        Assert.Equal(("other", null, null, null), (bare.Kind, bare.Session, bare.Role, bare.Note));
+        var other = entries.Single(e => e.StaffId == _meena.StaffId && e.Date == "2026-05-12");
         Assert.Equal((null, null, "Exam cell"), (other.Session, other.Role, other.Note));
     }
 
@@ -389,12 +456,12 @@ public sealed class DutyChartTests
         var result = await Save(chart.Chart.Id, "2026-04-30",
             Duty(_asha, "2026-05-13", "A"),
             Duty(_asha, "2026-05-11", "MA", SupervisionRoles.Senior),
-            Valuation(_asha, "2026-05-12"),
+            Other(_asha, "2026-05-12", "Exam cell"),
             Duty(_ravi, "2026-05-12", "M"),
             Other(_ravi, "2026-05-13", "Exam cell"),
             Other(_om, "2026-05-11", null),
             Duty(_om, "2026-05-12", "M"),
-            Valuation(_meena, "2026-05-11"));   // valuation alone is no duty: no letter
+            Other(_meena, "2026-05-11", "Exam cell"));   // other work alone is no duty: no letter
 
         Assert.Equal((3, 0, 0, 0), (result.Created, result.Updated, result.Unchanged, result.Removed));
         Assert.Equal("Saved: 3 new, 0 updated, 0 unchanged, 0 cancelled.", result.Message);
@@ -412,7 +479,7 @@ public sealed class DutyChartTests
         {
             ("2026-05-11", Morning, "duty", SupervisionRoles.Senior),
             ("2026-05-11", Afternoon, "duty", SupervisionRoles.Senior),
-            ("2026-05-12", "Full day", "valuation", "Valuation"),
+            ("2026-05-12", "Full day", "other", "Exam cell"),
             ("2026-05-13", Afternoon, "duty", SupervisionRoles.Junior)
         }, asha.Lines.Select(l => (l.Date, l.Time, l.Kind, l.Role)));
 
@@ -473,8 +540,8 @@ public sealed class DutyChartTests
         Assert.Contains("letter date is not a valid date", await Refused(id, "30/04/2026", Duty(_asha, "2026-05-11", "M")));
         Assert.Empty((await _service.GetAsync(id)).Entries);
 
-        // A valuation day needs no letter, so no date.
-        var result = await Save(id, "", Valuation(_asha, "2026-05-11"));
+        // Other work needs no letter, so no date.
+        var result = await Save(id, "", Other(_asha, "2026-05-11", "Exam cell"));
         Assert.Equal(0, result.Created);
         Assert.Single((await _service.GetAsync(id)).Entries);
     }
@@ -486,8 +553,8 @@ public sealed class DutyChartTests
         var id = chart.Chart.Id;
         await Save(id, "2026-04-30", Duty(_asha, "2026-05-11", "M"), Duty(_ravi, "2026-05-12", "M"));   // DUTY-001, DUTY-002
 
-        // Ravi is cancelled (his duty becomes valuation), Meena is new.
-        var result = await Save(id, "2026-05-02", Duty(_asha, "2026-05-11", "M"), Valuation(_ravi, "2026-05-12"), Duty(_meena, "2026-05-11", "A"));
+        // Ravi is cancelled (his duty becomes other work), Meena is new.
+        var result = await Save(id, "2026-05-02", Duty(_asha, "2026-05-11", "M"), Other(_ravi, "2026-05-12", "Exam cell"), Duty(_meena, "2026-05-11", "A"));
 
         Assert.Equal((1, 0, 1, 1), (result.Created, result.Updated, result.Unchanged, result.Removed));
         var letters = (await _service.GetAsync(id)).Letters;
@@ -495,7 +562,7 @@ public sealed class DutyChartTests
         var cancelled = await _context.StaffLetters.IgnoreQueryFilters().SingleAsync(l => l.StaffId == _ravi.StaffId);
         Assert.True(cancelled.IsDeleted);
         Assert.Equal("VIT/EXAM/2026-27/DUTY-002", cancelled.LetterNo);
-        Assert.Equal(3, (await _service.GetAsync(id)).Entries.Count);   // Ravi's valuation entry stays
+        Assert.Equal(3, (await _service.GetAsync(id)).Entries.Count);   // Ravi's other-work entry stays
 
         // Ravi is given a duty again: a fresh letter, next number.
         await Save(id, "2026-05-03", Duty(_asha, "2026-05-11", "M"), Duty(_ravi, "2026-05-12", "M"), Duty(_meena, "2026-05-11", "A"));
@@ -612,7 +679,7 @@ public sealed class DutyChartTests
         _context.SaveChanges();
         await Save(chart.Chart.Id, "2026-04-30",
             Duty(_ravi, "2026-05-11", "MA", SupervisionRoles.ChiefConductor), Duty(_ravi, "2026-05-12", "M", SupervisionRoles.Senior),
-            Duty(_asha, "2026-05-11", "A"), Valuation(_asha, "2026-05-12"), Other(_meena, "2026-05-13", "Exam cell"), Other(_meena, "2026-05-11", null),
+            Duty(_asha, "2026-05-11", "A"), Other(_asha, "2026-05-12", "Paper setting"), Other(_meena, "2026-05-13", "Exam cell"), Other(_meena, "2026-05-11", null),
             Duty(_om, "2026-05-13", "A"));
 
         var (bytes, name) = await _service.ExcelAsync(chart.Chart.Id);
@@ -638,7 +705,7 @@ public sealed class DutyChartTests
         // Codes.
         Assert.Equal(new[] { "CC (M/A)", "SS (M)", "" }, Enumerable.Range(4, 3).Select(c => sheet.Cell(5, c).GetString()));
         Assert.Equal(3, sheet.Cell(5, 7).GetValue<int>());   // sessions
-        Assert.Equal(new[] { "A", "V", "" }, Enumerable.Range(4, 3).Select(c => sheet.Cell(7, c).GetString()));
+        Assert.Equal(new[] { "A", "Paper setting", "" }, Enumerable.Range(4, 3).Select(c => sheet.Cell(7, c).GetString()));
         Assert.Equal(new[] { "O", "", "Exam cell" }, Enumerable.Range(4, 3).Select(c => sheet.Cell(8, c).GetString()));
         Assert.Equal(1, sheet.Cell(7, 7).GetValue<int>());
         Assert.Equal(0, sheet.Cell(8, 7).GetValue<int>());
@@ -660,7 +727,7 @@ public sealed class DutyChartTests
         var id = chart.Chart.Id;
         await Save(id, "2026-04-30",
             Duty(_ravi, "2026-05-11", "MA", SupervisionRoles.ChiefConductor), Duty(_ravi, "2026-05-12", "M", SupervisionRoles.Senior),
-            Duty(_asha, "2026-05-11", "A"), Valuation(_asha, "2026-05-12"), Other(_meena, "2026-05-13", "Exam cell"), Other(_meena, "2026-05-11", null),
+            Duty(_asha, "2026-05-11", "A"), Other(_asha, "2026-05-12", "Paper setting"), Other(_meena, "2026-05-13", "Exam cell"), Other(_meena, "2026-05-11", null),
             Duty(_om, "2026-05-13", "A"), Duty(_asha, "2026-05-13", "A"));
         var before = await _service.GetAsync(id);
         var (bytes, _) = await _service.ExcelAsync(id);
@@ -754,11 +821,11 @@ public sealed class DutyChartTests
             var asha = RowOf(sheet, "E101");
             sheet.Cell(asha, ColumnOf(sheet, "11-05")).Value = "M";
             sheet.Cell(asha, 2).Value = "E999";                                                  // not in Staff Master
-            sheet.Cell(RowOf(sheet, "E102"), ColumnOf(sheet, "13-05")).Value = "M";              // no morning on Wednesday
-            sheet.Cell(RowOf(sheet, "E102"), ColumnOf(sheet, "12-05")).Value = "A";              // no afternoon on Tuesday
+            sheet.Cell(RowOf(sheet, "E102"), ColumnOf(sheet, "13-05")).Value = "M";              // fine: sessions do not need a time
+            sheet.Cell(RowOf(sheet, "E102"), ColumnOf(sheet, "12-05")).Value = "A";
             sheet.Cell(RowOf(sheet, "E103"), ColumnOf(sheet, "12-05")).Value = "CC (X)";         // unreadable
             sheet.Cell(RowOf(sheet, "E104"), ColumnOf(sheet, "11-05")).Value = new string('x', 101);   // note too long
-            // A Thursday column the chart does not have.
+            // A Thursday column the chart does not have: it is added as a day, not an error.
             sheet.Cell(3, 8).Value = "14-05-2026\nThu";
             sheet.Cell(RowOf(sheet, "E104"), 8).Value = "M";
         });
@@ -768,15 +835,51 @@ public sealed class DutyChartTests
         Assert.False(result.Success);
         Assert.False(result.Saved);
         Assert.StartsWith("Nothing was imported. Fix", result.Message);
-        Assert.Equal(4, result.Rows.Count(r => r.HasErrors));
+        Assert.Equal(3, result.Rows.Count(r => r.HasErrors));
         Assert.Contains(result.Errors, e => e.Contains("Employee ID E999 is not in Staff Master"));
-        Assert.Contains(result.Errors, e => e.Contains("13-05-2026: there is no morning session that day"));
-        Assert.Contains(result.Errors, e => e.Contains("12-05-2026: there is no afternoon session that day"));
         Assert.Contains(result.Errors, e => e.Contains("cannot read \"CC (X)\""));
-        Assert.Contains(result.Errors, e => e.Contains("14-05-2026 is not a day of this chart; add it under Days"));
         Assert.Contains(result.Errors, e => e.Contains("longer than 100 characters"));
+        Assert.DoesNotContain(result.Errors, e => e.Contains("session that day") || e.Contains("not a day of this chart"));
+        Assert.Equal(3, (await _service.GetAsync(id)).Days.Count);   // the new Thursday was not added either
         Assert.All(result.Rows.Where(r => r.HasErrors), r => Assert.Equal("", r.Action));
         Assert.Equal(new[] { _meena.StaffId }, (await _service.GetAsync(id)).Entries.Select(e => e.StaffId));   // nothing saved
+    }
+
+    [Fact]
+    public async Task A_date_column_that_is_not_a_chart_day_is_previewed_and_added_as_a_day_when_saved()
+    {
+        var chart = await NewChart();
+        var id = chart.Chart.Id;
+        await SaveWith(id, "2026-04-30", Everyone, Duty(_meena, "2026-05-11", "M"));
+        var file = await EditedSheet(id, sheet =>
+        {
+            // Thursday (inside the chart's dates) and a Wednesday in June (outside them): neither is a chart day.
+            sheet.Cell(3, 8).Value = "14-05-2026\nThu";
+            sheet.Cell(3, 9).Value = "03-06-2026\nWed";
+            sheet.Cell(RowOf(sheet, "E101"), 8).Value = "M";
+            sheet.Cell(RowOf(sheet, "E101"), 9).Value = "M/A";
+            sheet.Cell(RowOf(sheet, "E102"), 9).Value = "A";
+        });
+
+        var preview = await Import(id, file);
+
+        Assert.True(preview.Success);
+        Assert.Empty(preview.Errors);
+        Assert.Equal("Ready: 0 new, 2 updated, 2 unchanged. 2 new days will be added (Thu 14 May 2026, Wed 3 Jun 2026). Check the list, then press Save.", preview.Message);
+        Assert.Equal(3, (await _service.GetAsync(id)).Days.Count);   // a preview adds nothing
+
+        var saved = await Import(id, file, preview: false);
+
+        Assert.True(saved.Saved);
+        Assert.EndsWith("2 new days were added (Thu 14 May 2026, Wed 3 Jun 2026).", saved.Message);
+        var after = await _service.GetAsync(id);
+        Assert.Equal(new[] { "2026-05-11", "2026-05-12", "2026-05-13", "2026-05-14", "2026-06-03" }, after.Days.Select(d => d.Date));
+        Assert.Equal(("2026-05-11", "2026-06-03"), (after.Chart.FromDate, after.Chart.ToDate));
+        var june = after.Days.Single(d => d.Date == "2026-06-03");
+        Assert.Equal((null, null, false), (june.Morning, june.Afternoon, june.FromTimetable));
+        Assert.Contains(after.Entries, e => e.StaffId == _asha.StaffId && e.Date == "2026-06-03" && e.Session == "MA");
+        Assert.Equal(new[] { "Morning session", "Morning session", "Afternoon session" },
+            after.Letters.Single(l => l.StaffId == _asha.StaffId).Lines.Select(l => l.Time));
     }
 
     [Fact]
@@ -875,7 +978,7 @@ public sealed class DutyChartTests
         var chart = await NewChart();
         var id = chart.Chart.Id;
 
-        await SaveWith(id, "2026-04-30", new[] { _asha.StaffId, _ravi.StaffId, _meena.StaffId }, Duty(_ravi, "2026-05-11", "M"), Valuation(_meena, "2026-05-12"));
+        await SaveWith(id, "2026-04-30", new[] { _asha.StaffId, _ravi.StaffId, _meena.StaffId }, Duty(_ravi, "2026-05-11", "M"), Other(_meena, "2026-05-12", "Exam cell"));
 
         var detail = await _service.GetAsync(id);
         Assert.Equal(3, detail.Chart.StaffCount);
@@ -909,7 +1012,7 @@ public sealed class DutyChartTests
         var chart = await NewChart();
         var id = chart.Chart.Id;
         await SaveWith(id, "2026-04-30", new[] { _asha.StaffId, _ravi.StaffId, _meena.StaffId },
-            Duty(_asha, "2026-05-11", "M"), Duty(_ravi, "2026-05-11", "A"), Valuation(_ravi, "2026-05-12"));
+            Duty(_asha, "2026-05-11", "M"), Duty(_ravi, "2026-05-11", "A"), Other(_ravi, "2026-05-12", "Exam cell"));
         Assert.Equal(2, (await _service.GetAsync(id)).Letters.Count);
 
         // Ravi and Meena are left out of the list and Ravi's entries are not sent.
@@ -991,7 +1094,7 @@ public sealed class DutyChartTests
             sheet.Cell(4, 6).Value = "A";
             sheet.Cell(5, 2).Value = "E101";
             sheet.Cell(5, 4).Value = "m/a";
-            sheet.Cell(5, 5).Value = "V";
+            sheet.Cell(5, 5).Value = "V";   // vacation: read as empty
             sheet.Cell(6, 2).Value = "E102";
         });
         var preview = await Import(id, file);
@@ -1005,7 +1108,7 @@ public sealed class DutyChartTests
         Assert.StartsWith("Saved: 2 new, 0 updated, 0 unchanged, 0 cancelled. 3 people were added to the chart.", saved.Message);
         var detail = await _service.GetAsync(id);
         Assert.Equal(new[] { _om.StaffId, _asha.StaffId, _ravi.StaffId }, MemberIds(detail));   // file order
-        Assert.Equal(new[] { "2026-05-11/MA", "2026-05-12/", "2026-05-13/A" }, detail.Entries.OrderBy(e => e.Date).Select(e => $"{e.Date}/{e.Session}"));
+        Assert.Equal(new[] { "2026-05-11/MA", "2026-05-13/A" }, detail.Entries.OrderBy(e => e.Date).Select(e => $"{e.Date}/{e.Session}"));
         Assert.Equal(new[] { _om.StaffId, _asha.StaffId }, detail.Letters.Select(l => l.StaffId).OrderBy(i => i == _om.StaffId ? 0 : 1));
     }
 
@@ -1109,13 +1212,92 @@ public sealed class DutyChartTests
     [Theory]
     [InlineData("V")]
     [InlineData(" v ")]
+    [InlineData("Vac")]
+    [InlineData("VACATION")]
+    [InlineData("leave")]
+    [InlineData(" Va cation ")]
+    public void V_is_vacation_and_reads_as_an_empty_cell(string text)
+    {
+        Assert.Null(DutyCodes.Parse(text, out var error));
+        Assert.Null(error);
+    }
+
+    [Theory]
     [InlineData("Valuation")]
-    public void V_is_valuation(string text)
+    [InlineData("VAL")]
+    [InlineData("CAP")]
+    public void The_old_valuation_words_are_now_other_work(string text)
     {
         var code = DutyCodes.Parse(text, out var error);
 
         Assert.Null(error);
-        Assert.Equal(("valuation", null, null, null), (code!.Kind, code.Session, code.Role, code.Note));
+        Assert.Equal(("other", null, null, text), (code!.Kind, code.Session, code.Role, code.Note));
+    }
+
+    [Fact]
+    public void The_kinds_are_duty_and_other_only()
+    {
+        Assert.Equal(new[] { "duty", "other" }, DutyKinds.All);
+    }
+
+    [Fact]
+    public async Task Valuation_is_not_a_kind_the_screen_can_save()
+    {
+        var chart = await NewChart();
+
+        var message = await Refused(chart.Chart.Id, "2026-04-30", new DutyChartEntryDto { StaffId = _asha.StaffId, Date = "2026-05-11", Kind = "valuation" });
+
+        Assert.Contains("that is not a duty or other work", message);
+    }
+
+    [Fact]
+    public async Task An_old_valuation_entry_is_left_out_everywhere_and_the_next_save_drops_it()
+    {
+        var chart = await NewChart();
+        var id = chart.Chart.Id;
+        await Save(id, "2026-04-30", Duty(_asha, "2026-05-11", "M"));
+        OldValuationRow(id, _ravi, "2026-05-12");
+        OldValuationRow(id, _asha, "2026-05-12");
+
+        var detail = await _service.GetAsync(id);
+        Assert.Equal(new[] { _asha.StaffId }, detail.Entries.Select(e => e.StaffId));
+        Assert.Equal("duty", Assert.Single(detail.Entries).Kind);
+        Assert.Equal(1, detail.Chart.DutyCount);
+        Assert.Equal(1, (await _service.ListAsync(_ay)).Single().DutyCount);
+
+        // The export has no cell for it.
+        var (bytes, _) = await _service.ExcelAsync(id);
+        using (var workbook = new XLWorkbook(new MemoryStream(bytes)))
+        {
+            var sheet = workbook.Worksheet(1);
+            Assert.DoesNotContain(Enumerable.Range(4, sheet.LastRowUsed()!.RowNumber()), r => sheet.Cell(r, 2).GetString() == "E102");
+            Assert.DoesNotContain(Enumerable.Range(4, sheet.LastRowUsed()!.RowNumber()).SelectMany(r => Enumerable.Range(4, 3).Select(c => sheet.Cell(r, c).GetString())), t => t == "V");
+        }
+
+        // The next save drops the old rows.
+        await Save(id, null, Duty(_asha, "2026-05-11", "M"));
+        Assert.Equal(1, await _context.DutyChartEntries.CountAsync(e => e.ChartId == id));
+    }
+
+    [Fact]
+    public async Task An_old_valuation_line_on_a_letter_is_left_out_of_the_chart_view_and_dropped_when_the_letter_changes()
+    {
+        var chart = await NewChart();
+        var id = chart.Chart.Id;
+        await Save(id, "2026-04-30", Duty(_asha, "2026-05-11", "M"));
+        var letter = await _context.StaffLetters.Include(l => l.Duties).SingleAsync();
+        _context.StaffLetterDuties.Add(new StaffLetterDuty
+        {
+            Id = Guid.NewGuid(), CollegeId = _college, LetterId = letter.Id, Date = "12-05-2026", Time = "Full day", Kind = "valuation", Role = "Valuation", SortOrder = 9
+        });
+        _context.SaveChanges();
+
+        Assert.Equal(new[] { "duty" }, (await _service.GetAsync(id)).Letters.Single().Lines.Select(l => l.Kind));
+
+        // The stored lines no longer match what the chart gives, so the letter is rewritten without the old line.
+        var result = await Save(id, "2026-04-30", Duty(_asha, "2026-05-11", "M"));
+        Assert.Equal(1, result.Updated);
+        Assert.DoesNotContain(await _context.StaffLetterDuties.ToListAsync(), d => d.Kind == "valuation");
     }
 
     [Theory]

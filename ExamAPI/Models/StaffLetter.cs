@@ -49,7 +49,7 @@ namespace ExamAPI.Models
         public ICollection<StaffLetterDuty> Duties { get; set; } = new List<StaffLetterDuty>();
     }
 
-    /// <summary>One line of a supervision letter: a day, its session time and the role (or a valuation / other day), copied from the duty chart. Replaced wholesale when the letter is saved.</summary>
+    /// <summary>One line of a supervision letter: a day, its session time and the role (or an other-work day), copied from the duty chart. Replaced wholesale when the letter is saved.</summary>
     public class StaffLetterDuty : ICollegeScoped
     {
         [Key]
@@ -63,10 +63,10 @@ namespace ExamAPI.Models
         public required string Date { get; set; }
         [MaxLength(50)]
         public required string Time { get; set; }
-        /// <summary>DutyKinds: duty, valuation or other.</summary>
+        /// <summary>DutyKinds: duty or other.</summary>
         [MaxLength(20)]
         public string Kind { get; set; } = DutyKinds.Duty;
-        /// <summary>SupervisionRoles for a duty; a short label for valuation / other.</summary>
+        /// <summary>SupervisionRoles for a duty; a short label for other work.</summary>
         [MaxLength(40)]
         public string? Role { get; set; }
         public int SortOrder { get; set; }

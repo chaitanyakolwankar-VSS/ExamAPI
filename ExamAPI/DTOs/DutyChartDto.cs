@@ -48,13 +48,13 @@ namespace ExamAPI.DTOs
         public int Papers { get; set; }
     }
 
-    /// <summary>What one person does on one day: a duty (session and role), valuation, or other work. Also the shape the screen sends.</summary>
+    /// <summary>What one person does on one day: a duty (session and role) or other work. Also the shape the screen sends.</summary>
     public class DutyChartEntryDto
     {
         public Guid StaffId { get; set; }
         /// <summary>yyyy-MM-dd.</summary>
         public string Date { get; set; } = "";
-        /// <summary>duty, valuation or other.</summary>
+        /// <summary>duty or other.</summary>
         public string Kind { get; set; } = "";
         /// <summary>M, A or MA, for a duty; null otherwise.</summary>
         public string? Session { get; set; }

@@ -55,7 +55,7 @@ namespace ExamAPI.Models
         public bool FromTimetable { get; set; }
     }
 
-    /// <summary>What one person does on one day of a chart: a duty (session + role), valuation, or other work.</summary>
+    /// <summary>What one person does on one day of a chart: a duty (session + role) or other work.</summary>
     public class DutyChartEntry : ICollegeScoped
     {
         [Key]
@@ -102,10 +102,12 @@ namespace ExamAPI.Models
     public static class DutyKinds
     {
         public const string Duty = "duty";
-        public const string Valuation = "valuation";
         public const string Other = "other";
 
-        public static readonly IReadOnlyList<string> All = new[] { Duty, Valuation, Other };
+        public static readonly IReadOnlyList<string> All = new[] { Duty, Other };
+
+        /// <summary>The old "valuation" kind, removed: in the duty chart sheet V means vacation. Rows already saved with it are left out of everything.</summary>
+        public const string RetiredValuation = "valuation";
     }
 
     public static class DutySessions
@@ -115,5 +117,13 @@ namespace ExamAPI.Models
         public const string Both = "MA";
 
         public static readonly IReadOnlyList<string> All = new[] { Morning, Afternoon, Both };
+
+        /// <summary>What a letter line says for a session of a day that has no time set.</summary>
+        public const string MorningNoTime = "Morning session";
+        public const string AfternoonNoTime = "Afternoon session";
+
+        /// <summary>The session's time as the letter prints it: the day's time, or "Morning session" / "Afternoon session" when none is set.</summary>
+        public static string TimeText(string? time, bool morning) =>
+            string.IsNullOrWhiteSpace(time) ? (morning ? MorningNoTime : AfternoonNoTime) : time;
     }
 }

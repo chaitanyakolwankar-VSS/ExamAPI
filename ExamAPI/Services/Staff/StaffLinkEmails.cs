@@ -24,7 +24,7 @@ namespace ExamAPI.Services.Staff
         {
             get
             {
-                var n = Letter.Duties.Select(d => d.Date).Distinct().Count();
+                var n = Letter.Duties.Where(d => d.Kind != DutyKinds.RetiredValuation).Select(d => d.Date).Distinct().Count();
                 return $"{n} date{(n == 1 ? "" : "s")}";
             }
         }
@@ -54,6 +54,33 @@ namespace ExamAPI.Services.Staff
         }
     }
 
+    /// <summary>The signature at the end of the letters-link email: the college's own text, or "Exam Office" and the college name.</summary>
+    public static class StaffEmailSignature
+    {
+        public const int MaxLength = 1000;
+
+        /// <summary>Line ends tidied (spaces at the end of a line dropped), empty lines at the start and end dropped; "" when nothing is left.</summary>
+        public static string Clean(string? text)
+        {
+            var lines = (text ?? "").Replace("\r\n", "\n").Replace('\r', '\n').Split('\n').Select(l => l.TrimEnd()).ToList();
+            while (lines.Count > 0 && lines[0].Trim() == "") lines.RemoveAt(0);
+            while (lines.Count > 0 && lines[^1].Trim() == "") lines.RemoveAt(lines.Count - 1);
+            return string.Join("\n", lines);
+        }
+
+        /// <summary>What the email ends with, as plain text with "\n" between lines: the saved signature, or "Exam Office" and the college name when there is none.</summary>
+        public static string Effective(string? saved, string college)
+        {
+            var text = Clean(saved);
+            return text != "" ? text : $"Exam Office\n{college}";
+        }
+
+        /// <summary>The college's saved signature (the tenant filter decides whose); null when none.</summary>
+        public static async Task<string?> SavedAsync(ApplicationDbContext context, Guid? collegeId, bool ignoreFilters, CancellationToken ct = default) =>
+            await (ignoreFilters ? context.CollegeSettings.IgnoreQueryFilters().Where(s => s.CollegeId == collegeId && !s.IsDeleted) : context.CollegeSettings)
+                .AsNoTracking().Select(s => s.LetterEmailSignature).FirstOrDefaultAsync(ct);
+    }
+
     /// <summary>The emails of staff links: the letters link and the 6-digit code.</summary>
     public static class StaffLinkEmails
     {
@@ -61,8 +88,9 @@ namespace ExamAPI.Services.Staff
         public static string LinkUrl(string baseUrl, string token) => $"{baseUrl.TrimEnd('/')}/t#{token}";
 
         public static EmailMessage LinkMessage(string to, string college, string firstName, string examTitle, IReadOnlyList<string> letters,
-            string url, DateTime expiresAt, string? examOfficeEmail)
+            string url, DateTime expiresAt, string? examOfficeEmail, string? signature = null)
         {
+            var signed = StaffEmailSignature.Effective(signature, college);
             var until = expiresAt.ToLocalTime().ToString("d MMM yyyy");
             var name = string.IsNullOrWhiteSpace(firstName) ? "Sir / Madam" : firstName.Trim();
             var exam = string.IsNullOrWhiteSpace(examTitle) ? "the examinations" : examTitle.Trim();
@@ -80,14 +108,16 @@ namespace ExamAPI.Services.Staff
                 + $"<p><a href=\"{e(url)}\" style=\"display:inline-block;background:#465fff;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:6px\">Open my letters</a></p>"
                 + $"<p style=\"margin-bottom:4px\"><b>How to get them</b></p><ol style=\"margin-top:0;padding-left:20px\">{string.Concat(steps.Select(st => $"<li style=\"margin-bottom:4px\">{e(st)}</li>"))}</ol>"
                 + $"<p>The link works until <b>{e(until)}</b>.</p>"
-                + "<p style=\"color:#6b7280\">Don't forward this email: the link opens your letters.</p>";
+                + "<p style=\"color:#6b7280\">Don't forward this email: the link opens your letters.</p>"
+                + $"<p>{e(signed).Replace("\n", "<br>")}</p>";
             var text =
                 $"Dear {name},\n\n{college} has issued you letters for {exam}:\n"
                 + string.Concat(letters.Select(l => $"- {l}\n"))
                 + $"\nOpen this link:\n{url}\n\nHow to get them:\n"
                 + string.Concat(steps.Select((st, i) => $"{i + 1}. {st}\n"))
                 + $"\nThe link works until {until}.\n\n"
-                + "Don't forward this email: the link opens your letters.";
+                + "Don't forward this email: the link opens your letters.\n\n"
+                + signed;
             return EmailLayout.Build(to, $"{college}: your letters for {exam}", html, text, examOfficeEmail);
         }
 
@@ -138,10 +168,11 @@ namespace ExamAPI.Services.Staff
 
             var college = await StudentLinkEmails.CollegeNameAsync(_context, link.CollegeId, ct);
             var examTitle = lines[0].Letter.ExamTitle;
+            var signature = await StaffEmailSignature.SavedAsync(_context, link.CollegeId, ignoreFilters: true, ct);
             // The person's email now, not when it was queued: it may have been corrected since.
             return StaffLinkEmails.LinkMessage(link.Staff.Email, college, link.Staff.FirstName, examTitle,
                 lines.OrderBy(l => l.Kind == "Supervision" ? 0 : l.Kind == "Examiner" ? 1 : 2).ThenBy(l => l.Letter.SerialNo).Select(l => l.EmailLine).ToList(),
-                StaffLinkEmails.LinkUrl(link.LinkBaseUrl, token), link.ExpiresAt, examOfficeEmail);
+                StaffLinkEmails.LinkUrl(link.LinkBaseUrl, token), link.ExpiresAt, examOfficeEmail, signature);
         }
     }
 

@@ -36,7 +36,6 @@ namespace ExamAPI.Services.Staff
         private const string LetterDateFormat = "yyyy-MM-dd";
         private const string DayTextFormat = "dd-MM-yyyy";
         private const string FullDay = "Full day";
-        private const string ValuationRole = "Valuation";
         private const string OtherRole = "Other work";
         private const int MaxDays = 366;
 
@@ -170,7 +169,7 @@ namespace ExamAPI.Services.Staff
                 .GroupBy(d => d.ChartId).Select(g => new { Id = g.Key, Count = g.Count() }).ToListAsync()).ToDictionary(g => g.Id, g => g.Count);
             var memberCounts = (await _context.DutyChartMembers.AsNoTracking().Where(m => ids.Contains(m.ChartId))
                 .GroupBy(m => m.ChartId).Select(g => new { Id = g.Key, Count = g.Count() }).ToListAsync()).ToDictionary(g => g.Id, g => g.Count);
-            var entries = (await _context.DutyChartEntries.AsNoTracking().Where(e => ids.Contains(e.ChartId))
+            var entries = (await _context.DutyChartEntries.AsNoTracking().Where(e => ids.Contains(e.ChartId) && e.Kind != DutyKinds.RetiredValuation)
                 .Select(e => new { e.ChartId, e.Kind, e.Session }).ToListAsync()).ToLookup(e => e.ChartId);
             var letterCounts = (await _context.StaffLetters.AsNoTracking()
                 .Where(l => l.DutyChartId != null && ids.Contains(l.DutyChartId.Value) && l.LetterType == StaffLetterTypes.Supervision)
@@ -186,7 +185,7 @@ namespace ExamAPI.Services.Staff
             var chart = await _context.DutyCharts.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id) ?? throw new KeyNotFoundException("Duty chart not found.");
             var days = await _context.DutyChartDays.AsNoTracking().Where(d => d.ChartId == id).OrderBy(d => d.Date).ToListAsync();
             var members = await _context.DutyChartMembers.AsNoTracking().Where(m => m.ChartId == id).OrderBy(m => m.SortOrder).ThenBy(m => m.StaffId).ToListAsync();
-            var entries = await _context.DutyChartEntries.AsNoTracking().Where(e => e.ChartId == id).OrderBy(e => e.Date).ThenBy(e => e.StaffId).ToListAsync();
+            var entries = await _context.DutyChartEntries.AsNoTracking().Where(e => e.ChartId == id && e.Kind != DutyKinds.RetiredValuation).OrderBy(e => e.Date).ThenBy(e => e.StaffId).ToListAsync();
             var letters = await _context.StaffLetters.AsNoTracking().Include(l => l.Duties)
                 .Where(l => l.DutyChartId == id && l.LetterType == StaffLetterTypes.Supervision).ToListAsync();
             var papers = (await TimetableDaysAsync(chart.AYID, chart.FromDate, chart.ToDate)).ToDictionary(t => t.Date, t => t.Papers);
@@ -213,7 +212,7 @@ namespace ExamAPI.Services.Staff
                     LetterNo = l.LetterNo,
                     LetterDate = Iso(l.LetterDate),
                     Role = l.Role ?? "",
-                    Lines = l.Duties.OrderBy(d => d.SortOrder).Select(d => new DutyLineDto
+                    Lines = l.Duties.Where(d => d.Kind != DutyKinds.RetiredValuation).OrderBy(d => d.SortOrder).Select(d => new DutyLineDto
                     {
                         Date = LineDate(d.Date), Time = d.Time, Kind = d.Kind, Role = d.Role ?? ""
                     }).ToList()
@@ -324,7 +323,7 @@ namespace ExamAPI.Services.Staff
         /// <summary>The people with an entry on the dates matching the test, with the date of each entry.</summary>
         private async Task<List<(string Who, DateTime Date)>> EntriesOnAsync(Guid chartId, Func<DateTime, bool> onDate, Func<DutyChartEntry, bool>? entryTest = null)
         {
-            var entries = (await _context.DutyChartEntries.AsNoTracking().Where(e => e.ChartId == chartId).ToListAsync())
+            var entries = (await _context.DutyChartEntries.AsNoTracking().Where(e => e.ChartId == chartId && e.Kind != DutyKinds.RetiredValuation).ToListAsync())
                 .Where(e => onDate(e.Date.Date) && (entryTest == null || entryTest(e))).ToList();
             var ids = entries.Select(e => e.StaffId).Distinct().ToList();
             var names = (await _context.StaffMasters.AsNoTracking().Where(s => ids.Contains(s.StaffId)).ToListAsync()).ToDictionary(s => s.StaffId, WhoIs);
@@ -355,29 +354,24 @@ namespace ExamAPI.Services.Staff
                 }
                 var morning = OrNull(d.Morning);
                 var afternoon = OrNull(d.Afternoon);
-                if (date < chart.FromDate.Date || date > chart.ToDate.Date) errors.Add($"{DayText(date)} is outside the dates of the chart; change the dates first.");
-                else if (wanted.ContainsKey(date)) errors.Add($"{DayText(date)} is listed more than once.");
-                else if (morning == null && afternoon == null) errors.Add($"{DayText(date)} needs a morning or an afternoon time.");
+                // Any date goes (the chart's dates widen below) and the session times are only labels, so both may be empty.
+                if (wanted.ContainsKey(date)) errors.Add($"{DayText(date)} is listed more than once.");
                 else if ((morning?.Length ?? 0) > 50 || (afternoon?.Length ?? 0) > 50) errors.Add($"The times on {DayText(date)} are longer than 50 characters.");
                 else wanted[date] = (morning, afternoon);
             }
 
-            // A day, or a session of a day, that someone has an entry on cannot go.
+            // A day that someone has an entry on cannot go (clearing a session's time is fine: sessions do not depend on times).
             var removed = chart.Days.Where(d => !wanted.ContainsKey(d.Date.Date)).Select(d => d.Date.Date).ToHashSet();
             foreach (var group in (await EntriesOnAsync(chart.Id, d => removed.Contains(d))).GroupBy(e => e.Date).OrderBy(g => g.Key))
                 errors.Add($"{JoinNames(group.Select(e => e.Who))} {(group.Select(e => e.Who).Distinct().Count() == 1 ? "has" : "have")} an entry on {DayText(group.Key)}, so that day cannot be removed.");
-            foreach (var day in chart.Days.Where(d => wanted.ContainsKey(d.Date.Date)))
-            {
-                var (morning, afternoon) = wanted[day.Date.Date];
-                foreach (var (session, label, gone) in new[] { ("M", "morning", morning == null), ("A", "afternoon", afternoon == null) })
-                {
-                    if (!gone || (session == "M" ? day.Morning : day.Afternoon) == null) continue;
-                    var users = await EntriesOnAsync(chart.Id, d => d == day.Date.Date, e => e.Kind == DutyKinds.Duty && (e.Session == DutySessions.Both || e.Session == session));
-                    if (users.Count > 0)
-                        errors.Add($"{JoinNames(users.Select(u => u.Who))} {(users.Select(u => u.Who).Distinct().Count() == 1 ? "is" : "are")} on duty in the {label} of {DayText(day.Date)}, so that session cannot be removed.");
-                }
-            }
             if (errors.Count > 0) throw new InvalidOperationException(Sentence(errors));
+
+            // A day outside the chart's dates widens them.
+            if (wanted.Count > 0)
+            {
+                if (wanted.Keys.Min() < chart.FromDate.Date) chart.FromDate = wanted.Keys.Min();
+                if (wanted.Keys.Max() > chart.ToDate.Date) chart.ToDate = wanted.Keys.Max();
+            }
 
             foreach (var day in chart.Days.ToList())
             {
@@ -455,21 +449,16 @@ namespace ExamAPI.Services.Staff
                 var problems = new List<string>();
                 if (!person.IsActive) problems.Add($"{who} has left and cannot be given duties.");
                 else if (person.IsExternal) problems.Add($"{who} is an external member of staff; duties are for our own staff.");
-                if (!days.TryGetValue(date, out var day)) problems.Add($"{who} has an entry on {on}, which is not a day of this chart.");
+                if (!days.ContainsKey(date)) problems.Add($"{who} has an entry on {on}, which is not a day of this chart.");
                 if (!seen.Add((e.StaffId, date))) problems.Add($"{who} appears more than once on {on}.");
 
                 var kind = DutyKinds.All.FirstOrDefault(k => string.Equals(k, (e.Kind ?? "").Trim(), StringComparison.OrdinalIgnoreCase));
                 string? session = null, role = null, note = null;
-                if (kind == null) problems.Add($"{who} has an entry on {on} that is not a duty, valuation or other work.");
+                if (kind == null) problems.Add($"{who} has an entry on {on} that is not a duty or other work.");
                 else if (kind == DutyKinds.Duty)
                 {
                     session = CanonicalSession(e.Session);
                     if (session == null) problems.Add($"{who} needs a session (M, A or MA) on {on}.");
-                    else if (day != null)
-                    {
-                        if (session != DutySessions.Afternoon && day.Morning == null) problems.Add($"{who} is given the morning of {on}, but there is no morning session that day.");
-                        if (session != DutySessions.Morning && day.Afternoon == null) problems.Add($"{who} is given the afternoon of {on}, but there is no afternoon session that day.");
-                    }
                     var typed = Tidy(e.Role);
                     role = typed == "" ? SupervisionRoles.DefaultFor(person) : SupervisionRoles.All.FirstOrDefault(r => string.Equals(r, typed, StringComparison.OrdinalIgnoreCase));
                     if (role == null) problems.Add($"{who} has the role \"{typed}\" on {on}; the roles are {string.Join(", ", SupervisionRoles.All)}.");
@@ -533,12 +522,12 @@ namespace ExamAPI.Services.Staff
                 foreach (var p in person.OrderBy(p => p.Date))
                 {
                     var date = DayText(p.Date);
-                    if (p.Kind == DutyKinds.Valuation) lines.Add(new Line(date, FullDay, DutyKinds.Valuation, ValuationRole));
-                    else if (p.Kind == DutyKinds.Other) lines.Add(new Line(date, FullDay, DutyKinds.Other, Shorten(p.Note ?? OtherRole, 40)));
+                    if (p.Kind == DutyKinds.Other) lines.Add(new Line(date, FullDay, DutyKinds.Other, Shorten(p.Note ?? OtherRole, 40)));
                     else
                     {
-                        if (p.Session != DutySessions.Afternoon) lines.Add(new Line(date, days[p.Date].Morning!, DutyKinds.Duty, p.Role!));
-                        if (p.Session != DutySessions.Morning) lines.Add(new Line(date, days[p.Date].Afternoon!, DutyKinds.Duty, p.Role!));
+                        // A session with no time set prints as "Morning session" / "Afternoon session".
+                        if (p.Session != DutySessions.Afternoon) lines.Add(new Line(date, DutySessions.TimeText(days[p.Date].Morning, morning: true), DutyKinds.Duty, p.Role!));
+                        if (p.Session != DutySessions.Morning) lines.Add(new Line(date, DutySessions.TimeText(days[p.Date].Afternoon, morning: false), DutyKinds.Duty, p.Role!));
                     }
                 }
                 var role = duties.Select(d => d.Role!).OrderBy(r => SupervisionRoles.All.ToList().IndexOf(r)).First();
@@ -673,7 +662,7 @@ namespace ExamAPI.Services.Staff
         {
             var chart = await _context.DutyCharts.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id) ?? throw new KeyNotFoundException("Duty chart not found.");
             var days = await _context.DutyChartDays.AsNoTracking().Where(d => d.ChartId == id).OrderBy(d => d.Date).ToListAsync();
-            var entries = await _context.DutyChartEntries.AsNoTracking().Where(e => e.ChartId == id).ToListAsync();
+            var entries = await _context.DutyChartEntries.AsNoTracking().Where(e => e.ChartId == id && e.Kind != DutyKinds.RetiredValuation).ToListAsync();
             var memberIds = await _context.DutyChartMembers.AsNoTracking().Where(m => m.ChartId == id).OrderBy(m => m.SortOrder).ThenBy(m => m.StaffId).Select(m => m.StaffId).ToListAsync();
             var found = (await _context.StaffMasters.AsNoTracking().Where(s => memberIds.Contains(s.StaffId) && s.IsActive && !s.IsExternal).ToListAsync()).ToDictionary(s => s.StaffId);
             var staff = memberIds.Where(found.ContainsKey).Select(i => found[i]).ToList();   // chart order
@@ -759,7 +748,7 @@ namespace ExamAPI.Services.Staff
             {
                 "M = morning, A = afternoon, M/A = both sessions of the day.",
                 "CC = Chief Conductor, SS = Senior Supervisor, written before the session, e.g. CC (M/A). Other duties are Junior Supervisor (teaching staff) or Non-Teaching Staff.",
-                "V = valuation (CAP assessment) day. Any other text = other work that day (e.g. Exam cell).",
+                "V = vacation (not on duty; left empty when read back). Any other text = other work that day (e.g. Exam cell).",
                 "Type the Employee ID of each person on duty (the name is optional) and fill in the cells, then upload the sheet again. The people in the sheet are the people on the chart; people missing from it are removed and lose their duties."
             })
             {
@@ -769,7 +758,7 @@ namespace ExamAPI.Services.Staff
             {
                 sheet.Cell(row, 3).Value = label;
                 sheet.Cell(row, 3).Style.Font.Bold = true;
-                for (int i = 0; i < days.Count; i++) sheet.Cell(row, FirstDay + i).Value = pick(days[i]) ?? "";
+                for (int i = 0; i < days.Count; i++) sheet.Cell(row, FirstDay + i).Value = DutySessions.TimeText(pick(days[i]), label == "Morning");
                 var times = sheet.Range(row, FirstDay, row, lastColumn - 1);
                 times.Style.Alignment.WrapText = true;
                 times.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
@@ -839,11 +828,13 @@ namespace ExamAPI.Services.Staff
                 if (dateColumns.Count == 0 && errors.Count == 0)
                     errors.Add("No dates were found in the heading row. Each exam day needs its own column headed with the date.");
 
-                var days = chart.Days.ToDictionary(d => d.Date.Date);
+                // Dates in the heading that are not days of the chart become days (no times) when the sheet is saved.
+                var chartDays = chart.Days.Select(d => d.Date.Date).ToHashSet();
+                var newDates = dateColumns.Select(d => d.Date).Where(d => !chartDays.Contains(d)).OrderBy(d => d).ToList();
                 var allStaff = await _context.StaffMasters.AsNoTracking().Where(s => s.EmployeeCode != null && s.EmployeeCode != "").ToListAsync();
                 var byCode = new Dictionary<string, StaffMaster>(StringComparer.OrdinalIgnoreCase);
                 foreach (var s in allStaff.OrderByDescending(s => s.IsActive && !s.IsExternal)) byCode.TryAdd(s.EmployeeCode!.Trim(), s);
-                var existing = (await _context.DutyChartEntries.AsNoTracking().Where(e => e.ChartId == id).ToListAsync()).ToLookup(e => e.StaffId);
+                var existing = (await _context.DutyChartEntries.AsNoTracking().Where(e => e.ChartId == id && e.Kind != DutyKinds.RetiredValuation).ToListAsync()).ToLookup(e => e.StaffId);
                 var wasMember = (await _context.DutyChartMembers.AsNoTracking().Where(m => m.ChartId == id).Select(m => m.StaffId).ToListAsync()).ToHashSet();
                 wasMember.UnionWith(existing.Select(g => g.Key));
 
@@ -879,24 +870,13 @@ namespace ExamAPI.Services.Staff
                     var mine = new List<Planned>();
                     foreach (var (date, text) in cellsInRow)
                     {
-                        var on = DayText(date);
-                        if (!days.TryGetValue(date, out var day))
-                        {
-                            rowErrors.Add($"{on} is not a day of this chart; add it under Days.");
-                            continue;
-                        }
                         var parsed = DutyCodes.Parse(text, out var error);
                         if (error != null)
                         {
-                            rowErrors.Add($"{on}: {error}");
+                            rowErrors.Add($"{DayText(date)}: {error}");
                             continue;
                         }
                         if (parsed == null) continue;
-                        if (parsed.Kind == DutyKinds.Duty)
-                        {
-                            if (parsed.Session != DutySessions.Afternoon && day.Morning == null) { rowErrors.Add($"{on}: there is no morning session that day."); continue; }
-                            if (parsed.Session != DutySessions.Morning && day.Afternoon == null) { rowErrors.Add($"{on}: there is no afternoon session that day."); continue; }
-                        }
                         mine.Add(new Planned(person.StaffId, date, parsed.Kind, parsed.Session,
                             parsed.Kind == DutyKinds.Duty ? parsed.Role ?? SupervisionRoles.DefaultFor(person) : null, parsed.Note));
                     }
@@ -938,13 +918,25 @@ namespace ExamAPI.Services.Staff
                 result.Success = true;
                 if (request.Preview)
                 {
-                    result.Message = $"Ready: {counts}.{Membership(added, removed, past: false)} Check the list, then press Save.";
+                    result.Message = $"Ready: {counts}.{Membership(added, removed, past: false)}{NewDays(newDates, past: false)} Check the list, then press Save.";
                     return result;
                 }
 
+                // The new days join the chart (no times, widening its dates) so the entries on them can be saved.
+                foreach (var date in newDates)
+                {
+                    var day = new DutyChartDay { Id = Guid.NewGuid(), CollegeId = chart.CollegeId, ChartId = chart.Id, Date = date, FromTimetable = false };
+                    _context.DutyChartDays.Add(day);
+                    if (!chart.Days.Contains(day)) chart.Days.Add(day);
+                }
+                if (newDates.Count > 0)
+                {
+                    if (newDates[0] < chart.FromDate.Date) chart.FromDate = newDates[0];
+                    if (newDates[^1] > chart.ToDate.Date) chart.ToDate = newDates[^1];
+                }
                 var saved = await ApplyAsync(chart, plan, members, letterDate.Date);
                 result.Saved = true;
-                result.Message = $"{saved.Message}{Membership(added, removed, past: true)}";
+                result.Message = $"{saved.Message}{Membership(added, removed, past: true)}{NewDays(newDates, past: true)}";
                 return result;
             }
         }
@@ -958,6 +950,15 @@ namespace ExamAPI.Services.Staff
             if (added > 0) text += $" {People(added)} {Verb(added, past)} added to the chart.";
             if (removed > 0) text += $" {People(removed)} not in the sheet {Verb(removed, past)} removed from the chart, with any duties they had.";
             return text;
+        }
+
+        /// <summary>The days the sheet adds to the chart, as a sentence with their dates (empty when none).</summary>
+        private static string NewDays(List<DateTime> dates, bool past)
+        {
+            if (dates.Count == 0) return "";
+            var list = string.Join(", ", dates.Select(d => d.ToString("ddd d MMM yyyy", CultureInfo.InvariantCulture)));
+            var verb = !past ? "will be" : dates.Count == 1 ? "was" : "were";
+            return $" {dates.Count} new {(dates.Count == 1 ? "day" : "days")} {verb} added ({list}).";
         }
 
         private static void AddRowError(List<StaffImportRow> rows, List<string> errors, int row, string name, string problem)
@@ -1010,10 +1011,9 @@ namespace ExamAPI.Services.Staff
     /// <summary>The codes of the duty chart sheet: written for a cell, and read back tolerantly.</summary>
     public static class DutyCodes
     {
-        /// <summary>What a cell of the sheet holds: "M", "A", "M/A" (prefixed "CC (...)" or "SS (...)" for those roles), "V", or the note of other work.</summary>
+        /// <summary>What a cell of the sheet holds: "M", "A", "M/A" (prefixed "CC (...)" or "SS (...)" for those roles), or the note of other work.</summary>
         public static string CellText(DutyChartEntry entry)
         {
-            if (entry.Kind == DutyKinds.Valuation) return "V";
             if (entry.Kind == DutyKinds.Other) return string.IsNullOrWhiteSpace(entry.Note) ? "O" : entry.Note;
             var code = entry.Session == DutySessions.Both ? "M/A" : entry.Session == DutySessions.Afternoon ? "A" : "M";
             return entry.Role == SupervisionRoles.ChiefConductor ? $"CC ({code})" : entry.Role == SupervisionRoles.Senior ? $"SS ({code})" : code;
@@ -1025,11 +1025,11 @@ namespace ExamAPI.Services.Staff
         private static readonly string[] MorningWords = { "M", "AM", "MORNING" };
         private static readonly string[] AfternoonWords = { "A", "PM", "AFTERNOON" };
         private static readonly string[] BothWords = { "M/A", "MA", "A/M", "AM/PM", "M&A", "M+A", "BOTH" };
-        private static readonly string[] ValuationWords = { "V", "VAL", "VALUATION", "CAP" };
+        private static readonly string[] VacationWords = { "V", "VAC", "VACATION", "LEAVE" };
 
         /// <summary>
         /// Reads a cell: M, A, M/A (also MA, AM = morning, PM = afternoon), with CC or SS before or after (brackets and
-        /// spaces do not matter), V for valuation, anything else as other work. Null for an empty cell or a dash. When
+        /// spaces do not matter), anything else as other work. Null for an empty cell, a dash, or V / VAC / VACATION / LEAVE (the person is away). When
         /// the cell cannot be read, <paramref name="error"/> says why.
         /// </summary>
         public static Code? Parse(string? text, out string? error)
@@ -1057,7 +1057,7 @@ namespace ExamAPI.Services.Staff
                 error = $"cannot read \"{original}\"; write the session as M, A or M/A, e.g. {(role == SupervisionRoles.Senior ? "SS" : "CC")} (M/A).";
                 return null;
             }
-            if (ValuationWords.Contains(joined)) return new Code(DutyKinds.Valuation, null, null, null);
+            if (VacationWords.Contains(joined)) return null;
             if (joined == "O") return new Code(DutyKinds.Other, null, null, null);
             if (original.Length > 100)
             {

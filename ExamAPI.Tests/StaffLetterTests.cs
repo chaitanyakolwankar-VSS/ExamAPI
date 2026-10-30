@@ -268,6 +268,27 @@ public sealed class StaffLetterTests
         Assert.Empty(await _context.CollegeSettings.ToListAsync());
     }
 
+    [Fact]
+    public async Task The_email_signature_is_saved_cleaned_and_limited()
+    {
+        Assert.Null((await _service.GetSettingsAsync()).LetterEmailSignature);
+
+        var saved = await _service.SaveSettingsAsync(new LetterSettingsSave { LetterEmailSignature = " \r\n  Thanks & Regards,   \r\n\r\nRegistrar  \nVIVA College \n\n " });
+        Assert.Equal("  Thanks & Regards,\n\nRegistrar\nVIVA College", saved.LetterEmailSignature);   // line ends tidied, empty lines at both ends gone, the one inside kept
+        Assert.Equal("  Thanks & Regards,\n\nRegistrar\nVIVA College", (await _service.GetSettingsAsync()).LetterEmailSignature);
+        Assert.Contains("email signature: set", (await _context.AuditLogs.Where(a => a.Event == "LetterSettingsChanged").OrderByDescending(a => a.Timestamp).FirstAsync()).Details);
+
+        // Empty text clears it.
+        var cleared = await _service.SaveSettingsAsync(new LetterSettingsSave { LetterEmailSignature = " \n  " });
+        Assert.Null(cleared.LetterEmailSignature);
+
+        var exactly = await _service.SaveSettingsAsync(new LetterSettingsSave { LetterEmailSignature = new string('S', 1000) });
+        Assert.Equal(1000, exactly.LetterEmailSignature!.Length);
+        var tooLong = await Assert.ThrowsAsync<InvalidOperationException>(() => _service.SaveSettingsAsync(new LetterSettingsSave { LetterEmailSignature = new string('S', 1001) }));
+        Assert.Contains("1000", tooLong.Message);
+        Assert.Equal(1000, (await _service.GetSettingsAsync()).LetterEmailSignature!.Length);   // the refused save changed nothing
+    }
+
     // ------------------------------------------------------------------ refusals and tenancy
 
     [Fact]

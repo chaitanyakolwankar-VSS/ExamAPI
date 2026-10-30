@@ -540,6 +540,65 @@ public sealed class StaffLinkTests
         Assert.Contains($"{Site}/t#{token}", mail.Text);
     }
 
+    private async Task SetSignatureAsync(string? text)
+    {
+        using var context = Context(null);
+        var settings = await context.CollegeSettings.IgnoreQueryFilters().SingleAsync(s => s.CollegeId == _college);
+        settings.LetterEmailSignature = text;
+        await context.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task The_letters_email_ends_with_the_college_signature_or_Exam_Office_and_the_college_name()
+    {
+        // No signature saved: "Exam Office" and the college name, after the "Don't forward" line.
+        await SendAndGetTokenAsync();
+        var plain = _sender.Sent.Last(m => m.To == "asha@viva.in");
+        Assert.Contains("Don't forward this email: the link opens your letters.\n\nExam Office\nVIVA Institute of Technology\n", plain.Text);
+        Assert.Contains("<p>Exam Office<br>VIVA Institute of Technology</p>", plain.Html);
+        Assert.True(plain.Html.IndexOf("Don't forward", StringComparison.Ordinal) < plain.Html.IndexOf("<p>Exam Office", StringComparison.Ordinal));
+
+        // The college's own text: lines kept, HTML escaped.
+        await SetSignatureAsync("Thanks & Regards,\nA <b>Registrar</b>\nVIVA College");
+        await SendAndGetTokenAsync();
+        var mine = _sender.Sent.Last(m => m.To == "asha@viva.in");
+        Assert.Contains("Don't forward this email: the link opens your letters.\n\nThanks & Regards,\nA <b>Registrar</b>\nVIVA College\n", mine.Text);
+        Assert.Contains("<p>Thanks &amp; Regards,<br>A &lt;b&gt;Registrar&lt;/b&gt;<br>VIVA College</p>", mine.Html);
+        Assert.DoesNotContain("<b>Registrar</b>", mine.Html);
+        Assert.DoesNotContain("Exam Office<br>", mine.Html);
+
+        // Only the letters email is signed: the code email is not.
+        var token = TokenIn(mine);
+        using (var context = Context(null))
+            await SignIn(context).SendCodeAsync(token);
+        var code = _sender.Sent.Last();
+        Assert.Matches(@"^\d{6} is your", code.Subject);
+        Assert.DoesNotContain("Registrar", code.Text);
+        Assert.DoesNotContain("Registrar", code.Html);
+        Assert.DoesNotContain("Exam Office\n", code.Text);
+    }
+
+    [Fact]
+    public async Task The_preview_gives_the_signature_the_email_will_end_with()
+    {
+        using (var context = Context(_college))
+            Assert.Equal("Exam Office\nVIVA Institute of Technology", (await Office(context).PreviewAsync(Request())).Signature);
+
+        await SetSignatureAsync("Thanks & Regards,\nRegistrar");
+        using (var context = Context(_college))
+            Assert.Equal("Thanks & Regards,\nRegistrar", (await Office(context).PreviewAsync(ChartRequest())).Signature);
+
+        // Another college's signature is not seen.
+        await SetSignatureAsync(null);
+        using (var context = Context(_otherCollege))
+        {
+            context.CollegeSettings.Add(new CollegeSettings { Id = Guid.NewGuid(), CollegeId = _otherCollege, LetterEmailSignature = "Other College Office" });
+            await context.SaveChangesAsync();
+        }
+        using (var context = Context(_college))
+            Assert.Equal("Exam Office\nVIVA Institute of Technology", (await Office(context).PreviewAsync(Request())).Signature);
+    }
+
     [Fact]
     public async Task A_person_has_one_link_for_an_exam_and_one_for_a_chart_and_sending_again_replaces_only_its_own()
     {
@@ -631,6 +690,7 @@ public sealed class StaffLinkTests
             Assert.Equal(_asha, sent.StaffId);
             Assert.NotNull(sent.SentAt);
             Assert.Null(sent.OpenedAt);
+            Assert.Null(sent.QueuedAt);
             Assert.Empty(await Office(context).StatusAsync(_exam, null));    // an exam link of hers would be separate
         }
     }
@@ -1086,6 +1146,8 @@ public sealed class StaffLinkTests
             Assert.Null(queued.SentAt);                                                                                       // waiting in the queue
             Assert.Null(queued.OpenedAt);
             Assert.Null(queued.DownloadedAt);
+            Assert.NotNull(queued.QueuedAt);                                                                                  // shown as waiting to send
+            Assert.False(queued.Failed);
         }
 
         await RunQueueAsync();
@@ -1228,6 +1290,28 @@ public sealed class StaffLinkTests
         Assert.Equal(LinkOpenStates.Closed, (await SignIn(open).OpenAsync(oldToken)).State);
         Assert.Equal(LinkOpenStates.Ready, (await SignIn(open).OpenAsync(newToken)).State);
         Assert.True((await AuthenticateAsync((await SignInAsync(newToken)).SessionToken)).Succeeded);
+    }
+
+    [Fact]
+    public async Task Status_shows_when_a_link_ran_out_but_not_as_stopped()
+    {
+        await SendAndGetTokenAsync();
+        using (var context = Context(_college))
+            Assert.Null(Assert.Single(await Office(context).StatusAsync(_itExam, null)).ExpiredAt);
+
+        var lastDay = DateTime.UtcNow.AddDays(-1);
+        using (var context = Context(null))
+        {
+            var link = await context.StaffLinks.IgnoreQueryFilters().SingleAsync();
+            link.ExpiresAt = lastDay;
+            await context.SaveChangesAsync();
+        }
+        using (var context = Context(_college))
+        {
+            var ran = Assert.Single(await Office(context).StatusAsync(_itExam, null));
+            Assert.Equal(lastDay, ran.ExpiredAt);
+            Assert.Null(ran.StoppedAt);
+        }
     }
 
     [Fact]

@@ -147,6 +147,23 @@ public sealed class StaffLetterPdfTests : IDisposable
         Assert.Equal(1, PageCount(bytes));
     }
 
+    [Fact]
+    public async Task Old_valuation_lines_on_a_letter_are_left_out_of_the_pdf()
+    {
+        var letter = Letter(_asha, StaffLetterTypes.Supervision, 1, duties: 2);
+        for (var i = 0; i < 60; i++)   // enough to spill onto more pages if they were printed
+            _context.StaffLetterDuties.Add(new StaffLetterDuty
+            {
+                Id = Guid.NewGuid(), CollegeId = letter.CollegeId, LetterId = letter.Id, SortOrder = 10 + i, Kind = "valuation", Role = "Valuation", Date = "09-11-2026", Time = "Full day"
+            });
+        _context.SaveChanges();
+
+        var (bytes, _) = await _service.OneAsync(letter.Id);
+
+        AssertPdf(bytes);
+        Assert.Equal(1, PageCount(bytes));
+    }
+
     [Theory]
     [InlineData(StaffLetterTypes.Examiner)]
     [InlineData(StaffLetterTypes.Moderator)]
@@ -188,6 +205,18 @@ public sealed class StaffLetterPdfTests : IDisposable
         var letter = Letter(_asha, StaffLetterTypes.Supervision, 1, duties: 60);
 
         AssertPdf((await _service.OneAsync(letter.Id)).Bytes);
+    }
+
+    [Fact]
+    public async Task Duty_lines_without_a_session_time_still_make_a_pdf_and_give_no_reporting_time()
+    {
+        var letter = Letter(_asha, StaffLetterTypes.Supervision, 1, duties: 2);
+        foreach (var (line, label) in letter.Duties.OrderBy(d => d.SortOrder).Zip(new[] { DutySessions.MorningNoTime, DutySessions.AfternoonNoTime }))
+            line.Time = label;
+        _context.SaveChanges();
+
+        AssertPdf((await _service.OneAsync(letter.Id)).Bytes);
+        Assert.Equal("", StaffLetterPdfService.ReportingTimes(letter.Duties));
     }
 
     [Fact]
@@ -301,8 +330,8 @@ public sealed class StaffLetterPdfTests : IDisposable
         Assert.Equal("09:30 AM", StaffLetterPdfService.ReportingTimes(new[] { Line("10:30 AM - 1:30 PM"), Line("10:30 AM - 1:30 PM") }));
         Assert.Equal("09:30 AM for the morning session; 01:30 PM for the afternoon session",
             StaffLetterPdfService.ReportingTimes(new[] { Line("2:30 PM - 5:30 PM"), Line("10:30 AM - 1:30 PM") }));
-        Assert.Equal("01:30 PM", StaffLetterPdfService.ReportingTimes(new[] { Line("2:30 PM - 5:30 PM"), Line("Full day", DutyKinds.Valuation) }));
-        Assert.Equal("", StaffLetterPdfService.ReportingTimes(new[] { Line("Full day", DutyKinds.Valuation) }));
+        Assert.Equal("01:30 PM", StaffLetterPdfService.ReportingTimes(new[] { Line("2:30 PM - 5:30 PM"), Line("Full day", DutyKinds.Other) }));
+        Assert.Equal("", StaffLetterPdfService.ReportingTimes(new[] { Line("Full day", DutyKinds.Other) }));
     }
 
     [Fact]
