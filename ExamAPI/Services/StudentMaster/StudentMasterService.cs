@@ -9,6 +9,7 @@ using ExamAPI.Services.StudentAccess;
 using Microsoft.EntityFrameworkCore;
 using System.Collections;
 using System.Data;
+using System.Globalization;
 
 
 
@@ -92,6 +93,8 @@ namespace ExamAPI.Services.StudentMasters
                     StudentType = sm.StudentType,
                     SemesterId = se.SemesterId,
                     StudentPRN = sm.StudentPRN,
+                    AbcId = sm.AbcId,
+                    Phone = sm.Phone,
                     Dyslexia = sm.Dyslexia,
                     PhotoUrl = sm.PhotoUrl,
                     SignUrl = sm.SignUrl
@@ -139,6 +142,8 @@ namespace ExamAPI.Services.StudentMasters
                     SemesterId = x.se.SemesterId,
                     Pattern = x.se.Pattern,
                     StudentPRN = x.sm.StudentPRN,
+                    AbcId = x.sm.AbcId,
+                    Phone = x.sm.Phone,
                     AYID = x.se.AYID ?? Guid.Empty,
                     PhotoUrl = x.sm.PhotoUrl,
                     SignUrl = x.sm.SignUrl
@@ -172,6 +177,9 @@ namespace ExamAPI.Services.StudentMasters
                     Category = sm.Category,
                     StudentPRN = sm.StudentPRN,
                     AbcId = sm.AbcId,
+                    Phone = sm.Phone,
+                    DateOfBirth = sm.DateOfBirth,
+                    Address = sm.Address,
                     PhotoUrl = sm.PhotoUrl,
                     SignUrl = sm.SignUrl,
                     Dyslexia = sm.Dyslexia,
@@ -206,6 +214,11 @@ namespace ExamAPI.Services.StudentMasters
             var abcId = CleanAbcId(dto.AbcId);
             if (await AbcIdTakenAsync(_context, abcId, student.StdMstId))
                 throw new InvalidOperationException("This ABC ID belongs to another student.");
+            // Date of birth, phone and address are optional. A value that is already on record is kept as it is
+            // (not re-checked), so an older record can still be saved for another change.
+            var dateOfBirth = dto.DateOfBirth?.Date == student.DateOfBirth?.Date ? student.DateOfBirth : CleanDateOfBirth(dto.DateOfBirth);
+            var phone = (dto.Phone ?? "").Trim() == (student.Phone ?? "") ? student.Phone : StudentDetailsService.Phone(dto.Phone);
+            var address = (dto.Address ?? "").Trim() == (student.Address ?? "") ? student.Address : CleanAddress(dto.Address);
 
             // Email: optional here (students saved before it was asked have none); checked like the import.
             var email = StudentEmail.Normalize(dto.Email);
@@ -236,6 +249,9 @@ namespace ExamAPI.Services.StudentMasters
             student.Category = dto.Category;
             student.StudentPRN = dto.StudentPRN;
             student.AbcId = abcId;
+            student.DateOfBirth = dateOfBirth;
+            student.Phone = phone;
+            student.Address = address;
             student.Gender = dto.Gender;
             student.Dyslexia = dto.Dyslexia;
 
@@ -293,6 +309,56 @@ namespace ExamAPI.Services.StudentMasters
             abcId == null
                 ? Task.FromResult(false)
                 : context.StudentMasters.AnyAsync(x => x.AbcId == abcId && x.StdMstId != exceptStdMstId && !x.IsDeleted);
+
+        /// <summary>
+        /// Date of birth (date only), same rule as the student link: not in the future, and between 14 and 80 years old.
+        /// Null = none.
+        /// </summary>
+        public static DateTime? CleanDateOfBirth(DateTime? value)
+        {
+            if (value == null) return null;
+            var date = value.Value.Date;
+            if (date > DateTime.Today)
+                throw new InvalidOperationException("Date of birth cannot be in the future.");
+            if (date > DateTime.Today.AddYears(-14) || date < DateTime.Today.AddYears(-80))
+                throw new InvalidOperationException("Date of birth: check the year.");
+            return date;
+        }
+
+        public const int MaxAddressLength = 300;
+
+        /// <summary>Address with extra spaces and line breaks squeezed to single spaces; at most 300 characters; blank = none.</summary>
+        public static string? CleanAddress(string? value)
+        {
+            var address = string.Join(' ', (value ?? "").Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+            if (address.Length == 0) return null;
+            if (address.Length > MaxAddressLength)
+                throw new InvalidOperationException($"Address: at most {MaxAddressLength} characters.");
+            return address;
+        }
+
+        /// <summary>One filled row of the student sheet, as text; Dob is dd-MM-yyyy (or whatever the sheet had typed).</summary>
+        private sealed record ImportedRow(int Row, string First, string Middle, string Last, string Mother, string Category, string Prn, string Gender, string Type,
+            string Email, string AbcId, string Dob, string Phone, string Address);
+
+        /// <summary>The date of birth cell as text: a real Excel date becomes dd-MM-yyyy, anything typed is kept as typed.</summary>
+        private static string DateOfBirthText(IXLCell cell)
+        {
+            if (cell.DataType == XLDataType.DateTime)
+                return cell.GetDateTime().ToString(DateOfBirthFormat, CultureInfo.InvariantCulture);
+            if (cell.DataType == XLDataType.Number && cell.GetDouble() is > 1 and < 2958465) // an Excel date serial, even in a cell formatted as text
+                return DateTime.FromOADate(cell.GetDouble()).ToString(DateOfBirthFormat, CultureInfo.InvariantCulture);
+            return cell.GetFormattedString().Trim();
+        }
+
+        /// <summary>The date typed as dd-MM-yyyy (also d-M-yyyy, dd/MM/yyyy, yyyy-MM-dd), checked like <see cref="CleanDateOfBirth"/>; blank = none.</summary>
+        private static DateTime? ParseDateOfBirth(string text)
+        {
+            if (text == "") return null;
+            if (!DateTime.TryParseExact(text, DateOfBirthFormats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+                throw new InvalidOperationException($"Date of birth \"{text}\": type it as dd-MM-yyyy, e.g. 25-03-2005.");
+            return CleanDateOfBirth(date);
+        }
 
         private static string CleanMotherName(string? value)
         {
@@ -360,6 +426,9 @@ namespace ExamAPI.Services.StudentMasters
                 var abcId = CleanAbcId(dto.AbcId);
                 if (await AbcIdTakenAsync(_context, abcId, null))
                     throw new InvalidOperationException("This ABC ID belongs to another student.");
+                var dateOfBirth = CleanDateOfBirth(dto.DateOfBirth);
+                var phone = StudentDetailsService.Phone(dto.Phone);
+                var address = CleanAddress(dto.Address);
 
 
                 var studentMaster = new Models.StudentMaster
@@ -374,6 +443,9 @@ namespace ExamAPI.Services.StudentMasters
                     Category = dto.Category,
                     StudentPRN=dto.StudentPRN,
                     AbcId = abcId,
+                    DateOfBirth = dateOfBirth,
+                    Phone = phone,
+                    Address = address,
                     Gender = dto.Gender,
                     Dyslexia = dto.Dyslexia,
                     CreatedAt = DateTime.UtcNow,
@@ -483,7 +555,11 @@ namespace ExamAPI.Services.StudentMasters
             return await _storage.SaveAsync(imageBytes, ExamAPI.Services.Files.FileStorage.StudentsFolder, fileName);
         }
         /// <summary>Columns of the student template, in order. Row 1 is a title, row 2 these headings, data from row 3.</summary>
-        private static readonly string[] TemplateHeaders = { "FirstName", "MiddleName", "LastName", "MotherName", "Category", "ERN", "Gender", "StudentType", "Email" };
+        private static readonly string[] TemplateHeaders = { "FirstName", "MiddleName", "LastName", "MotherName", "Category", "ERN", "Gender", "StudentType", "Email", "AbcId", "DateOfBirth", "Phone", "Address" };
+        /// <summary>Columns a template may lack (older templates): their cells read as empty.</summary>
+        private static readonly string[] OptionalTemplateHeaders = { "AbcId", "DateOfBirth", "Phone", "Address" };
+        private const string DateOfBirthFormat = "dd-MM-yyyy";
+        private static readonly string[] DateOfBirthFormats = { "dd-MM-yyyy", "d-M-yyyy", "dd/MM/yyyy", "d/M/yyyy", "yyyy-MM-dd" };
         // Templates downloaded before the ERN rename say "PRN" in that column; still accept them.
         private const string LegacyErnHeader = "PRN";
         private const int TemplateRows = 1000;
@@ -568,7 +644,22 @@ namespace ExamAPI.Services.StudentMasters
             emailHint.InputTitle = "Email";
             emailHint.InputMessage = "Required. The student's own address: task links and OTPs are sent here.";
 
-            double[] widths = { 18, 18, 18, 18, 14, 20, 10, 12, 32 };
+            // The last four columns are optional (the student can also fill them in through their link): a short hint when the cell is selected.
+            void Hint(string header, string title, string message)
+            {
+                var validation = sheet.Range(3, TemplateColumn(header), TemplateRows + 2, TemplateColumn(header)).CreateDataValidation();
+                validation.AllowedValues = XLAllowedValues.AnyValue;
+                validation.ShowInputMessage = true;
+                validation.InputTitle = title;
+                validation.InputMessage = message;
+            }
+            Hint("AbcId", "ABC ID", "Optional. The 12-digit number (spaces and dashes are fine).");
+            Hint("DateOfBirth", "Date of birth", "Optional. Type it as dd-MM-yyyy, e.g. 25-03-2005.");
+            Hint("Phone", "Phone", "Optional. 10-digit mobile number.");
+            Hint("Address", "Address", "Optional. At most 300 characters.");
+            sheet.Range(3, TemplateColumn("AbcId"), TemplateRows + 2, TemplateColumn("AbcId")).AddConditionalFormat().WhenIsDuplicate().Fill.SetBackgroundColor(XLColor.LightPink);
+
+            double[] widths = { 18, 18, 18, 18, 14, 20, 10, 12, 32, 16, 14, 14, 40 };
             for (int i = 0; i < widths.Length; i++) sheet.Column(i + 1).Width = widths[i];
 
             using var stream = new MemoryStream();
@@ -619,7 +710,7 @@ namespace ExamAPI.Services.StudentMasters
                     if (heading.Equals(LegacyErnHeader, StringComparison.OrdinalIgnoreCase)) heading = "ERN";
                     columns.TryAdd(heading, c);
                 }
-                if (TemplateHeaders.Any(h => h != "MotherName" && h != "StudentType" && h != "Email" && !columns.ContainsKey(h)))
+                if (TemplateHeaders.Any(h => h != "MotherName" && h != "StudentType" && h != "Email" && !OptionalTemplateHeaders.Contains(h) && !columns.ContainsKey(h)))
                     throw new InvalidOperationException("This is not the student template. Download it again with the Excel button.");
                 if (!columns.ContainsKey("MotherName"))
                     throw new InvalidOperationException("This template has no MotherName column. Download the template again.");
@@ -629,13 +720,17 @@ namespace ExamAPI.Services.StudentMasters
                     throw new InvalidOperationException("This template has no Email column (email is now required). Download the template again.");
 
                 // Read every filled row first; nothing is saved unless all rows are valid.
-                var rows = new List<(int Row, string First, string Middle, string Last, string Mother, string Category, string Prn, string Gender, string Type, string Email)>();
+                var rows = new List<ImportedRow>();
                 int lastRow = sheet.LastRowUsed()?.RowNumber() ?? 0;
                 for (int r = 3; r <= lastRow; r++)
                 {
-                    string Cell(string header) => sheet.Cell(r, columns[header]).GetFormattedString().Trim();
-                    var row = (r, Cell("FirstName"), Cell("MiddleName"), Cell("LastName"), Cell("MotherName"), Cell("Category"), Cell("ERN"), Cell("Gender"), Cell("StudentType"), StudentEmail.Normalize(Cell("Email")));
-                    if (row.Item2 == "" && row.Item3 == "" && row.Item4 == "" && row.Item5 == "" && row.Item6 == "" && row.Item7 == "" && row.Item8 == "" && row.Item9 == "" && row.Item10 == "")
+                    // A column the template does not have (an older template) reads as empty.
+                    string Cell(string header) => columns.TryGetValue(header, out var c) ? sheet.Cell(r, c).GetFormattedString().Trim() : "";
+                    var dobText = columns.TryGetValue("DateOfBirth", out var dobColumn) ? DateOfBirthText(sheet.Cell(r, dobColumn)) : "";
+                    var row = new ImportedRow(r, Cell("FirstName"), Cell("MiddleName"), Cell("LastName"), Cell("MotherName"), Cell("Category"), Cell("ERN"), Cell("Gender"), Cell("StudentType"),
+                        StudentEmail.Normalize(Cell("Email")), Cell("AbcId"), dobText, Cell("Phone"), Cell("Address"));
+                    if (row.First == "" && row.Middle == "" && row.Last == "" && row.Mother == "" && row.Category == "" && row.Prn == "" && row.Gender == "" && row.Type == "" && row.Email == ""
+                        && row.AbcId == "" && row.Dob == "" && row.Phone == "" && row.Address == "")
                         continue; // empty row
                     rows.Add(row);
                 }
@@ -648,12 +743,17 @@ namespace ExamAPI.Services.StudentMasters
                     .ToHashSetAsync();
                 var emailOwners = await StudentEmail.OwnersAsync(_context, rows.Select(r => r.Email));
                 var allowedDomains = await StudentEmail.AllowedDomainsAsync(_context);
+                var existingAbcIds = await _context.StudentMasters
+                    .Where(s => !s.IsDeleted && s.AbcId != null && s.AbcId != "")
+                    .Select(s => s.AbcId!)
+                    .ToHashSetAsync();
                 var prnsInFile = new HashSet<string>();
+                var abcIdsInFile = new HashSet<string>();
                 var emailsInFile = new HashSet<string>();
                 var errors = new List<string>();
                 var results = new List<ImportRowResult>();
 
-                foreach (var (row, first, middle, last, mother, category, prn, gender, type, email) in rows)
+                foreach (var (row, first, middle, last, mother, category, prn, gender, type, email, abcText, dobText, phoneText, addressText) in rows)
                 {
                     var rowErrors = new List<string>();
                     if (first == "")
@@ -679,6 +779,26 @@ namespace ExamAPI.Services.StudentMasters
                     }
                     var emailError = EmailProblem(email, required: true, emailsInFile, emailOwners, ownStudentId: null);
                     if (emailError != null) rowErrors.Add(emailError);
+
+                    // Optional columns: blank is fine; a typed value is checked like the Student Master form and the student link.
+                    try
+                    {
+                        var abc = CleanAbcId(abcText);
+                        if (abc != null)
+                        {
+                            if (existingAbcIds.Contains(abc))
+                                rowErrors.Add($"ABC ID {abc} already belongs to a student.");
+                            else if (!abcIdsInFile.Add(abc))
+                                rowErrors.Add($"ABC ID {abc} appears twice in this file.");
+                        }
+                    }
+                    catch (InvalidOperationException ex) { rowErrors.Add(ex.Message); }
+                    try { ParseDateOfBirth(dobText); }
+                    catch (InvalidOperationException ex) { rowErrors.Add(ex.Message); }
+                    try { StudentDetailsService.Phone(phoneText); }
+                    catch (InvalidOperationException ex) { rowErrors.Add(ex.Message); }
+                    try { CleanAddress(addressText); }
+                    catch (InvalidOperationException ex) { rowErrors.Add(ex.Message); }
 
                     errors.AddRange(rowErrors.Select(e => $"Row {row}: {e}"));
                     var flag = emailError == null ? StudentEmail.FlagReason(email, allowedDomains) : null;
@@ -709,7 +829,7 @@ namespace ExamAPI.Services.StudentMasters
                 try
                 {
                     var resultIndex = 0;
-                    foreach (var (_, first, middle, last, mother, category, prn, gender, type, email) in rows)
+                    foreach (var (_, first, middle, last, mother, category, prn, gender, type, email, abcText, dobText, phoneText, addressText) in rows)
                     {
                         var studentId = FormatStudentId(prefix, numberPart);
                         numberPart++;
@@ -727,6 +847,10 @@ namespace ExamAPI.Services.StudentMasters
                             StudentType = NormalizeStudentType(type),
                             Category = category == "" ? null : CanonicalCategory(category),
                             StudentPRN = prn == "" ? null : prn,
+                            AbcId = CleanAbcId(abcText),
+                            DateOfBirth = ParseDateOfBirth(dobText),
+                            Phone = StudentDetailsService.Phone(phoneText),
+                            Address = CleanAddress(addressText),
                             Gender = string.Equals(gender, "Male", StringComparison.OrdinalIgnoreCase) ? "Male" : "Female",
                             Dyslexia = false,
                             CreatedAt = DateTime.UtcNow,

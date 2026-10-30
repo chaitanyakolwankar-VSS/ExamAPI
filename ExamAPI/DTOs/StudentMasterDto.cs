@@ -20,6 +20,12 @@ namespace ExamAPI.DTOs
         public string? StudentPRN { get; set; }
         /// <summary>ABC ID, 12 digits; blank = none.</summary>
         public string? AbcId { get; set; }
+        /// <summary>Optional. Date of birth (date only); blank = none.</summary>
+        public DateTime? DateOfBirth { get; set; }
+        /// <summary>Optional. 10-digit mobile number; blank = none.</summary>
+        public string? Phone { get; set; }
+        /// <summary>Optional. At most 300 characters; blank = none.</summary>
+        public string? Address { get; set; }
         public string? PhotoUrl { get; set; }
         public string? SignUrl { get; set; }
         public bool Dyslexia { get; set; }
@@ -45,6 +51,9 @@ namespace ExamAPI.DTOs
         /// <summary>"E" Engineering, "D" Diploma, "M" MCA.</summary>
         public string? StudentType { get; set; }
         public string? StudentPRN { get; set; }
+        /// <summary>ABC ID and phone, for the Find students list.</summary>
+        public string? AbcId { get; set; }
+        public string? Phone { get; set; }
         public string? SemesterId { get; set; }
         public Guid AYID { get; set; }
         public string? StudentId { get; set; }

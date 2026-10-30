@@ -435,4 +435,265 @@ public sealed class StudentExcelImportTests
         var ex = await Assert.ThrowsAnyAsync<Exception>(() => Save(Guid.Empty, "1"));
         Assert.Contains("branch", ex.Message);
     }
+
+    // ---- Optional fields students can also fill in through their link: ABC ID, date of birth, phone, address ----
+
+    private const string Email9 = "a@mail.com";
+
+    private static IFormFile WithoutColumns(IFormFile file, int firstColumn, int lastColumn)
+    {
+        using var workbook = new XLWorkbook(file.OpenReadStream());
+        workbook.Worksheet(1).Columns(firstColumn, lastColumn).Delete();
+        var output = new MemoryStream();
+        workbook.SaveAs(output);
+        output.Position = 0;
+        return new FormFile(output, 0, output.Length, "File", "students.xlsx");
+    }
+
+    [Fact]
+    public async Task Template_has_the_optional_columns_after_Email()
+    {
+        var (bytes, _) = await _service.GenerateExcelTemplateAsync(new StudExcelDto { CourseId = _course, SemesterId = "Sem-1", Pattern = "NEP", AYID = _ay });
+        using var workbook = new XLWorkbook(new MemoryStream(bytes));
+        var sheet = workbook.Worksheet(1);
+        Assert.Equal(["Email", "AbcId", "DateOfBirth", "Phone", "Address"], Enumerable.Range(9, 5).Select(c => sheet.Cell(2, c).GetString()));
+    }
+
+    [Fact]
+    public async Task New_columns_are_imported_and_cleaned()
+    {
+        var file = await FilledTemplate(
+            ["Asha", "", "Patil", "Sunita", "", "", "Female", "E", "asha@mail.com", "1234-5678 9012", "25-03-2005", "+91 98765 43210", "  Flat 4,  Shivaji Road,\nPune "],
+            ["Ravi", "", "Shah", "Sunita", "", "", "Male", "E", "ravi@mail.com", "", "", "", ""]);
+
+        var result = await _service.ImportStudentsAsync(Import(file));
+
+        Assert.True(Success(result), string.Join("; ", Errors(result)));
+        var asha = await _context.StudentMasters.SingleAsync(s => s.FirstName == "Asha");
+        Assert.Equal("123456789012", asha.AbcId);
+        Assert.Equal(new DateTime(2005, 3, 25), asha.DateOfBirth);
+        Assert.Equal("9876543210", asha.Phone);
+        Assert.Equal("Flat 4, Shivaji Road, Pune", asha.Address);
+        var ravi = await _context.StudentMasters.SingleAsync(s => s.FirstName == "Ravi");
+        Assert.Null(ravi.AbcId);
+        Assert.Null(ravi.DateOfBirth);
+        Assert.Null(ravi.Phone);
+        Assert.Null(ravi.Address);
+    }
+
+    [Fact]
+    public async Task A_real_Excel_date_is_accepted_for_the_date_of_birth()
+    {
+        var file = await FilledTemplate(["Asha", "", "Patil", "Sunita", "", "", "Female", "E", Email9, "", "", "", ""]);
+        using (var workbook = new XLWorkbook(file.OpenReadStream()))
+        {
+            workbook.Worksheet(1).Cell(3, 11).Value = new DateTime(2004, 7, 9);
+            var output = new MemoryStream();
+            workbook.SaveAs(output);
+            output.Position = 0;
+            file = new FormFile(output, 0, output.Length, "File", "students.xlsx");
+        }
+
+        var result = await _service.ImportStudentsAsync(Import(file));
+
+        Assert.True(Success(result), string.Join("; ", Errors(result)));
+        Assert.Equal(new DateTime(2004, 7, 9), (await _context.StudentMasters.SingleAsync()).DateOfBirth);
+    }
+
+    [Fact]
+    public async Task A_template_without_the_new_columns_still_imports()
+    {
+        var file = WithoutColumns(await FilledTemplate(["Asha", "", "Patil", "Sunita", "", "", "Female", "E", Email9, "", "", "", ""]), 10, 13);
+
+        var result = await _service.ImportStudentsAsync(Import(file));
+
+        Assert.True(Success(result), string.Join("; ", Errors(result)));
+        var student = await _context.StudentMasters.SingleAsync();
+        Assert.Null(student.AbcId);
+        Assert.Null(student.DateOfBirth);
+        Assert.Null(student.Phone);
+        Assert.Null(student.Address);
+    }
+
+    [Fact]
+    public async Task Bad_optional_values_are_refused_per_row_and_nothing_is_imported()
+    {
+        _context.StudentMasters.Add(new StudentMaster { StdMstId = Guid.NewGuid(), StudentId = "OLD1", FirstName = "Old", LastName = "One", AbcId = "111111111111", CollegeId = _college });
+        await _context.SaveChangesAsync();
+        var tomorrow = DateTime.Today.AddDays(1).ToString("dd-MM-yyyy");
+        var file = await FilledTemplate(
+            ["A", "", "A", "M", "", "", "Male", "E", "a1@mail.com", "111111111111", "", "", ""],              // row 3: ABC ID already used
+            ["B", "", "B", "M", "", "", "Male", "E", "a2@mail.com", "222222222222", "", "", ""],              // row 4: fine
+            ["C", "", "C", "M", "", "", "Male", "E", "a3@mail.com", "2222 2222 2222", "", "", ""],            // row 5: ABC ID twice in file
+            ["D", "", "D", "M", "", "", "Male", "E", "a4@mail.com", "12345", "", "", ""],                     // row 6: ABC ID too short
+            ["E", "", "E", "M", "", "", "Male", "E", "a5@mail.com", "", "31-02-2005", "", ""],                // row 7: not a date
+            ["F", "", "F", "M", "", "", "Male", "E", "a6@mail.com", "", tomorrow, "", ""],                    // row 8: future
+            ["G", "", "G", "M", "", "", "Male", "E", "a7@mail.com", "", "01-01-1900", "", ""],               // row 9: too old
+            ["H", "", "H", "M", "", "", "Male", "E", "a8@mail.com", "", "", "12345", ""],                     // row 10: phone
+            ["I", "", "I", "M", "", "", "Male", "E", "a9@mail.com", "", "", "5876543210", ""],                // row 11: phone starts below 6
+            ["J", "", "J", "M", "", "", "Male", "E", "b1@mail.com", "", "", "", new string('x', 301)],        // row 12: address too long
+            ["K", "", "K", "M", "", "", "Male", "E", "b2@mail.com", "", "25-03-2005", "9876543210", "Pune"]); // row 13: fine
+
+        var result = await _service.ImportStudentsAsync(Import(file));
+
+        Assert.False(Success(result));
+        var errors = Errors(result);
+        Assert.Contains(errors, e => e.StartsWith("Row 3:") && e.Contains("ABC ID 111111111111") && e.Contains("already belongs"));
+        Assert.DoesNotContain(errors, e => e.StartsWith("Row 4:"));
+        Assert.Contains(errors, e => e.StartsWith("Row 5:") && e.Contains("ABC ID 222222222222") && e.Contains("twice"));
+        Assert.Contains(errors, e => e.StartsWith("Row 6:") && e.Contains("12-digit"));
+        Assert.Contains(errors, e => e.StartsWith("Row 7:") && e.Contains("dd-MM-yyyy"));
+        Assert.Contains(errors, e => e.StartsWith("Row 8:") && e.Contains("future"));
+        Assert.Contains(errors, e => e.StartsWith("Row 9:") && e.Contains("check the year"));
+        Assert.Contains(errors, e => e.StartsWith("Row 10:") && e.Contains("10-digit"));
+        Assert.Contains(errors, e => e.StartsWith("Row 11:") && e.Contains("10-digit"));
+        Assert.Contains(errors, e => e.StartsWith("Row 12:") && e.Contains("300"));
+        Assert.DoesNotContain(errors, e => e.StartsWith("Row 13:"));
+        Assert.Equal(1, await _context.StudentMasters.CountAsync()); // nothing imported
+    }
+
+    private Savedata NewStudent(string email, Action<Savedata>? tweak = null)
+    {
+        var dto = new Savedata
+        {
+            CourseId = _course, SemesterId = "Sem-1", Pattern = "NEP", AYID = _ay,
+            FirstName = "Asha", LastName = "Patil", Gender = "Female", MotherName = "Sunita", StudentType = "E", Email = email,
+        };
+        tweak?.Invoke(dto);
+        return dto;
+    }
+
+    private Savedata Edit(string id, Action<Savedata>? tweak = null)
+    {
+        var dto = new Savedata
+        {
+            StudentId = id, CourseId = _course, SemesterId = "Sem-1", Pattern = "NEP", AYID = _ay,
+            FirstName = "Asha", LastName = "Patil", Gender = "Female", MotherName = "Sunita", StudentType = "E",
+        };
+        tweak?.Invoke(dto);
+        return dto;
+    }
+
+    [Fact]
+    public async Task Saving_with_ABC_ID_date_of_birth_phone_and_address_stores_and_returns_them()
+    {
+        var id = await _service.SaveStudentAsync(NewStudent("asha@mail.com", d =>
+        {
+            d.AbcId = "1234 5678 9012";
+            d.DateOfBirth = new DateTime(2005, 3, 25, 14, 30, 0);
+            d.Phone = "098765-43210";
+            d.Address = "  Flat 4,   Pune ";
+        }));
+
+        var saved = await _service.GetStudentByIdAsync(id, _ay);
+        Assert.Equal("123456789012", saved.AbcId);
+        Assert.Equal(new DateTime(2005, 3, 25), saved.DateOfBirth);
+        Assert.Equal("9876543210", saved.Phone);
+        Assert.Equal("Flat 4, Pune", saved.Address);
+    }
+
+    [Fact]
+    public void The_date_input_value_and_null_blanks_from_the_form_bind_to_the_dto()
+    {
+        var json = """{"firstName":"A","dateOfBirth":"2005-03-25","phone":null,"address":null,"abcId":null}""";
+        var dto = System.Text.Json.JsonSerializer.Deserialize<Savedata>(json, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+        Assert.Equal(new DateTime(2005, 3, 25), dto.DateOfBirth);
+        Assert.Null(dto.Phone);
+    }
+
+    [Fact]
+    public async Task Saving_with_these_left_blank_is_fine_and_stores_nothing()
+    {
+        var id = await _service.SaveStudentAsync(NewStudent("asha@mail.com", d => { d.AbcId = " "; d.Phone = ""; d.Address = "  "; d.DateOfBirth = null; }));
+
+        var saved = await _service.GetStudentByIdAsync(id, _ay);
+        Assert.Null(saved.AbcId);
+        Assert.Null(saved.DateOfBirth);
+        Assert.Null(saved.Phone);
+        Assert.Null(saved.Address);
+    }
+
+    [Fact]
+    public async Task Saving_with_a_bad_phone_date_address_or_a_taken_ABC_ID_is_refused()
+    {
+        await _service.SaveStudentAsync(NewStudent("first@mail.com", d => d.AbcId = "111111111111"));
+
+        var phone = await Assert.ThrowsAsync<InvalidOperationException>(() => _service.SaveStudentAsync(NewStudent("a@mail.com", d => d.Phone = "12345")));
+        Assert.Contains("10-digit", phone.Message);
+        var future = await Assert.ThrowsAsync<InvalidOperationException>(() => _service.SaveStudentAsync(NewStudent("b@mail.com", d => d.DateOfBirth = DateTime.Today.AddDays(1))));
+        Assert.Contains("future", future.Message);
+        var old = await Assert.ThrowsAsync<InvalidOperationException>(() => _service.SaveStudentAsync(NewStudent("c@mail.com", d => d.DateOfBirth = new DateTime(1900, 1, 1))));
+        Assert.Contains("check the year", old.Message);
+        var young = await Assert.ThrowsAsync<InvalidOperationException>(() => _service.SaveStudentAsync(NewStudent("d@mail.com", d => d.DateOfBirth = DateTime.Today.AddYears(-5))));
+        Assert.Contains("check the year", young.Message);
+        var address = await Assert.ThrowsAsync<InvalidOperationException>(() => _service.SaveStudentAsync(NewStudent("e@mail.com", d => d.Address = new string('x', 301))));
+        Assert.Contains("300", address.Message);
+        var short12 = await Assert.ThrowsAsync<InvalidOperationException>(() => _service.SaveStudentAsync(NewStudent("f@mail.com", d => d.AbcId = "123")));
+        Assert.Contains("12-digit", short12.Message);
+        var taken = await Assert.ThrowsAsync<InvalidOperationException>(() => _service.SaveStudentAsync(NewStudent("g@mail.com", d => d.AbcId = "1111-1111-1111")));
+        Assert.Contains("belongs to another student", taken.Message);
+
+        Assert.Equal(1, await _context.StudentMasters.CountAsync()); // only the first one was saved
+    }
+
+    [Fact]
+    public async Task Editing_changes_clears_and_checks_the_optional_fields()
+    {
+        var id = await _service.SaveStudentAsync(NewStudent("asha@mail.com", d => { d.Phone = "9876543210"; d.Address = "Pune"; d.DateOfBirth = new DateTime(2005, 3, 25); d.AbcId = "123456789012"; }));
+        var other = await _service.SaveStudentAsync(NewStudent("ravi@mail.com", d => { d.FirstName = "Ravi"; d.AbcId = "999999999999"; }));
+
+        await _service.UpdateStudentAsync(Edit(id, d => { d.Email = "asha@mail.com"; d.Phone = "8888888888"; d.Address = "Mumbai"; d.DateOfBirth = new DateTime(2004, 1, 2); d.AbcId = "123456789012"; }));
+        var changed = await _service.GetStudentByIdAsync(id, _ay);
+        Assert.Equal("8888888888", changed.Phone);
+        Assert.Equal("Mumbai", changed.Address);
+        Assert.Equal(new DateTime(2004, 1, 2), changed.DateOfBirth);
+
+        var bad = await Assert.ThrowsAsync<InvalidOperationException>(() => _service.UpdateStudentAsync(Edit(id, d => { d.Email = "asha@mail.com"; d.Phone = "123"; })));
+        Assert.Contains("10-digit", bad.Message);
+        var taken = await Assert.ThrowsAsync<InvalidOperationException>(() => _service.UpdateStudentAsync(Edit(id, d => { d.Email = "asha@mail.com"; d.AbcId = "999999999999"; })));
+        Assert.Contains("belongs to another student", taken.Message);
+        Assert.Equal("8888888888", (await _service.GetStudentByIdAsync(id, _ay)).Phone); // the refused edits changed nothing
+        Assert.Equal("999999999999", (await _service.GetStudentByIdAsync(other, _ay)).AbcId);
+
+        await _service.UpdateStudentAsync(Edit(id, d => d.Email = "asha@mail.com")); // all four blank: cleared
+        var cleared = await _service.GetStudentByIdAsync(id, _ay);
+        Assert.Null(cleared.Phone);
+        Assert.Null(cleared.Address);
+        Assert.Null(cleared.DateOfBirth);
+        Assert.Null(cleared.AbcId);
+    }
+
+    [Fact]
+    public async Task A_value_already_on_record_is_kept_when_another_field_is_edited()
+    {
+        // An older record whose values would fail today's checks.
+        var student = new StudentMaster
+        {
+            StdMstId = Guid.NewGuid(), StudentId = "2600001", FirstName = "Old", LastName = "Record", MotherName = "M", StudentType = "E", CollegeId = _college,
+            DateOfBirth = new DateTime(1930, 1, 1), Phone = "12345", Address = new string('y', 400),
+        };
+        _context.StudentMasters.Add(student);
+        _context.StudentEligibilities.Add(new StudentEligibility { Id = Guid.NewGuid(), StdMstId = student.StdMstId, StudentId = "2600001", CourseId = _course, SemesterId = "Sem-1", Pattern = "NEP", AYID = _ay });
+        await _context.SaveChangesAsync();
+
+        await _service.UpdateStudentAsync(Edit("2600001", d => { d.FirstName = "Renamed"; d.DateOfBirth = new DateTime(1930, 1, 1); d.Phone = "12345"; d.Address = new string('y', 400); }));
+
+        var saved = await _context.StudentMasters.SingleAsync();
+        Assert.Equal("Renamed", saved.FirstName);
+        Assert.Equal("12345", saved.Phone);
+        Assert.Equal(400, saved.Address!.Length);
+    }
+
+    [Fact]
+    public async Task The_student_lists_show_ABC_ID_and_phone()
+    {
+        await _service.SaveStudentAsync(NewStudent("asha@mail.com", d => { d.AbcId = "123456789012"; d.Phone = "9876543210"; }));
+
+        var byCourse = await _service.GetbycourseAsync(_course, _ay);
+        Assert.Equal("123456789012", byCourse.Single().AbcId);
+        Assert.Equal("9876543210", byCourse.Single().Phone);
+        var found = await _service.SearchStudentsAsync(new Searchbyname { FirstName = "Asha", StudentPRN = "", StudentId = "", AYID = _ay }, _ay);
+        Assert.Equal("123456789012", found.Single().AbcId);
+        Assert.Equal("9876543210", found.Single().Phone);
+    }
 }

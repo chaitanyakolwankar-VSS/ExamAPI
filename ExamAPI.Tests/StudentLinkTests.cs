@@ -210,7 +210,7 @@ public sealed class StudentLinkTests
         var info = await Students(context).OpenAsync(token);
 
         Assert.Equal((LinkOpenStates.Ready, "Asha", "as•••@viva.in", "VIVA"), (info.State, info.FirstName, info.MaskedEmail, info.College));
-        Assert.Equal(LinkOpenStates.Invalid, (await Students(context).OpenAsync("x" + token[1..])).State);
+        Assert.Equal(LinkOpenStates.Invalid, (await Students(context).OpenAsync((token[0] == 'x' ? "y" : "x") + token[1..])).State);
         Assert.Equal(LinkOpenStates.Invalid, (await Students(context).OpenAsync(null)).State);
     }
 
