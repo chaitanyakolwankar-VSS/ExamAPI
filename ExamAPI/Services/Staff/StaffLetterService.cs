@@ -442,7 +442,7 @@ namespace ExamAPI.Services.Staff
         public static readonly IReadOnlyList<string> Guidelines = new[]
         {
             "Follow the University's examination conduct rules and regulations.",
-            "If you cannot attend because of an emergency, get written permission from the Principal or the Chief Conductor in advance and arrange a substitute.",
+            "If you cannot attend because of an emergency, get written permission from the Principal or the Controller of Examinations in advance and arrange a substitute.",
             "Check the answer-book counts and keep the supervision diary up to date throughout the session."
         };
 

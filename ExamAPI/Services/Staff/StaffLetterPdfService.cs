@@ -291,30 +291,15 @@ namespace ExamAPI.Services.Staff
 
         private static bool IsDuty(StaffLetterDuty line) => line.Kind == DutyKinds.Duty;
 
-        private static string ClockText(TimeSpan time) => DateTime.Today.Add(time).ToString("hh:mm tt", CultureInfo.InvariantCulture);
-
-        /// <summary>When to report for each kind of session: one hour before the start of the duties ("09:30 AM", or one time per session).</summary>
-        internal static string ReportingTimes(IEnumerable<StaffLetterDuty> lines)
-        {
-            var starts = lines.Where(IsDuty).Select(d => ExamSlotOrder.StartTime(d.Time)).Where(t => t != TimeSpan.MaxValue).Distinct().OrderBy(t => t).ToList();
-            if (starts.Count == 0) return "";
-            string Before(TimeSpan start) => ClockText(start - TimeSpan.FromHours(1));
-            if (starts.Count == 1) return Before(starts[0]);
-
-            var morning = starts.Where(t => t < TimeSpan.FromHours(12)).Select(Before).ToList();
-            var afternoon = starts.Where(t => t >= TimeSpan.FromHours(12)).Select(Before).ToList();
-            var parts = new List<string>();
-            if (morning.Count > 0) parts.Add($"{string.Join(" / ", morning)} for the morning session");
-            if (afternoon.Count > 0) parts.Add($"{string.Join(" / ", afternoon)} for the afternoon session");
-            return string.Join("; ", parts);
-        }
+        /// <summary>The reporting instruction after "Important Reporting Instruction:" (owner 2026-11-02: no clock time, just one hour before).</summary>
+        internal static string ReportingText(string place) =>
+            $"You are requested to report to {place} one hour before the scheduled start of the examination for pre-exam verification and paper distribution.";
 
         private static void SupervisionBody(IContainer container, LetterPage page)
         {
             var letter = page.Letter;
             var lines = letter.Duties.Where(d => d.Kind != DutyKinds.RetiredValuation).OrderBy(d => d.SortOrder).ToList();
             var posting = string.Join(" — ", new[] { page.Designation, page.Department }.Where(p => !string.IsNullOrWhiteSpace(p)));
-            var reporting = ReportingTimes(lines);
 
             container.Column(column =>
             {
@@ -412,10 +397,7 @@ namespace ExamAPI.Services.Staff
                 {
                     t.DefaultTextStyle(x => x.FontSize(10));
                     t.Span("Important Reporting Instruction: ").Bold();
-                    t.Span($"You are requested to report to {page.Branding.ReportingPlace} exactly one hour prior");
-                    // A time is not split over two lines.
-                    if (reporting != "") t.Span($" ({reporting.Replace(" AM", " AM").Replace(" PM", " PM")})");
-                    t.Span(" to the scheduled commencement of the examination for pre-exam verification and paper distribution.");
+                    t.Span(ReportingText(page.Branding.ReportingPlace));
                 });
 
                 // Guidelines.

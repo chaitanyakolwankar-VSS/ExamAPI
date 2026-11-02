@@ -208,7 +208,7 @@ public sealed class StaffLetterPdfTests : IDisposable
     }
 
     [Fact]
-    public async Task Duty_lines_without_a_session_time_still_make_a_pdf_and_give_no_reporting_time()
+    public async Task Duty_lines_without_a_session_time_still_make_a_pdf()
     {
         var letter = Letter(_asha, StaffLetterTypes.Supervision, 1, duties: 2);
         foreach (var (line, label) in letter.Duties.OrderBy(d => d.SortOrder).Zip(new[] { DutySessions.MorningNoTime, DutySessions.AfternoonNoTime }))
@@ -216,7 +216,6 @@ public sealed class StaffLetterPdfTests : IDisposable
         _context.SaveChanges();
 
         AssertPdf((await _service.OneAsync(letter.Id)).Bytes);
-        Assert.Equal("", StaffLetterPdfService.ReportingTimes(letter.Duties));
     }
 
     [Fact]
@@ -325,15 +324,20 @@ public sealed class StaffLetterPdfTests : IDisposable
     }
 
     [Fact]
-    public void People_report_one_hour_before_the_first_session_or_per_session_when_the_sessions_differ()
+    public void People_are_asked_to_report_one_hour_before_without_a_clock_time()
     {
-        StaffLetterDuty Line(string time, string kind = DutyKinds.Duty) => new() { Id = Guid.NewGuid(), Date = "02-11-2026", Time = time, Kind = kind };
+        // Owner 2026-11-02: no "(09:30 AM)" in the reporting line, just one hour before.
+        var text = StaffLetterPdfService.ReportingText("the Examination Control Room");
 
-        Assert.Equal("09:30 AM", StaffLetterPdfService.ReportingTimes(new[] { Line("10:30 AM - 1:30 PM"), Line("10:30 AM - 1:30 PM") }));
-        Assert.Equal("09:30 AM for the morning session; 01:30 PM for the afternoon session",
-            StaffLetterPdfService.ReportingTimes(new[] { Line("2:30 PM - 5:30 PM"), Line("10:30 AM - 1:30 PM") }));
-        Assert.Equal("01:30 PM", StaffLetterPdfService.ReportingTimes(new[] { Line("2:30 PM - 5:30 PM"), Line("Full day", DutyKinds.Other) }));
-        Assert.Equal("", StaffLetterPdfService.ReportingTimes(new[] { Line("Full day", DutyKinds.Other) }));
+        Assert.Equal("You are requested to report to the Examination Control Room one hour before the scheduled start of the examination for pre-exam verification and paper distribution.", text);
+        Assert.DoesNotMatch(@"\d{1,2}:\d{2}", text);
+    }
+
+    [Fact]
+    public void The_default_guidelines_name_the_controller_of_examinations()
+    {
+        Assert.Contains(DutyLetterDefaults.Guidelines, g => g.Contains("the Principal or the Controller of Examinations"));
+        Assert.DoesNotContain(DutyLetterDefaults.Guidelines, g => g.Contains("Chief Conductor"));
     }
 
     [Fact]
