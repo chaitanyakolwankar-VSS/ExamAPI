@@ -642,6 +642,9 @@ public sealed class DutyChartTests
         return new FormFile(stream, 0, bytes.Length, "File", "chart.xlsx");
     }
 
+    /// <summary>The heading row of the downloaded sheet; the people start on the row below.</summary>
+    private const int H = DutyChartService.SheetHeaderRow;
+
     /// <summary>The downloaded sheet with some cells changed by the test.</summary>
     private async Task<IFormFile> EditedSheet(Guid chartId, Action<IXLWorksheet> edit)
     {
@@ -655,15 +658,15 @@ public sealed class DutyChartTests
 
     private static int RowOf(IXLWorksheet sheet, string employeeId)
     {
-        for (int r = 4; r <= sheet.LastRowUsed()!.RowNumber(); r++)
+        for (int r = H + 1; r <= sheet.LastRowUsed()!.RowNumber(); r++)
             if (sheet.Cell(r, 2).GetString() == employeeId) return r;
         throw new InvalidOperationException("no row for " + employeeId);
     }
 
     private static int ColumnOf(IXLWorksheet sheet, string dayHeader)
     {
-        for (int c = 4; c <= sheet.Row(3).LastCellUsed()!.Address.ColumnNumber; c++)
-            if (sheet.Cell(3, c).GetString().StartsWith(dayHeader)) return c;
+        for (int c = 4; c <= sheet.Row(H).LastCellUsed()!.Address.ColumnNumber; c++)
+            if (sheet.Cell(H, c).GetString().StartsWith(dayHeader)) return c;
         throw new InvalidOperationException("no column for " + dayHeader);
     }
 
@@ -686,11 +689,75 @@ public sealed class DutyChartTests
         var (bytes, _) = await _service.ExcelAsync(chart.Chart.Id);
         using var workbook = new XLWorkbook(new MemoryStream(bytes));
         var sheet = workbook.Worksheet(1);
-        Assert.Equal("Chief Conductor / Senior Supervisors", sheet.Cell(4, 1).GetString());
-        Assert.Equal(("E102", "IS (M)"), (sheet.Cell(5, 2).GetString(), sheet.Cell(5, 4).GetString()));
-        Assert.Equal("Inspection Squad", sheet.Cell(6, 1).GetString());
-        Assert.Equal(("E101", "IS (M/A)", "A"), (sheet.Cell(7, 2).GetString(), sheet.Cell(7, 4).GetString(), sheet.Cell(7, 5).GetString()));
-        Assert.Equal("Non-teaching staff", sheet.Cell(8, 1).GetString());
+        Assert.Equal("Chief Conductor / Senior Supervisors", sheet.Cell(H + 1, 1).GetString());
+        Assert.Equal(("E102", "IS (M)"), (sheet.Cell(H + 2, 2).GetString(), sheet.Cell(H + 2, 4).GetString()));
+        Assert.Equal("Inspection Squad", sheet.Cell(H + 3, 1).GetString());
+        Assert.Equal(("E101", "IS (M/A)", "A"), (sheet.Cell(H + 4, 2).GetString(), sheet.Cell(H + 4, 4).GetString(), sheet.Cell(H + 4, 5).GetString()));
+        Assert.Equal("Non-teaching staff", sheet.Cell(H + 5, 1).GetString());
+    }
+
+    [Fact]
+    public async Task Understudy_ranks_below_junior_and_above_non_teaching_and_has_its_own_group_and_code_in_the_sheet()
+    {
+        var chart = await NewChart();
+        var id = chart.Chart.Id;
+        await Save(id, "2026-04-30",
+            Duty(_asha, "2026-05-11", "M", SupervisionRoles.Understudy), Duty(_asha, "2026-05-12", "A"),   // junior one day: junior is higher
+            Duty(_meena, "2026-05-11", "MA", SupervisionRoles.Understudy),
+            Duty(_om, "2026-05-12", "A", SupervisionRoles.Understudy), Duty(_om, "2026-05-13", "M"));      // non-teaching: understudy is higher
+
+        var detail = await _service.GetAsync(id);
+        Assert.Equal(SupervisionRoles.Junior, detail.Letters.Single(l => l.StaffId == _asha.StaffId).Role);
+        Assert.Equal(SupervisionRoles.Understudy, detail.Letters.Single(l => l.StaffId == _meena.StaffId).Role);
+        Assert.Equal(SupervisionRoles.Understudy, detail.Letters.Single(l => l.StaffId == _om.StaffId).Role);
+
+        var (bytes, _) = await _service.ExcelAsync(id);
+        using (var workbook = new XLWorkbook(new MemoryStream(bytes)))
+        {
+            var sheet = workbook.Worksheet(1);
+            Assert.Equal("Teaching staff", sheet.Cell(H + 1, 1).GetString());
+            Assert.Equal(("E101", "US (M)", "A"), (sheet.Cell(H + 2, 2).GetString(), sheet.Cell(H + 2, 4).GetString(), sheet.Cell(H + 2, 5).GetString()));
+            Assert.Equal("Understudy Supervisors", sheet.Cell(H + 3, 1).GetString());
+            Assert.Equal(new[] { "E103", "E104" }, new[] { sheet.Cell(H + 4, 2).GetString(), sheet.Cell(H + 5, 2).GetString() });
+            Assert.Equal("US (M/A)", sheet.Cell(H + 4, 4).GetString());
+        }
+
+        // The sheet reads back unchanged.
+        var same = await Import(id, File(bytes));
+        Assert.Equal("Ready: 0 new, 0 updated, 3 unchanged. Check the list, then press Save.", same.Message);
+    }
+
+    [Fact]
+    public async Task The_sheet_has_a_title_block_drop_downs_coloured_codes_a_legend_and_examples()
+    {
+        var chart = await NewChart();
+        await Save(chart.Chart.Id, "2026-04-30", Duty(_asha, "2026-05-11", "M"));
+
+        var (bytes, _) = await _service.ExcelAsync(chart.Chart.Id);
+
+        using var workbook = new XLWorkbook(new MemoryStream(bytes));
+        var sheet = workbook.Worksheet(1);
+        Assert.Equal("Duty Chart", sheet.Name);
+        Assert.Equal("First Half  ·  3 exam days  ·  1 person  ·  1 duty", sheet.Cell(3, 1).GetString());
+        Assert.Equal("", sheet.Cell(5, 1).GetString());   // no instructions above the table
+
+        // Every day's cell offers the codes and still takes other text.
+        var validation = sheet.Cell(H + 2, 4).GetDataValidation();
+        Assert.False(validation.ShowErrorMessage);
+        var lists = workbook.Worksheet("Lists");
+        Assert.Equal(XLWorksheetVisibility.Hidden, lists.Visibility);
+        Assert.Equal(new[] { "M", "A", "M/A", "CC (M)", "CC (A)", "CC (M/A)", "SS (M)", "SS (A)", "SS (M/A)", "IS (M)", "IS (A)", "IS (M/A)", "US (M)", "US (A)", "US (M/A)", "V" },
+            Enumerable.Range(2, 16).Select(r => lists.Cell(r, 1).GetString()));
+        Assert.Equal(6, sheet.ConditionalFormats.Count());
+
+        // The legend lists every code; a few examples come last.
+        var rows = Enumerable.Range(H, sheet.LastRowUsed()!.RowNumber()).ToList();
+        var legend = rows.First(r => sheet.Cell(r, 1).GetString() == "Legend");
+        Assert.Equal(new[] { "M", "A", "M/A", "CC", "SS", "IS", "US", "V", "Exam cell" }, Enumerable.Range(legend + 1, 9).Select(r => sheet.Cell(r, 2).GetString()));
+        var examples = rows.First(r => sheet.Cell(r, 1).GetString() == "Examples");
+        Assert.True(examples > rows.First(r => sheet.Cell(r, 1).GetString() == "Session times"));
+        Assert.Equal(new[] { ("CC (A)", "Chief Conductor in the afternoon session"), ("SS (M/A)", "Senior Supervisor in both sessions") },
+            Enumerable.Range(examples + 1, 2).Select(r => (sheet.Cell(r, 2).GetString(), sheet.Cell(r, 3).GetString())));
     }
 
     [Fact]
@@ -710,35 +777,36 @@ public sealed class DutyChartTests
         Assert.Equal("Duty Chart May 2026 End-Semester.xlsx", name);
         using var workbook = new XLWorkbook(new MemoryStream(bytes));
         var sheet = workbook.Worksheet(1);
-        Assert.Equal("Duty Chart — May 2026 End-Semester (11 May 2026 to 15 May 2026)", sheet.Cell(1, 1).GetString());
-        Assert.Equal("Be on campus for 8 hours", sheet.Cell(2, 1).GetString());
+        Assert.Equal("Duty Chart — May 2026 End-Semester (11 May 2026 to 15 May 2026)", sheet.Cell(2, 1).GetString());
+        Assert.Equal("Note for staff: Be on campus for 8 hours", sheet.Cell(4, 1).GetString());
         Assert.Equal(new[] { "Sr. No.", "Employee ID", "Employee Name", "11-05-2026\nMon", "12-05-2026\nTue", "13-05-2026\nWed", "Duties" },
-            Enumerable.Range(1, 7).Select(c => sheet.Cell(3, c).GetString()));
+            Enumerable.Range(1, 7).Select(c => sheet.Cell(H, c).GetString()));
 
         // Groups in order, each person once, ordered by first name inside a group.
-        Assert.Equal("Chief Conductor / Senior Supervisors", sheet.Cell(4, 1).GetString());
-        Assert.Equal(("E102", "Dr. Ravi Kumar"), (sheet.Cell(5, 2).GetString(), sheet.Cell(5, 3).GetString()));
-        Assert.Equal("Teaching staff", sheet.Cell(6, 1).GetString());
-        Assert.Equal(new[] { "E101", "E103" }, new[] { sheet.Cell(7, 2).GetString(), sheet.Cell(8, 2).GetString() });
-        Assert.Equal("Non-teaching staff", sheet.Cell(9, 1).GetString());
-        Assert.Equal("E104", sheet.Cell(10, 2).GetString());
-        Assert.Equal(1, sheet.Cell(5, 1).GetValue<int>());
-        Assert.Equal(4, sheet.Cell(10, 1).GetValue<int>());
+        Assert.Equal("Chief Conductor / Senior Supervisors", sheet.Cell(H + 1, 1).GetString());
+        Assert.Equal(("E102", "Dr. Ravi Kumar"), (sheet.Cell(H + 2, 2).GetString(), sheet.Cell(H + 2, 3).GetString()));
+        Assert.Equal("Teaching staff", sheet.Cell(H + 3, 1).GetString());
+        Assert.Equal(new[] { "E101", "E103" }, new[] { sheet.Cell(H + 4, 2).GetString(), sheet.Cell(H + 5, 2).GetString() });
+        Assert.Equal("Non-teaching staff", sheet.Cell(H + 6, 1).GetString());
+        Assert.Equal("E104", sheet.Cell(H + 7, 2).GetString());
+        Assert.Equal(1, sheet.Cell(H + 2, 1).GetValue<int>());
+        Assert.Equal(4, sheet.Cell(H + 7, 1).GetValue<int>());
 
         // Codes.
-        Assert.Equal(new[] { "CC (M/A)", "SS (M)", "" }, Enumerable.Range(4, 3).Select(c => sheet.Cell(5, c).GetString()));
-        Assert.Equal(3, sheet.Cell(5, 7).GetValue<int>());   // sessions
-        Assert.Equal(new[] { "A", "Paper setting", "" }, Enumerable.Range(4, 3).Select(c => sheet.Cell(7, c).GetString()));
-        Assert.Equal(new[] { "O", "", "Exam cell" }, Enumerable.Range(4, 3).Select(c => sheet.Cell(8, c).GetString()));
-        Assert.Equal(1, sheet.Cell(7, 7).GetValue<int>());
-        Assert.Equal(0, sheet.Cell(8, 7).GetValue<int>());
-        Assert.Equal("A", sheet.Cell(10, 6).GetString());   // non-teaching: no prefix
+        Assert.Equal(new[] { "CC (M/A)", "SS (M)", "" }, Enumerable.Range(4, 3).Select(c => sheet.Cell(H + 2, c).GetString()));
+        Assert.Equal(3, sheet.Cell(H + 2, 7).GetValue<int>());   // sessions
+        Assert.Equal(new[] { "A", "Paper setting", "" }, Enumerable.Range(4, 3).Select(c => sheet.Cell(H + 4, c).GetString()));
+        Assert.Equal(new[] { "O", "", "Exam cell" }, Enumerable.Range(4, 3).Select(c => sheet.Cell(H + 5, c).GetString()));
+        Assert.Equal(1, sheet.Cell(H + 4, 7).GetValue<int>());
+        Assert.Equal(0, sheet.Cell(H + 5, 7).GetValue<int>());
+        Assert.Equal("A", sheet.Cell(H + 7, 6).GetString());   // non-teaching: no prefix
 
-        // Nobody else, a legend with the day times at the end.
-        var ids = Enumerable.Range(4, sheet.LastRowUsed()!.RowNumber()).Select(r => sheet.Cell(r, 2).GetString()).Where(i => i != "").ToList();
+        // Spare lines to add people, then a legend with the day times at the end.
+        Assert.Equal("Add more people here (type the Employee ID)", sheet.Cell(H + 8, 1).GetString());
+        var ids = Enumerable.Range(H + 1, sheet.LastRowUsed()!.RowNumber()).Select(r => sheet.Cell(r, 2).GetString()).Where(i => System.Text.RegularExpressions.Regex.IsMatch(i, @"^E\d+$")).ToList();
         Assert.Equal(new[] { "E102", "E101", "E103", "E104" }, ids);
-        Assert.Contains(Enumerable.Range(4, sheet.LastRowUsed()!.RowNumber()), r => sheet.Cell(r, 1).GetString() == "Legend");
-        var legendRow = Enumerable.Range(4, sheet.LastRowUsed()!.RowNumber()).First(r => sheet.Cell(r, 3).GetString() == "Morning");
+        Assert.Contains(Enumerable.Range(H + 1, sheet.LastRowUsed()!.RowNumber()), r => sheet.Cell(r, 1).GetString() == "Legend");
+        var legendRow = Enumerable.Range(H + 1, sheet.LastRowUsed()!.RowNumber()).First(r => sheet.Cell(r, 3).GetString() == "Morning");
         Assert.Equal(Morning, sheet.Cell(legendRow, 4).GetString());
         Assert.Equal(Afternoon, sheet.Cell(legendRow + 1, 6).GetString());
     }
@@ -849,7 +917,7 @@ public sealed class DutyChartTests
             sheet.Cell(RowOf(sheet, "E103"), ColumnOf(sheet, "12-05")).Value = "CC (X)";         // unreadable
             sheet.Cell(RowOf(sheet, "E104"), ColumnOf(sheet, "11-05")).Value = new string('x', 101);   // note too long
             // A Thursday column the chart does not have: it is added as a day, not an error.
-            sheet.Cell(3, 8).Value = "14-05-2026\nThu";
+            sheet.Cell(H, 8).Value = "14-05-2026\nThu";
             sheet.Cell(RowOf(sheet, "E104"), 8).Value = "M";
         });
 
@@ -877,8 +945,8 @@ public sealed class DutyChartTests
         var file = await EditedSheet(id, sheet =>
         {
             // Thursday (inside the chart's dates) and a Wednesday in June (outside them): neither is a chart day.
-            sheet.Cell(3, 8).Value = "14-05-2026\nThu";
-            sheet.Cell(3, 9).Value = "03-06-2026\nWed";
+            sheet.Cell(H, 8).Value = "14-05-2026\nThu";
+            sheet.Cell(H, 9).Value = "03-06-2026\nWed";
             sheet.Cell(RowOf(sheet, "E101"), 8).Value = "M";
             sheet.Cell(RowOf(sheet, "E101"), 9).Value = "M/A";
             sheet.Cell(RowOf(sheet, "E102"), 9).Value = "A";
@@ -947,9 +1015,9 @@ public sealed class DutyChartTests
         await SaveWith(id, null, Everyone);
         var file = await EditedSheet(id, sheet =>
         {
-            sheet.Cell(3, ColumnOf(sheet, "11-05")).Value = new DateTime(2026, 5, 11);           // a real Excel date
-            sheet.Cell(3, ColumnOf(sheet, "12-05")).Value = "12 May 2026\nTuesday";
-            sheet.Cell(3, ColumnOf(sheet, "13-05")).Value = "2026-05-13";
+            sheet.Cell(H, ColumnOf(sheet, "11-05")).Value = new DateTime(2026, 5, 11);           // a real Excel date
+            sheet.Cell(H, ColumnOf(sheet, "12-05")).Value = "12 May 2026\nTuesday";
+            sheet.Cell(H, ColumnOf(sheet, "13-05")).Value = "2026-05-13";
             foreach (var c in new[] { 4, 5, 6 }) sheet.Cell(RowOf(sheet, "E101"), c).Value = "A";
             sheet.Cell(RowOf(sheet, "E101"), 4).Value = "M";
             sheet.Cell(RowOf(sheet, "E101"), 5).Value = "M";
@@ -1093,15 +1161,15 @@ public sealed class DutyChartTests
         using (var workbook = new XLWorkbook(new MemoryStream(bytes)))
         {
             var sheet = workbook.Worksheet(1);
-            Assert.Equal("Duty Chart — May 2026 End-Semester (11 May 2026 to 15 May 2026)", sheet.Cell(1, 1).GetString());
-            Assert.Equal("Be on campus for 8 hours", sheet.Cell(2, 1).GetString());
+            Assert.Equal("Duty Chart — May 2026 End-Semester (11 May 2026 to 15 May 2026)", sheet.Cell(2, 1).GetString());
+            Assert.Equal("Note for staff: Be on campus for 8 hours", sheet.Cell(4, 1).GetString());
             Assert.Equal(new[] { "Sr. No.", "Employee ID", "Employee Name", "11-05-2026\nMon", "12-05-2026\nTue", "13-05-2026\nWed", "Duties" },
-                Enumerable.Range(1, 7).Select(c => sheet.Cell(3, c).GetString()));
+                Enumerable.Range(1, 7).Select(c => sheet.Cell(H, c).GetString()));
             // 30 empty numbered lines, no group rows, nobody's name.
-            Assert.Equal(Enumerable.Range(1, 30), Enumerable.Range(4, 30).Select(r => sheet.Cell(r, 1).GetValue<int>()));
-            Assert.All(Enumerable.Range(4, 30), r => Assert.Equal("", sheet.Cell(r, 2).GetString() + sheet.Cell(r, 3).GetString() + sheet.Cell(r, 4).GetString()));
-            Assert.Contains(Enumerable.Range(35, 3), r => sheet.Cell(r, 1).GetString() == "Legend");
-            Assert.DoesNotContain(Enumerable.Range(4, 30), r => sheet.Cell(r, 1).GetString().Contains("staff") || sheet.Cell(r, 1).GetString().Contains("Supervisors"));
+            Assert.Equal(Enumerable.Range(1, 30), Enumerable.Range(H + 1, 30).Select(r => sheet.Cell(r, 1).GetValue<int>()));
+            Assert.All(Enumerable.Range(H + 1, 30), r => Assert.Equal("", sheet.Cell(r, 2).GetString() + sheet.Cell(r, 3).GetString() + sheet.Cell(r, 4).GetString()));
+            Assert.Contains(Enumerable.Range(H + 32, 3), r => sheet.Cell(r, 1).GetString() == "Legend");
+            Assert.DoesNotContain(Enumerable.Range(H + 1, 30), r => sheet.Cell(r, 1).GetString().Contains("staff") || sheet.Cell(r, 1).GetString().Contains("Supervisors"));
         }
 
         // The untouched template adds nobody.
@@ -1113,12 +1181,12 @@ public sealed class DutyChartTests
         // Type three people (the last one only with an ID) into the template.
         var file = await EditedSheet(id, sheet =>
         {
-            sheet.Cell(4, 2).Value = "E104";
-            sheet.Cell(4, 6).Value = "A";
-            sheet.Cell(5, 2).Value = "E101";
-            sheet.Cell(5, 4).Value = "m/a";
-            sheet.Cell(5, 5).Value = "V";   // vacation: read as empty
-            sheet.Cell(6, 2).Value = "E102";
+            sheet.Cell(H + 1, 2).Value = "E104";
+            sheet.Cell(H + 1, 6).Value = "A";
+            sheet.Cell(H + 2, 2).Value = "E101";
+            sheet.Cell(H + 2, 4).Value = "m/a";
+            sheet.Cell(H + 2, 5).Value = "V";   // vacation: read as empty
+            sheet.Cell(H + 3, 2).Value = "E102";
         });
         var preview = await Import(id, file);
         Assert.True(preview.Success);
@@ -1149,7 +1217,7 @@ public sealed class DutyChartTests
         using (var workbook = new XLWorkbook(new MemoryStream(bytes)))
         {
             var sheet = workbook.Worksheet(1);
-            var ids = Enumerable.Range(4, 12).Select(r => sheet.Cell(r, 2).GetString()).Where(i => i != "").ToList();
+            var ids = Enumerable.Range(H + 1, 12).Select(r => sheet.Cell(r, 2).GetString()).Where(i => i != "").ToList();
             Assert.Equal(new[] { "E103", "E101", "E102", "E104" }, ids);   // members only, chart order
         }
 
@@ -1182,7 +1250,7 @@ public sealed class DutyChartTests
 
         using var workbook = new XLWorkbook(new MemoryStream(bytes));
         var sheet = workbook.Worksheet(1);
-        Assert.Equal(new[] { "E102", "E103", "E101", "E104" }, Enumerable.Range(4, 12).Select(r => sheet.Cell(r, 2).GetString()).Where(i => i != ""));
+        Assert.Equal(new[] { "E102", "E103", "E101", "E104" }, Enumerable.Range(H + 1, 12).Select(r => sheet.Cell(r, 2).GetString()).Where(i => i != ""));
     }
 
     [Fact]
@@ -1227,6 +1295,8 @@ public sealed class DutyChartTests
     [InlineData("IS (M/A)", "MA", "Inspection Squad")]
     [InlineData("is m", "M", "Inspection Squad")]
     [InlineData("A (IS)", "A", "Inspection Squad")]
+    [InlineData("US (M/A)", "MA", "Understudy Supervisor")]
+    [InlineData("us a", "A", "Understudy Supervisor")]
     public void Duty_codes_are_read_tolerantly(string text, string session, string? role)
     {
         var code = DutyCodes.Parse(text, out var error);

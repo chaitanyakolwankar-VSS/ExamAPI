@@ -297,6 +297,7 @@ public sealed class StaffLetterPdfTests : IDisposable
     [InlineData(SupervisionRoles.Senior, "SENIOR EXAMINATION SUPERVISOR")]
     [InlineData(SupervisionRoles.InspectionSquad, "INSPECTION SQUAD")]
     [InlineData(SupervisionRoles.Junior, "JUNIOR EXAMINATION SUPERVISOR")]
+    [InlineData(SupervisionRoles.Understudy, "UNDERSTUDY SUPERVISOR")]
     [InlineData(SupervisionRoles.NonTeaching, "EXAMINATION DUTY — NON-TEACHING STAFF")]
     [InlineData(null, "EXAMINATION DUTY")]
     public void The_order_is_titled_after_the_highest_role(string? role, string title)

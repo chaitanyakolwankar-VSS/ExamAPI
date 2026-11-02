@@ -652,11 +652,23 @@ namespace ExamAPI.Services.Staff
         private const string LegendLabel = "Legend";
         /// <summary>Empty numbered lines of the sheet of a chart with nobody on it.</summary>
         private const int BlankRows = 30;
+        /// <summary>Empty numbered lines under the people of a filled sheet, to type more people into.</summary>
+        private const int SpareRows = 10;
+        /// <summary>The heading row of the sheet (Employee ID and the dates). The import finds it anywhere in the first ten rows.</summary>
+        public const int SheetHeaderRow = 6;
+
+        private static readonly XLColor SheetNavy = XLColor.FromHtml("#1F3864");
+        private static readonly XLColor SheetGrid = XLColor.FromHtml("#BFBFBF");
+
+        /// <summary>The colours of a cell's code, in the grid and the legend: (fill, font).</summary>
+        private static readonly (string Fill, string Font) LeadTint = ("#FCE4D6", "#9C4A00"), SquadTint = ("#E2EFDA", "#375623"),
+            UnderstudyTint = ("#DDEBF7", "#1F4E79"), DutyTint = ("#EEF2FF", "#1F3864"), AwayTint = ("#F2F2F2", "#7F7F7F"), OtherTint = ("#FFF2CC", "#7F6000");
 
         /// <summary>
-        /// The chart as a sheet to fill in: the people on the chart (in chart order inside each group), the exam days
-        /// across, the codes of the current entries in the cells. A chart with nobody on it gives a blank template: the
-        /// headings and empty numbered rows to type the people into.
+        /// The chart as a sheet to fill in: a title, the people on the chart (grouped, in chart order inside each
+        /// group) with the exam days across and the codes of the current entries in the cells, then a legend, the
+        /// session times and a few examples. Each day's cell has a drop-down of the codes and is coloured by its role. A
+        /// chart with nobody on it gives a blank template: the headings and empty numbered rows to type the people into.
         /// </summary>
         public async Task<(byte[] Bytes, string FileName)> ExcelAsync(Guid id)
         {
@@ -666,18 +678,22 @@ namespace ExamAPI.Services.Staff
             var memberIds = await _context.DutyChartMembers.AsNoTracking().Where(m => m.ChartId == id).OrderBy(m => m.SortOrder).ThenBy(m => m.StaffId).Select(m => m.StaffId).ToListAsync();
             var found = (await _context.StaffMasters.AsNoTracking().Where(s => memberIds.Contains(s.StaffId) && s.IsActive && !s.IsExternal).ToListAsync()).ToDictionary(s => s.StaffId);
             var staff = memberIds.Where(found.ContainsKey).Select(i => found[i]).ToList();   // chart order
+            var college = await _context.Colleges.AsNoTracking().Select(c => new { c.Name, c.CollegeCode }).FirstOrDefaultAsync();
             var cells = entries.ToDictionary(e => (e.StaffId, e.Date.Date));
-            var leaders = entries.Where(e => e.Kind == DutyKinds.Duty && (e.Role == SupervisionRoles.ChiefConductor || e.Role == SupervisionRoles.Senior))
-                .Select(e => e.StaffId).ToHashSet();
-            var squad = entries.Where(e => e.Kind == DutyKinds.Duty && e.Role == SupervisionRoles.InspectionSquad && !leaders.Contains(e.StaffId))
-                .Select(e => e.StaffId).ToHashSet();
-            bool Rest(StaffMaster s) => !leaders.Contains(s.StaffId) && !squad.Contains(s.StaffId);
 
+            // Each person's highest role picks their group.
+            var rank = SupervisionRoles.All.ToList();
+            var highest = entries.Where(e => e.Kind == DutyKinds.Duty && e.Role != null).GroupBy(e => e.StaffId)
+                .ToDictionary(g => g.Key, g => g.Select(e => e.Role!).OrderBy(r => rank.IndexOf(r) < 0 ? int.MaxValue : rank.IndexOf(r)).First());
+            string? Top(StaffMaster s) => highest.GetValueOrDefault(s.StaffId);
+            bool Lead(StaffMaster s) => Top(s) is SupervisionRoles.ChiefConductor or SupervisionRoles.Senior;
+            bool Rest(StaffMaster s) => Top(s) is not (SupervisionRoles.ChiefConductor or SupervisionRoles.Senior or SupervisionRoles.InspectionSquad or SupervisionRoles.Understudy);
             var groups = new (string Label, List<StaffMaster> People)[]
             {
-                ("Chief Conductor / Senior Supervisors", staff.Where(s => leaders.Contains(s.StaffId)).ToList()),
-                ("Inspection Squad", staff.Where(s => squad.Contains(s.StaffId)).ToList()),
+                ("Chief Conductor / Senior Supervisors", staff.Where(Lead).ToList()),
+                ("Inspection Squad", staff.Where(s => Top(s) == SupervisionRoles.InspectionSquad).ToList()),
                 ("Teaching staff", staff.Where(s => Rest(s) && s.IsTeaching).ToList()),
+                ("Understudy Supervisors", staff.Where(s => Top(s) == SupervisionRoles.Understudy).ToList()),
                 ("Non-teaching staff", staff.Where(s => Rest(s) && !s.IsTeaching).ToList())
             };
 
@@ -685,105 +701,260 @@ namespace ExamAPI.Services.Staff
             var sheet = workbook.Worksheets.Add("Duty Chart");
             const int FirstDay = 4;
             var lastColumn = FirstDay + days.Count;   // the Duties column
-            var fill = XLColor.FromHtml("#E8EEF9");
+            var widths = new List<double> { 7, 13, 32 };
+            widths.AddRange(days.Select(_ => 12.0));
+            widths.Add(9);
+            for (int c = 1; c <= lastColumn; c++) ExcelStyles.SetWidth(sheet.Column(c), widths[c - 1]);
 
-            sheet.Cell(1, 1).Value = $"Duty Chart — {chart.Name} ({chart.FromDate.ToString("dd MMM yyyy", CultureInfo.InvariantCulture)} to {chart.ToDate.ToString("dd MMM yyyy", CultureInfo.InvariantCulture)})";
-            sheet.Cell(1, 1).Style.Font.Bold = true;
-            sheet.Cell(1, 1).Style.Font.FontSize = 13;
-            sheet.Cell(2, 1).Value = chart.Note ?? "";
-            sheet.Cell(2, 1).Style.Font.Italic = true;
+            // Title block: college, chart, summary, note, how to fill.
+            IXLRange Banner(int row, string text)
+            {
+                var range = sheet.Range(row, 1, row, lastColumn).Merge();
+                range.FirstCell().Value = text;
+                range.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+                range.Style.Alignment.WrapText = true;
+                return range;
+            }
+            var collegeRow = Banner(1, CollegeBranding.DisplayName(college?.Name, college?.CollegeCode));
+            collegeRow.Style.Font.Bold = true;
+            collegeRow.Style.Font.FontColor = XLColor.White;
+            collegeRow.Style.Fill.BackgroundColor = SheetNavy;
+            collegeRow.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            sheet.Row(1).Height = 22;
 
+            var titleRow = Banner(2, $"Duty Chart — {chart.Name} ({chart.FromDate.ToString("dd MMM yyyy", CultureInfo.InvariantCulture)} to {chart.ToDate.ToString("dd MMM yyyy", CultureInfo.InvariantCulture)})");
+            titleRow.Style.Font.Bold = true;
+            titleRow.Style.Font.FontSize = 14;
+            titleRow.Style.Font.FontColor = SheetNavy;
+            titleRow.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            sheet.Row(2).Height = 24;
+
+            var sessions = entries.Where(e => e.Kind == DutyKinds.Duty && found.ContainsKey(e.StaffId)).Sum(e => e.Session == DutySessions.Both ? 2 : 1);
+            var summary = new List<string>();
+            if (!string.IsNullOrWhiteSpace(chart.Half)) summary.Add(chart.Half);
+            summary.Add($"{days.Count} exam {(days.Count == 1 ? "day" : "days")}");
+            summary.Add($"{staff.Count} {(staff.Count == 1 ? "person" : "people")}");
+            summary.Add($"{sessions} {(sessions == 1 ? "duty" : "duties")}");
+            var summaryRow = Banner(3, string.Join("  ·  ", summary));
+            summaryRow.Style.Font.FontColor = XLColor.FromHtml("#595959");
+            summaryRow.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+            var noteRow = Banner(4, string.IsNullOrWhiteSpace(chart.Note) ? "" : $"Note for staff: {chart.Note}");
+            noteRow.Style.Font.Italic = true;
+            noteRow.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            if (string.IsNullOrWhiteSpace(chart.Note)) sheet.Row(4).Height = 6;
+
+            sheet.Row(5).Height = 8;
+
+            // Heading.
+            const int H = SheetHeaderRow;
             var headers = new[] { "Sr. No.", "Employee ID", "Employee Name" };
-            for (int i = 0; i < headers.Length; i++) sheet.Cell(3, i + 1).Value = headers[i];
+            for (int i = 0; i < headers.Length; i++) sheet.Cell(H, i + 1).Value = headers[i];
             for (int i = 0; i < days.Count; i++)
-                sheet.Cell(3, FirstDay + i).Value = days[i].Date.ToString(DayTextFormat, CultureInfo.InvariantCulture) + "\n" + days[i].Date.ToString("ddd", CultureInfo.InvariantCulture);
-            sheet.Cell(3, lastColumn).Value = "Duties";
-            var header = sheet.Range(3, 1, 3, lastColumn);
+                sheet.Cell(H, FirstDay + i).Value = days[i].Date.ToString(DayTextFormat, CultureInfo.InvariantCulture) + "\n" + days[i].Date.ToString("ddd", CultureInfo.InvariantCulture);
+            sheet.Cell(H, lastColumn).Value = "Duties";
+            var header = sheet.Range(H, 1, H, lastColumn);
             header.Style.Font.Bold = true;
-            header.Style.Fill.BackgroundColor = fill;
+            header.Style.Font.FontColor = XLColor.White;
+            header.Style.Fill.BackgroundColor = SheetNavy;
             header.Style.Alignment.WrapText = true;
             header.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             header.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+            sheet.Row(H).Height = 32;
 
-            var row = 4;
+            // The people, by group.
+            var row = H + 1;
             var serial = 1;
-            foreach (var (label, people) in groups)
+            var band = false;
+            void Person(StaffMaster? person)
             {
-                if (people.Count == 0) continue;
-                sheet.Cell(row, 1).Value = label;
-                var groupRow = sheet.Range(row, 1, row, lastColumn);
-                groupRow.Style.Font.Bold = true;
-                groupRow.Style.Fill.BackgroundColor = XLColor.FromHtml("#F3F4F6");
-                row++;
-                foreach (var person in people)
+                sheet.Cell(row, 1).Value = serial++;
+                sheet.Cell(row, 2).Style.NumberFormat.Format = "@";
+                if (person != null)
                 {
-                    sheet.Cell(row, 1).Value = serial++;
                     sheet.Cell(row, 2).Value = person.EmployeeCode ?? "";
-                    sheet.Cell(row, 2).Style.NumberFormat.Format = "@";
                     sheet.Cell(row, 3).Value = WhoIs(person);
-                    var sessions = 0;
+                    var count = 0;
                     for (int i = 0; i < days.Count; i++)
                     {
                         if (!cells.TryGetValue((person.StaffId, days[i].Date.Date), out var entry)) continue;
                         sheet.Cell(row, FirstDay + i).Value = DutyCodes.CellText(entry);
-                        if (entry.Kind == DutyKinds.Duty) sessions += entry.Session == DutySessions.Both ? 2 : 1;
+                        if (entry.Kind == DutyKinds.Duty) count += entry.Session == DutySessions.Both ? 2 : 1;
                     }
-                    sheet.Cell(row, lastColumn).Value = sessions;
-                    row++;
+                    sheet.Cell(row, lastColumn).Value = count;
                 }
+                if (band) sheet.Range(row, 1, row, lastColumn).Style.Fill.BackgroundColor = XLColor.FromHtml("#F7F9FC");
+                band = !band;
+                sheet.Row(row).Height = 18;
+                row++;
+            }
+            var groupRows = new List<int>();
+            void Group(string label)
+            {
+                sheet.Cell(row, 1).Value = label;
+                groupRows.Add(row);
+                var groupRow = sheet.Range(row, 1, row, lastColumn).Merge();
+                groupRow.Style.Font.Bold = true;
+                groupRow.Style.Font.FontColor = SheetNavy;
+                groupRow.Style.Fill.BackgroundColor = XLColor.FromHtml("#D9E1F2");
+                sheet.Row(row).Height = 18;
+                band = false;
+                row++;
+            }
+            foreach (var (label, people) in groups)
+            {
+                if (people.Count == 0) continue;
+                Group(label);
+                foreach (var person in people) Person(person);
             }
             if (staff.Count == 0)
             {
                 // Nobody on the chart yet: empty numbered lines, so the sheet works as a blank template.
-                for (int n = 1; n <= BlankRows; n++) sheet.Cell(row++, 1).Value = n;
-                sheet.Range(4, 2, row - 1, 2).Style.NumberFormat.Format = "@";
+                for (int n = 1; n <= BlankRows; n++) Person(null);
+            }
+            else
+            {
+                Group("Add more people here (type the Employee ID)");
+                for (int n = 1; n <= SpareRows; n++) Person(null);
             }
             var lastData = row - 1;
-            sheet.Range(4, FirstDay, Math.Max(lastData, 4), lastColumn).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            sheet.Range(4, 1, Math.Max(lastData, 4), 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            if (lastData >= 3) sheet.Range(3, 1, lastData, lastColumn).Style.Border.SetInsideBorder(XLBorderStyleValues.Thin).Border.SetOutsideBorder(XLBorderStyleValues.Thin);
+            var table = sheet.Range(H, 1, lastData, lastColumn);
+            ExcelStyles.ThinBorders(table.Style, SheetGrid);
+            sheet.Range(H + 1, 1, lastData, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            sheet.Range(H + 1, 1, lastData, lastColumn).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+            var duties = sheet.Range(H + 1, lastColumn, lastData, lastColumn);
+            duties.Style.Font.Bold = true;
+            duties.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            foreach (var r in groupRows) sheet.Range(r, 1, r, lastColumn).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Left).Alignment.SetIndent(1);
 
-            // Legend: what the codes mean and the session times of each day (the import stops reading at "Legend").
+            if (days.Count > 0)
+            {
+                var dayCells = sheet.Range(H + 1, FirstDay, lastData, lastColumn - 1);
+                dayCells.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                dayCells.Style.Alignment.ShrinkToFit = true;
+                Colour(dayCells);
+                Dropdown(workbook, dayCells);
+            }
+
+            // Legend (the import stops reading at "Legend"): each code in its colour, then the session times of each day.
             row += 1;
             sheet.Cell(row, 1).Value = LegendLabel;
             sheet.Cell(row, 1).Style.Font.Bold = true;
+            sheet.Cell(row, 1).Style.Font.FontSize = 12;
+            sheet.Cell(row, 1).Style.Font.FontColor = SheetNavy;
             row++;
-            foreach (var line in new[]
+            void Swatch(string code, string meaning, (string Fill, string Font) tint)
             {
-                "M = morning, A = afternoon, M/A = both sessions of the day.",
-                "CC = Chief Conductor, SS = Senior Supervisor, IS = Inspection Squad, written before the session, e.g. IS (M/A). Other duties are Junior Supervisor (teaching staff) or Non-Teaching Staff.",
-                "V = vacation (not on duty; left empty when read back). Any other text = other work that day (e.g. Exam cell).",
-                "Type the Employee ID of each person on duty (the name is optional) and fill in the cells, then upload the sheet again. The people in the sheet are the people on the chart; people missing from it are removed and lose their duties."
-            })
-            {
-                sheet.Cell(row++, 1).Value = line;
+                var cell = sheet.Cell(row, 2);
+                cell.Value = code;
+                cell.Style.Font.Bold = true;
+                cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml(tint.Fill);
+                cell.Style.Font.FontColor = XLColor.FromHtml(tint.Font);
+                ExcelStyles.ThinBorders(cell.Style, SheetGrid);
+                sheet.Cell(row, 3).Value = meaning;
+                row++;
             }
+            void Heading(string text)
+            {
+                row++;
+                sheet.Cell(row, 1).Value = text;
+                sheet.Cell(row, 1).Style.Font.Bold = true;
+                sheet.Cell(row, 1).Style.Font.FontColor = SheetNavy;
+                row++;
+            }
+            Swatch("M", "Morning session (Junior Supervisor, or Non-Teaching Staff for non-teaching staff)", DutyTint);
+            Swatch("A", "Afternoon session", DutyTint);
+            Swatch("M/A", "Both sessions of the day", DutyTint);
+            Swatch("CC", "Chief Conductor: write it before the session", LeadTint);
+            Swatch("SS", "Senior Supervisor", LeadTint);
+            Swatch("IS", "Inspection Squad", SquadTint);
+            Swatch("US", "Understudy Supervisor", UnderstudyTint);
+            Swatch("V", "Vacation: not on duty (read as an empty cell)", AwayTint);
+            Swatch("Exam cell", "Any other text: other work that day", OtherTint);
+
+            Heading("Session times");
+            var firstTimes = row;
             foreach (var (label, pick) in new (string, Func<DutyChartDay, string?>)[] { ("Morning", d => d.Morning), ("Afternoon", d => d.Afternoon) })
             {
                 sheet.Cell(row, 3).Value = label;
                 sheet.Cell(row, 3).Style.Font.Bold = true;
                 for (int i = 0; i < days.Count; i++) sheet.Cell(row, FirstDay + i).Value = DutySessions.TimeText(pick(days[i]), label == "Morning");
-                var times = sheet.Range(row, FirstDay, row, lastColumn - 1);
+                var times = sheet.Range(row, FirstDay, row, Math.Max(FirstDay, lastColumn - 1));
                 times.Style.Alignment.WrapText = true;
                 times.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-                times.Style.Font.FontSize = 8;
+                times.Style.Font.FontSize = 9;
                 row++;
             }
+            if (days.Count > 0)
+            {
+                var timesBox = sheet.Range(firstTimes, 3, row - 1, lastColumn - 1);
+                timesBox.Style.Fill.BackgroundColor = XLColor.FromHtml("#F2F2F2");
+                ExcelStyles.ThinBorders(timesBox.Style, SheetGrid);
+            }
 
-            ExcelStyles.SetWidth(sheet.Column(1), 8);
-            ExcelStyles.SetWidth(sheet.Column(2), 12);
-            ExcelStyles.SetWidth(sheet.Column(3), 30);
-            for (int c = FirstDay; c < lastColumn; c++) ExcelStyles.SetWidth(sheet.Column(c), 11);
-            ExcelStyles.SetWidth(sheet.Column(lastColumn), 8);
-            sheet.SheetView.Freeze(3, 3);
-            sheet.PageSetup.PageOrientation = XLPageOrientation.Landscape;
-            sheet.PageSetup.FitToPages(1, 0);
-            sheet.PageSetup.SetRowsToRepeatAtTop(3, 3);
+            Heading("Examples");
+            Swatch("CC (A)", "Chief Conductor in the afternoon session", LeadTint);
+            Swatch("SS (M/A)", "Senior Supervisor in both sessions", LeadTint);
+            Swatch("M", "Usual role (Junior Supervisor or Non-Teaching Staff) in the morning session", DutyTint);
+
+            sheet.SheetView.Freeze(H, 3);
+            sheet.ShowGridLines = false;
+            var page = sheet.PageSetup;
+            page.PageOrientation = XLPageOrientation.Landscape;
+            page.PaperSize = XLPaperSize.A4Paper;
+            page.FitToPages(1, 0);
+            page.CenterHorizontally = true;
+            page.SetRowsToRepeatAtTop(H, H);
+            page.Margins.Left = page.Margins.Right = 0.4;
+            page.Margins.Top = page.Margins.Bottom = 0.5;
+            page.Footer.Center.AddText("Page ");
+            page.Footer.Center.AddText(XLHFPredefinedText.PageNumber);
+            page.Footer.Center.AddText(" of ");
+            page.Footer.Center.AddText(XLHFPredefinedText.NumberOfPages);
 
             using var stream = new MemoryStream();
             workbook.SaveAs(stream);
             var fileName = string.Concat($"Duty Chart {chart.Name}".Split(Path.GetInvalidFileNameChars())) + ".xlsx";
             return (stream.ToArray(), fileName);
+        }
+
+        /// <summary>Colours each day's cell by its code: CC/SS orange, IS green, US blue, M/A light blue, V grey, other work yellow.</summary>
+        private static void Colour(IXLRange dayCells)
+        {
+            var a = dayCells.FirstCell().Address.ToStringRelative();
+            void Tint(string formula, (string Fill, string Font) tint)
+            {
+                var format = dayCells.AddConditionalFormat().SetStopIfTrue().WhenIsTrue(formula);
+                format.Fill.SetBackgroundColor(XLColor.FromHtml(tint.Fill));
+                format.Font.SetFontColor(XLColor.FromHtml(tint.Font));
+            }
+            string Starts(string code) => $"LEFT(TRIM(UPPER({a})),3)=\"{code} \"";
+            Tint($"OR({Starts("CC")},{Starts("SS")},LEFT(TRIM(UPPER({a})),3)=\"CC(\",LEFT(TRIM(UPPER({a})),3)=\"SS(\")", LeadTint);
+            Tint($"OR({Starts("IS")},LEFT(TRIM(UPPER({a})),3)=\"IS(\")", SquadTint);
+            Tint($"OR({Starts("US")},LEFT(TRIM(UPPER({a})),3)=\"US(\")", UnderstudyTint);
+            Tint($"OR(TRIM(UPPER({a}))=\"M\",TRIM(UPPER({a}))=\"A\",TRIM(UPPER({a}))=\"M/A\")", DutyTint);
+            Tint($"TRIM(UPPER({a}))=\"V\"", AwayTint);
+            Tint($"LEN(TRIM({a}))>0", OtherTint);
+        }
+
+        /// <summary>A drop-down of the codes on each day's cell (from a hidden sheet). Any other text may still be typed: it is other work.</summary>
+        private static void Dropdown(XLWorkbook workbook, IXLRange dayCells)
+        {
+            var codes = new List<string> { "M", "A", "M/A" };
+            foreach (var (code, _) in DutyCodes.Roles) codes.AddRange(new[] { $"{code} (M)", $"{code} (A)", $"{code} (M/A)" });
+            codes.Add("V");
+            var lists = workbook.Worksheets.Add("Lists");
+            lists.Cell(1, 1).Value = "Code";
+            for (int i = 0; i < codes.Count; i++) lists.Cell(i + 2, 1).Value = codes[i];
+            lists.Visibility = XLWorksheetVisibility.Hidden;
+
+            var validation = dayCells.CreateDataValidation();
+            validation.List(lists.Range(2, 1, codes.Count + 1, 1), true);
+            validation.ShowErrorMessage = false;   // other work is free text
+            validation.ShowInputMessage = true;
+            validation.InputTitle = "Duty";
+            validation.InputMessage = "M, A or M/A. Role first if needed: CC, SS, IS, US (e.g. SS M). Empty or V = not on duty. Other text = other work.";
         }
 
         public async Task<StaffImportResult> ImportAsync(Guid id, DutyChartImportRequest request)
@@ -1018,10 +1189,13 @@ namespace ExamAPI.Services.Staff
         /// <summary>The roles written as a code before the session; the others are each person's default.</summary>
         private static readonly (string Code, string Role)[] RoleCodes =
         {
-            ("CC", SupervisionRoles.ChiefConductor), ("SS", SupervisionRoles.Senior), ("IS", SupervisionRoles.InspectionSquad)
+            ("CC", SupervisionRoles.ChiefConductor), ("SS", SupervisionRoles.Senior), ("IS", SupervisionRoles.InspectionSquad), ("US", SupervisionRoles.Understudy)
         };
 
-        /// <summary>What a cell of the sheet holds: "M", "A", "M/A" (prefixed "CC (...)", "SS (...)" or "IS (...)" for those roles), or the note of other work.</summary>
+        /// <summary>The role codes with their roles, highest first.</summary>
+        public static IReadOnlyList<(string Code, string Role)> Roles => RoleCodes;
+
+        /// <summary>What a cell of the sheet holds: "M", "A", "M/A" (prefixed "CC (...)", "SS (...)", "IS (...)" or "US (...)" for those roles), or the note of other work.</summary>
         public static string CellText(DutyChartEntry entry)
         {
             if (entry.Kind == DutyKinds.Other) return string.IsNullOrWhiteSpace(entry.Note) ? "O" : entry.Note;
@@ -1039,7 +1213,7 @@ namespace ExamAPI.Services.Staff
         private static readonly string[] VacationWords = { "V", "VAC", "VACATION", "LEAVE" };
 
         /// <summary>
-        /// Reads a cell: M, A, M/A (also MA, AM = morning, PM = afternoon), with CC, SS or IS before or after (brackets and
+        /// Reads a cell: M, A, M/A (also MA, AM = morning, PM = afternoon), with CC, SS, IS or US before or after (brackets and
         /// spaces do not matter), anything else as other work. Null for an empty cell, a dash, or V / VAC / VACATION / LEAVE (the person is away). When
         /// the cell cannot be read, <paramref name="error"/> says why.
         /// </summary>

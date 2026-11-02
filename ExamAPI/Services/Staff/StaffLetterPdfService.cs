@@ -275,6 +275,7 @@ namespace ExamAPI.Services.Staff
             SupervisionRoles.Senior => "SENIOR EXAMINATION SUPERVISOR",
             SupervisionRoles.InspectionSquad => "INSPECTION SQUAD",
             SupervisionRoles.Junior => "JUNIOR EXAMINATION SUPERVISOR",
+            SupervisionRoles.Understudy => "UNDERSTUDY SUPERVISOR",
             SupervisionRoles.NonTeaching => "EXAMINATION DUTY — NON-TEACHING STAFF",
             _ => "EXAMINATION DUTY",
         };
