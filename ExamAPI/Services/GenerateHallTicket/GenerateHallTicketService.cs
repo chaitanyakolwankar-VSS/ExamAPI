@@ -156,6 +156,7 @@ namespace ExamAPI.Services.GenerateHallTicket
                 // The tenant filter on Colleges already narrows this to the current college; a college
                 // without a logo must still return its name and centre, so no logo predicate here.
                 var collegedata = _context.Colleges.FirstOrDefault();
+                var settings = await _context.CollegeSettings.AsNoTracking().FirstOrDefaultAsync();
                 var result = new HallTicketCollege
                 {
                     Logo = collegedata?.LogoBannerUrl ?? collegedata?.LogoUrl ?? "",
@@ -163,7 +164,8 @@ namespace ExamAPI.Services.GenerateHallTicket
                     PrincipalSign = collegedata?.PrincipalSignUrl ?? "",
                     ControllerSign = collegedata?.ControllerSignUrl ?? "",
                     Seal = collegedata?.SealUrl ?? "",
-                    CollegeName = ExamAPI.Services.Report.CollegeBranding.DisplayName(collegedata?.Name, collegedata?.CollegeCode)
+                    CollegeName = ExamAPI.Services.Report.CollegeBranding.DisplayName(collegedata?.Name, collegedata?.CollegeCode),
+                    Instructions = HallTicketInstructionDefaults.Effective(settings)
                 };
                 return result;
             }
@@ -172,10 +174,65 @@ namespace ExamAPI.Services.GenerateHallTicket
                 var result = new HallTicketCollege
                 {
                     Logo = "",
-                    Center = ""
+                    Center = "",
+                    Instructions = HallTicketInstructionDefaults.Lines.ToList()
                 };
                 return result;
             }
+        }
+
+        public async Task<HallTicketInstructionsDto> GetInstructionsAsync()
+        {
+            var settings = await _context.CollegeSettings.AsNoTracking().FirstOrDefaultAsync();
+            var own = HallTicketInstructionDefaults.Split(settings?.HallTicketInstructions);
+            return new HallTicketInstructionsDto
+            {
+                On = settings?.HallTicketInstructionsOff != true,
+                Custom = own.Count > 0,
+                Lines = own.Count > 0 ? own : HallTicketInstructionDefaults.Lines.ToList(),
+                DefaultLines = HallTicketInstructionDefaults.Lines.ToList(),
+                MaxLines = HallTicketInstructionDefaults.MaxLines,
+                MaxLineLength = HallTicketInstructionDefaults.MaxLineLength,
+                MaxLength = HallTicketInstructionDefaults.MaxLength
+            };
+        }
+
+        public async Task<HallTicketInstructionsDto> SaveInstructionsAsync(HallTicketInstructionsSave dto)
+        {
+            if (_context.CurrentCollegeId == null)
+                throw new InvalidOperationException("Hall ticket instructions belong to a college: sign in as that college's admin.");
+            var lines = HallTicketInstructionDefaults.Split(dto.Text);
+            var text = string.Join("\n", lines);
+            if (lines.Count > HallTicketInstructionDefaults.MaxLines)
+                throw new InvalidOperationException($"There are more than {HallTicketInstructionDefaults.MaxLines} instructions.");
+            if (lines.Any(l => l.Length > HallTicketInstructionDefaults.MaxLineLength))
+                throw new InvalidOperationException($"An instruction is longer than {HallTicketInstructionDefaults.MaxLineLength} characters.");
+            if (text.Length > HallTicketInstructionDefaults.MaxLength)
+                throw new InvalidOperationException($"The instructions are longer than {HallTicketInstructionDefaults.MaxLength} characters in all.");
+            // Empty or the same as the defaults: store nothing, so the college keeps following the defaults.
+            var isDefault = lines.Count == 0 || lines.SequenceEqual(HallTicketInstructionDefaults.Lines);
+
+            var settings = await _context.CollegeSettings.FirstOrDefaultAsync();
+            if (settings == null)
+            {
+                settings = new CollegeSettings { Id = Guid.NewGuid() };
+                _context.CollegeSettings.Add(settings);
+            }
+            settings.HallTicketInstructionsOff = !dto.On;
+            settings.HallTicketInstructions = isDefault ? null : text;
+            _context.AuditLogs.Add(new AuditLog
+            {
+                Id = Guid.NewGuid(),
+                Action = "UPDATE",
+                TableName = nameof(CollegeSettings),
+                RecordId = settings.Id.ToString(),
+                PerformedBy = _context.CurrentUserId,
+                UserType = "Staff",
+                Event = "HallTicketInstructionsChanged",
+                Details = $"Shown: {(dto.On ? "yes" : "no")}; text: {(isDefault ? "default" : lines.Count + " line(s)")}.",
+            });
+            await _context.SaveChangesAsync();
+            return await GetInstructionsAsync();
         }
 
         public async Task<TimeTableAllDto?> GetTimeTableAll(Guid examId)

@@ -99,5 +99,29 @@
         public string ControllerSign { get; set; } = string.Empty;
         /// <summary>Stored path of the office round seal; empty when none.</summary>
         public string Seal { get; set; } = string.Empty;
+        /// <summary>The "Instructions to candidates" printed under the subject table; empty when the college switched them off.</summary>
+        public List<string> Instructions { get; set; } = new();
+    }
+
+    /// <summary>The college's hall ticket instructions as the settings screen shows them.</summary>
+    public class HallTicketInstructionsDto
+    {
+        /// <summary>False = the college prints no instructions.</summary>
+        public bool On { get; set; }
+        /// <summary>True = the college wrote its own lines; false = the defaults are used.</summary>
+        public bool Custom { get; set; }
+        /// <summary>The lines to show in the editor: the college's own when custom, else the defaults (also when switched off).</summary>
+        public List<string> Lines { get; set; } = new();
+        public List<string> DefaultLines { get; set; } = new();
+        public int MaxLines { get; set; }
+        public int MaxLineLength { get; set; }
+        public int MaxLength { get; set; }
+    }
+
+    public class HallTicketInstructionsSave
+    {
+        public bool On { get; set; }
+        /// <summary>One instruction per line. Empty, or the same as the defaults, = use the defaults.</summary>
+        public string? Text { get; set; }
     }
 }

@@ -47,7 +47,7 @@ namespace ExamAPI.Services.Staff
         private sealed record SubjectInfo(string Code, string Name, string Branch, string Semester, string Pattern);
 
         /// <summary>What a supervision letter says about the chart it belongs to: the academic year and the semesters examined on its days.</summary>
-        internal sealed record ChartInfo(string AcademicYear, string Semesters);
+        internal sealed record ChartInfo(string AcademicYear);
 
         /// <summary>The college's letterhead, signatures, seal, CAP contact numbers and the supervision letter's texts.</summary>
         internal sealed record Branding(CollegeBrandingInfo Info, byte[]? Seal, string? CapContact, string ReportingPlace, IReadOnlyList<string> Guidelines);
@@ -160,29 +160,11 @@ namespace ExamAPI.Services.Staff
             return match.Success ? $"{match.Groups[1].Value}-{match.Groups[2].Value[2..]}" : text;
         }
 
-        /// <summary>The semesters (I, III, V &amp; VII) whose papers are timetabled on the chart's days, and the chart's academic year.</summary>
+        /// <summary>The chart's academic year.</summary>
         internal async Task<ChartInfo> ChartInfoAsync(Guid chartId, Dictionary<Guid, string> years)
         {
             var chart = await _context.DutyCharts.AsNoTracking().Where(c => c.Id == chartId).Select(c => new { c.AYID }).FirstOrDefaultAsync();
-            if (chart == null) return new ChartInfo("", "");
-
-            var days = (await _context.DutyChartDays.AsNoTracking().Where(d => d.ChartId == chartId).Select(d => d.Date).ToListAsync())
-                .Select(d => d.Date).ToHashSet();
-            var rows = await _context.TimeTables.AsNoTracking()
-                .Where(t => t.ExamId != null && t.SubjectId != null && t.Date != null && t.Date != ""
-                            && t.Exam!.AcademicYearAYID == chart.AYID && t.Exam.RevaluationForExamId == null)
-                .Select(t => new { t.SubjectId, Date = t.Date! }).ToListAsync();
-            var subjectIds = rows.Where(r => days.Contains(ExamSlotOrder.Date(r.Date)) ).Select(r => r.SubjectId!.Value).Distinct().ToList();
-            var semIds = await _context.SubjectMasters.AsNoTracking().Where(s => subjectIds.Contains(s.SubjectId)).Select(s => s.SemId).ToListAsync();
-            var numbers = semIds.Select(SemesterNumber).Where(n => n is > 0 and < 13).Select(n => n!.Value).Distinct().OrderBy(n => n).ToList();
-            var romans = numbers.Select(n => Roman[n]).ToList();
-            var text = romans.Count switch
-            {
-                0 => "",
-                1 => $"Semester {romans[0]}",
-                _ => $"Semesters {string.Join(", ", romans.Take(romans.Count - 1))} & {romans[^1]}",
-            };
-            return new ChartInfo(years.GetValueOrDefault(chart.AYID, ""), text);
+            return new ChartInfo(chart == null ? "" : years.GetValueOrDefault(chart.AYID, ""));
         }
 
         private static int? SemesterNumber(string? semId)
@@ -357,7 +339,6 @@ namespace ExamAPI.Services.Staff
                     t.Span("You are hereby informed that you have been assigned duties as ");
                     t.Span(string.IsNullOrWhiteSpace(letter.Role) ? "Examination Supervisor" : letter.Role).Bold();
                     t.Span(" for the End-Semester Examinations");
-                    if (!string.IsNullOrWhiteSpace(page.Chart?.Semesters)) t.Span($" ({page.Chart!.Semesters})");
                     var year = page.Chart?.AcademicYear ?? "";
                     if (!string.IsNullOrWhiteSpace(letter.Half))
                     {

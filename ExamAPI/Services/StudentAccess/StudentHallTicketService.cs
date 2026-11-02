@@ -26,6 +26,8 @@ namespace ExamAPI.Services.StudentAccess
         public bool HasPrincipalSign { get; set; }
         public bool HasControllerSign { get; set; }
         public bool HasSeal { get; set; }
+        /// <summary>"Instructions to candidates" printed under the subject table; empty when the college switched them off.</summary>
+        public List<string> Instructions { get; set; } = new();
         /// <summary>The hall ticket itself (subjects, seat number); null while not <see cref="Ready"/>.</summary>
         public StudentHallTicketData? Student { get; set; }
     }
@@ -95,6 +97,7 @@ namespace ExamAPI.Services.StudentAccess
                 HasPrincipalSign = college.PrincipalSign != "",
                 HasControllerSign = college.ControllerSign != "",
                 HasSeal = college.Seal != "",
+                Instructions = college.Instructions,
             };
 
             // The emailed link is the release: staff take a hall ticket back by stopping the links (Student links).

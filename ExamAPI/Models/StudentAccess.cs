@@ -310,6 +310,13 @@ namespace ExamAPI.Models
         /// <summary>The end of the letters-link emails sent to staff, one line per line ("Thanks &amp; Regards, ..."). Empty = "Exam Office" and the college name.</summary>
         [MaxLength(1000)]
         public string? LetterEmailSignature { get; set; }
+
+        /// <summary>True = the college prints no instructions on its hall tickets. False (the default, also for every existing row) = they are shown.</summary>
+        public bool HallTicketInstructionsOff { get; set; }
+
+        /// <summary>Hall tickets: the "Instructions to candidates", one per line. Empty = the default list.</summary>
+        [MaxLength(1500)]
+        public string? HallTicketInstructions { get; set; }
     }
 
     /// <summary>

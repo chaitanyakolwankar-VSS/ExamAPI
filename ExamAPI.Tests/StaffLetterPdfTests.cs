@@ -335,50 +335,14 @@ public sealed class StaffLetterPdfTests : IDisposable
     }
 
     [Fact]
-    public async Task The_letter_names_the_semesters_timetabled_on_the_charts_days_and_its_academic_year()
+    public async Task The_letter_gives_the_charts_academic_year_and_no_semesters()
     {
-        var days = new[] { new DateTime(2026, 11, 2), new DateTime(2026, 11, 3) };
-        foreach (var day in days)
-            _context.DutyChartDays.Add(new DutyChartDay { Id = Guid.NewGuid(), CollegeId = _college, ChartId = _chart.Id, Date = day, Morning = "10:30 AM - 1:30 PM", FromTimetable = true });
-        SubjectMaster Subject(string sem) => new() { SubjectId = Guid.NewGuid(), SubjectCode = "S" + sem, Name = "Subject " + sem, SemId = sem, CourseId = _subject.CourseId, CollegeId = _college };
-        void Paper(SubjectMaster subject, DateTime date, ExamMaster? exam = null)
-        {
-            _context.SubjectMasters.Add(subject);
-            _context.TimeTables.Add(new TimeTableMaster
-            {
-                Id = Guid.NewGuid(), CollegeId = _college, ExamId = (exam ?? _exam).ExamId, SubjectId = subject.SubjectId,
-                Date = date.ToString("dd-MM-yyyy"), Time = "10:30 AM - 1:30 PM"
-            });
-        }
-        Paper(Subject("Sem-1"), days[0]);
-        Paper(Subject("3"), days[0]);
-        Paper(Subject("5"), days[1]);
-        Paper(Subject("7"), days[1]);
-        Paper(Subject("Sem-5"), days[1]);                                   // a semester counts once
-        Paper(Subject("8"), new DateTime(2026, 11, 20));                    // not a day of the chart
-        var revaluation = new ExamMaster { ExamId = Guid.NewGuid(), Name = "Reval", ExamType = "Revaluation", AcademicYearAYID = _ay, RevaluationForExamId = _exam.ExamId, IsActive = true, CollegeId = _college };
-        _context.Exams.Add(revaluation);
-        Paper(Subject("2"), days[0], revaluation);                          // revaluation exams are left out
-        var otherYear = new ExamMaster { ExamId = Guid.NewGuid(), Name = "Old", ExamType = "Regular", AcademicYearAYID = Guid.NewGuid(), IsActive = true, CollegeId = _college };
-        _context.Exams.Add(otherYear);
-        Paper(Subject("4"), days[0], otherYear);                            // another academic year
-        _context.SaveChanges();
-
-        var letters = new List<StaffLetter> { Letter(_asha, StaffLetterTypes.Supervision, 1, duties: 1) };
-        var years = await _service.AcademicYearsAsync(letters);
-        var info = await _service.ChartInfoAsync(_chart.Id, years);
-
-        Assert.Equal(("2026-27", "Semesters I, III, V & VII"), (info.AcademicYear, info.Semesters));
-    }
-
-    [Fact]
-    public async Task A_chart_without_timetabled_papers_names_no_semesters()
-    {
+        // Owner 2026-11-02: the opening line no longer names the semesters ("(Semester III)").
         var letters = new List<StaffLetter> { Letter(_asha, StaffLetterTypes.Supervision, 1, duties: 1) };
 
         var info = await _service.ChartInfoAsync(_chart.Id, await _service.AcademicYearsAsync(letters));
 
-        Assert.Equal(("2026-27", ""), (info.AcademicYear, info.Semesters));
+        Assert.Equal("2026-27", info.AcademicYear);
     }
 
     [Fact]
