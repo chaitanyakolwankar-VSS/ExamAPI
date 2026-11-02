@@ -295,6 +295,7 @@ public sealed class StaffLetterPdfTests : IDisposable
     [Theory]
     [InlineData(SupervisionRoles.ChiefConductor, "CHIEF CONDUCTOR")]
     [InlineData(SupervisionRoles.Senior, "SENIOR EXAMINATION SUPERVISOR")]
+    [InlineData(SupervisionRoles.InspectionSquad, "INSPECTION SQUAD")]
     [InlineData(SupervisionRoles.Junior, "JUNIOR EXAMINATION SUPERVISOR")]
     [InlineData(SupervisionRoles.NonTeaching, "EXAMINATION DUTY — NON-TEACHING STAFF")]
     [InlineData(null, "EXAMINATION DUTY")]

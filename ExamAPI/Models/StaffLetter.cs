@@ -92,11 +92,13 @@ namespace ExamAPI.Models
     {
         public const string ChiefConductor = "Chief Conductor";
         public const string Senior = "Senior Supervisor";
+        /// <summary>Goes round the halls in a session to check them ("IS" on the chart).</summary>
+        public const string InspectionSquad = "Inspection Squad";
         public const string Junior = "Junior Supervisor";
         public const string NonTeaching = "Non-Teaching Staff";
 
         /// <summary>Highest first: a letter's title uses the highest role among its duties.</summary>
-        public static readonly IReadOnlyList<string> All = new[] { ChiefConductor, Senior, Junior, NonTeaching };
+        public static readonly IReadOnlyList<string> All = new[] { ChiefConductor, Senior, InspectionSquad, Junior, NonTeaching };
 
         /// <summary>The role a new duty gets: Junior Supervisor for teaching staff, Non-Teaching Staff otherwise.</summary>
         public static string DefaultFor(StaffMaster staff) => staff.IsTeaching ? Junior : NonTeaching;

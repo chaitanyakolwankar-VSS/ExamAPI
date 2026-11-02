@@ -671,6 +671,29 @@ public sealed class DutyChartTests
         _service.ImportAsync(chartId, new DutyChartImportRequest { File = file, Preview = preview, LetterDate = letterDate });
 
     [Fact]
+    public async Task Inspection_squad_ranks_below_senior_and_above_junior_and_has_its_own_group_and_code_in_the_sheet()
+    {
+        var chart = await NewChart();
+        await Save(chart.Chart.Id, "2026-04-30",
+            Duty(_asha, "2026-05-11", "MA", SupervisionRoles.InspectionSquad), Duty(_asha, "2026-05-12", "A"),
+            Duty(_ravi, "2026-05-11", "M", SupervisionRoles.InspectionSquad), Duty(_ravi, "2026-05-12", "M", SupervisionRoles.Senior),
+            Duty(_om, "2026-05-13", "A"));
+
+        var detail = await _service.GetAsync(chart.Chart.Id);
+        Assert.Equal(SupervisionRoles.InspectionSquad, detail.Letters.Single(l => l.StaffId == _asha.StaffId).Role);
+        Assert.Equal(SupervisionRoles.Senior, detail.Letters.Single(l => l.StaffId == _ravi.StaffId).Role);
+
+        var (bytes, _) = await _service.ExcelAsync(chart.Chart.Id);
+        using var workbook = new XLWorkbook(new MemoryStream(bytes));
+        var sheet = workbook.Worksheet(1);
+        Assert.Equal("Chief Conductor / Senior Supervisors", sheet.Cell(4, 1).GetString());
+        Assert.Equal(("E102", "IS (M)"), (sheet.Cell(5, 2).GetString(), sheet.Cell(5, 4).GetString()));
+        Assert.Equal("Inspection Squad", sheet.Cell(6, 1).GetString());
+        Assert.Equal(("E101", "IS (M/A)", "A"), (sheet.Cell(7, 2).GetString(), sheet.Cell(7, 4).GetString(), sheet.Cell(7, 5).GetString()));
+        Assert.Equal("Non-teaching staff", sheet.Cell(8, 1).GetString());
+    }
+
+    [Fact]
     public async Task The_excel_sheet_lists_all_active_internal_staff_by_group_with_the_codes_and_a_legend()
     {
         var chart = await NewChart();
@@ -1201,6 +1224,9 @@ public sealed class DutyChartTests
     [InlineData("A (SS)", "A", "Senior Supervisor")]
     [InlineData("M/A [CC]", "MA", "Chief Conductor")]
     [InlineData("M/A CC", "MA", "Chief Conductor")]
+    [InlineData("IS (M/A)", "MA", "Inspection Squad")]
+    [InlineData("is m", "M", "Inspection Squad")]
+    [InlineData("A (IS)", "A", "Inspection Squad")]
     public void Duty_codes_are_read_tolerantly(string text, string session, string? role)
     {
         var code = DutyCodes.Parse(text, out var error);

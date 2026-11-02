@@ -669,12 +669,16 @@ namespace ExamAPI.Services.Staff
             var cells = entries.ToDictionary(e => (e.StaffId, e.Date.Date));
             var leaders = entries.Where(e => e.Kind == DutyKinds.Duty && (e.Role == SupervisionRoles.ChiefConductor || e.Role == SupervisionRoles.Senior))
                 .Select(e => e.StaffId).ToHashSet();
+            var squad = entries.Where(e => e.Kind == DutyKinds.Duty && e.Role == SupervisionRoles.InspectionSquad && !leaders.Contains(e.StaffId))
+                .Select(e => e.StaffId).ToHashSet();
+            bool Rest(StaffMaster s) => !leaders.Contains(s.StaffId) && !squad.Contains(s.StaffId);
 
             var groups = new (string Label, List<StaffMaster> People)[]
             {
                 ("Chief Conductor / Senior Supervisors", staff.Where(s => leaders.Contains(s.StaffId)).ToList()),
-                ("Teaching staff", staff.Where(s => !leaders.Contains(s.StaffId) && s.IsTeaching).ToList()),
-                ("Non-teaching staff", staff.Where(s => !leaders.Contains(s.StaffId) && !s.IsTeaching).ToList())
+                ("Inspection Squad", staff.Where(s => squad.Contains(s.StaffId)).ToList()),
+                ("Teaching staff", staff.Where(s => Rest(s) && s.IsTeaching).ToList()),
+                ("Non-teaching staff", staff.Where(s => Rest(s) && !s.IsTeaching).ToList())
             };
 
             using var workbook = ExcelStyles.NewWorkbook();
@@ -747,7 +751,7 @@ namespace ExamAPI.Services.Staff
             foreach (var line in new[]
             {
                 "M = morning, A = afternoon, M/A = both sessions of the day.",
-                "CC = Chief Conductor, SS = Senior Supervisor, written before the session, e.g. CC (M/A). Other duties are Junior Supervisor (teaching staff) or Non-Teaching Staff.",
+                "CC = Chief Conductor, SS = Senior Supervisor, IS = Inspection Squad, written before the session, e.g. IS (M/A). Other duties are Junior Supervisor (teaching staff) or Non-Teaching Staff.",
                 "V = vacation (not on duty; left empty when read back). Any other text = other work that day (e.g. Exam cell).",
                 "Type the Employee ID of each person on duty (the name is optional) and fill in the cells, then upload the sheet again. The people in the sheet are the people on the chart; people missing from it are removed and lose their duties."
             })
@@ -1011,12 +1015,19 @@ namespace ExamAPI.Services.Staff
     /// <summary>The codes of the duty chart sheet: written for a cell, and read back tolerantly.</summary>
     public static class DutyCodes
     {
-        /// <summary>What a cell of the sheet holds: "M", "A", "M/A" (prefixed "CC (...)" or "SS (...)" for those roles), or the note of other work.</summary>
+        /// <summary>The roles written as a code before the session; the others are each person's default.</summary>
+        private static readonly (string Code, string Role)[] RoleCodes =
+        {
+            ("CC", SupervisionRoles.ChiefConductor), ("SS", SupervisionRoles.Senior), ("IS", SupervisionRoles.InspectionSquad)
+        };
+
+        /// <summary>What a cell of the sheet holds: "M", "A", "M/A" (prefixed "CC (...)", "SS (...)" or "IS (...)" for those roles), or the note of other work.</summary>
         public static string CellText(DutyChartEntry entry)
         {
             if (entry.Kind == DutyKinds.Other) return string.IsNullOrWhiteSpace(entry.Note) ? "O" : entry.Note;
             var code = entry.Session == DutySessions.Both ? "M/A" : entry.Session == DutySessions.Afternoon ? "A" : "M";
-            return entry.Role == SupervisionRoles.ChiefConductor ? $"CC ({code})" : entry.Role == SupervisionRoles.Senior ? $"SS ({code})" : code;
+            var prefix = RoleCodes.FirstOrDefault(r => r.Role == entry.Role).Code;
+            return prefix == null ? code : $"{prefix} ({code})";
         }
 
         /// <summary>What a cell says; Role is null when the cell does not name one (the person's default applies).</summary>
@@ -1028,7 +1039,7 @@ namespace ExamAPI.Services.Staff
         private static readonly string[] VacationWords = { "V", "VAC", "VACATION", "LEAVE" };
 
         /// <summary>
-        /// Reads a cell: M, A, M/A (also MA, AM = morning, PM = afternoon), with CC or SS before or after (brackets and
+        /// Reads a cell: M, A, M/A (also MA, AM = morning, PM = afternoon), with CC, SS or IS before or after (brackets and
         /// spaces do not matter), anything else as other work. Null for an empty cell, a dash, or V / VAC / VACATION / LEAVE (the person is away). When
         /// the cell cannot be read, <paramref name="error"/> says why.
         /// </summary>
@@ -1042,7 +1053,7 @@ namespace ExamAPI.Services.Staff
             if (tokens.Count == 0) return null;
 
             string? role = null;
-            string? RoleOf(string token) => token == "CC" ? SupervisionRoles.ChiefConductor : token == "SS" ? SupervisionRoles.Senior : null;
+            string? RoleOf(string token) => RoleCodes.FirstOrDefault(r => r.Code == token).Role;
             if (RoleOf(tokens[0]) != null) { role = RoleOf(tokens[0]); tokens.RemoveAt(0); }
             else if (RoleOf(tokens[^1]) != null) { role = RoleOf(tokens[^1]); tokens.RemoveAt(tokens.Count - 1); }
 
@@ -1054,7 +1065,7 @@ namespace ExamAPI.Services.Staff
 
             if (role != null)
             {
-                error = $"cannot read \"{original}\"; write the session as M, A or M/A, e.g. {(role == SupervisionRoles.Senior ? "SS" : "CC")} (M/A).";
+                error = $"cannot read \"{original}\"; write the session as M, A or M/A, e.g. {RoleCodes.First(r => r.Role == role).Code} (M/A).";
                 return null;
             }
             if (VacationWords.Contains(joined)) return null;
