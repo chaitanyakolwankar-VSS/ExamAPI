@@ -291,6 +291,9 @@ namespace ExamAPI.Services.Staff
 
         private static bool IsDuty(StaffLetterDuty line) => line.Kind == DutyKinds.Duty;
 
+        /// <summary>A session time with a no-break space before each AM/PM, so a line never starts with "PM".</summary>
+        internal static string KeepTimesTogether(string time) => Regex.Replace(time, @"\s+(?=(AM|PM|am|pm)\b)", " ");
+
         /// <summary>The reporting instruction after "Important Reporting Instruction:" (owner 2026-11-02: no clock time, just one hour before).</summary>
         internal static string ReportingText(string place) =>
             $"You are requested to report to {place} one hour before the scheduled start of the examination for pre-exam verification and paper distribution.";
@@ -379,8 +382,9 @@ namespace ExamAPI.Services.Staff
                                 if (noTime) t.Span(line.Time).Bold();
                                 else
                                 {
+                                    // The time on its own line, "AM"/"PM" kept with its number, so a long time ("02:30 PM - 04:30 PM / 05.30 PM") never leaves "PM)" alone on a line.
                                     t.Span(morning ? "Morning" : "Afternoon").Bold();
-                                    t.Span($" ({line.Time})");
+                                    t.Span($"\n({KeepTimesTogether(line.Time)})");
                                 }
                             });
                         }

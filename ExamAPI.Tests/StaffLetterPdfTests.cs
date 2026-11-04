@@ -305,6 +305,13 @@ public sealed class StaffLetterPdfTests : IDisposable
     }
 
     [Fact]
+    public void Am_and_pm_stay_with_their_time_so_a_long_session_time_does_not_leave_pm_alone_on_a_line()
+    {
+        Assert.Equal("02:30 PM - 04:30 PM / 05.30 PM", StaffLetterPdfService.KeepTimesTogether("02:30 PM - 04:30 PM / 05.30 PM"));
+        Assert.Equal("10:30 AM - 1:30 PM", StaffLetterPdfService.KeepTimesTogether("10:30 AM - 1:30 PM"));
+    }
+
+    [Fact]
     public void Dates_print_as_day_month_year_and_weekday_and_unreadable_ones_as_written()
     {
         Assert.Equal("10 NOV 2025 (Monday)", StaffLetterPdfService.AssignedDate("10-11-2025"));
