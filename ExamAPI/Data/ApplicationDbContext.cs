@@ -136,6 +136,13 @@ namespace ExamAPI.Data
         public DbSet<StaffOtp> StaffOtps { get; set; }
         public DbSet<StaffSession> StaffSessions { get; set; }
 
+        // =========================================
+        // 11. Staff Billing & Exam Remuneration
+        // =========================================
+        public DbSet<BillingPriceSet> BillingPriceSets { get; set; }
+        public DbSet<StaffBillingClaim> StaffBillingClaims { get; set; }
+        public DbSet<StaffBillItem> StaffBillItems { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -245,6 +252,12 @@ namespace ExamAPI.Data
             StudentAccessModel.Configure(modelBuilder);
             StaffModel.Configure(modelBuilder);
             StaffAccessModel.Configure(modelBuilder);
+
+            modelBuilder.Entity<StaffBillItem>()
+                .HasOne(i => i.Claim)
+                .WithMany(c => c.PaperItems)
+                .HasForeignKey(i => i.ClaimId)
+                .OnDelete(DeleteBehavior.Cascade);
 
             // =========================================================
             // GLOBAL CONFIGURATION
