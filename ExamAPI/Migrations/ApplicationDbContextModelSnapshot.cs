@@ -113,6 +113,91 @@ namespace ExamAPI.Migrations
                     b.ToTable("AuditLog");
                 });
 
+            modelBuilder.Entity("ExamAPI.Models.BillingPriceSet", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("CapAllowanceRate")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<Guid?>("CollegeId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
+                    b.Property<decimal>("JuniorSupRate")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<decimal>("MeRate")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<decimal>("ModerationRate")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<decimal>("OralRate")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<decimal>("OwpRate")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<decimal>("PracticalRate")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<decimal>("ProjectOralRate")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<decimal>("SeniorSupRate")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<bool>("ShowPricingToStaff")
+                        .HasColumnType("bit");
+
+                    b.Property<decimal>("TheoryAssessmentRate")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<decimal>("TravelAllowanceRate")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<decimal>("TtRate")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<decimal>("TwRate")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("BillingPriceSet");
+                });
+
             modelBuilder.Entity("ExamAPI.Models.College", b =>
                 {
                     b.Property<Guid>("CollegeId")
@@ -1462,6 +1547,326 @@ namespace ExamAPI.Migrations
                     b.HasIndex("PatternId");
 
                     b.ToTable("RuleSet");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.StaffBillItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ClaimId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CollegeId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
+                    b.Property<decimal>("ItemSubtotal")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<int>("MeCount")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("MeRate")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<int>("OralCount")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("OralRate")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<int>("OwpCount")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("OwpRate")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<int>("PracticalCount")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("PracticalRate")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<int>("ProjectOralCount")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("ProjectOralRate")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<string>("Semester")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<string>("SubjectName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<int>("TheoryCount")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("TheoryRate")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<int>("TtCount")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("TtRate")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<int>("TwCount")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("TwRate")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClaimId");
+
+                    b.ToTable("StaffBillItem");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.StaffBillingClaim", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("AYID")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AdminRemarks")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("AmountInWords")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<DateTime?>("ApprovedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ApprovedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("AssignedJuniorSupDates")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("AssignedJuniorSupDays")
+                        .HasColumnType("int");
+
+                    b.Property<string>("AssignedSeniorSupDates")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("AssignedSeniorSupDays")
+                        .HasColumnType("int");
+
+                    b.Property<int>("AttendedJuniorSupDays")
+                        .HasColumnType("int");
+
+                    b.Property<int>("AttendedSeniorSupDays")
+                        .HasColumnType("int");
+
+                    b.Property<string>("BankAccNo")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("BankName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int>("CapDays")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("CapRate")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<string>("City")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("CollegeId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Department")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Designation")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("DutyChartId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<string>("EmployeeCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<decimal>("GrandTotal")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<string>("IfscCode")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
+                    b.Property<bool>("IsExternal")
+                        .HasColumnType("bit");
+
+                    b.Property<decimal>("JuniorSupRate")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<string>("LeaveDatesAndReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<int>("LeaveDays")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("OtherAmount")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<string>("OtherDescription")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<int>("OtpAttempts")
+                        .HasColumnType("int");
+
+                    b.Property<string>("OtpCodeHash")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTime?>("OtpExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("OtpSentAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("OtpVerifiedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Phone")
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<Guid?>("PriceSetId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Remarks")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("RoleType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<string>("SavedBillNo")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<decimal>("SeniorSupRate")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<DateTime?>("SentAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("SessionName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<Guid?>("StaffId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("StaffName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<DateTime?>("SubmittedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Token")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("TravelDates")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("TravelDays")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("TravelRate")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("VisitingCollegeName")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("StaffBillingClaim");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.StaffLetter", b =>
@@ -3221,6 +3626,17 @@ namespace ExamAPI.Migrations
                     b.Navigation("Pattern");
                 });
 
+            modelBuilder.Entity("ExamAPI.Models.StaffBillItem", b =>
+                {
+                    b.HasOne("ExamAPI.Models.StaffBillingClaim", "Claim")
+                        .WithMany("PaperItems")
+                        .HasForeignKey("ClaimId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Claim");
+                });
+
             modelBuilder.Entity("ExamAPI.Models.StaffLetter", b =>
                 {
                     b.HasOne("ExamAPI.Models.College", null)
@@ -3702,6 +4118,11 @@ namespace ExamAPI.Migrations
             modelBuilder.Entity("ExamAPI.Models.RuleSet", b =>
                 {
                     b.Navigation("Rules");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.StaffBillingClaim", b =>
+                {
+                    b.Navigation("PaperItems");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.StaffLetter", b =>

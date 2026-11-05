@@ -2,6 +2,8 @@ using ExamAPI.Models;
 using ExamAPI.Services.Billing;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace ExamAPI.Controllers
 {
@@ -96,13 +98,35 @@ namespace ExamAPI.Controllers
         // 2. FACULTY & MODERATOR CLAIM WORKFLOW
         // ==========================================
 
+        //[HttpGet("claims")]
+        //public async Task<IActionResult> GetClaims([FromQuery] Guid? dutyChartId, [FromQuery] string? status, [FromQuery] string? roleType)
+        //{
+        //    try
+        //    {
+        //        var claims = await _service.GetClaimsAsync(dutyChartId, status, roleType);
+        //        return Ok(claims);
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        return BadRequest(new { message = ex.Message });
+        //    }
+        //}
+
         [HttpGet("claims")]
         public async Task<IActionResult> GetClaims([FromQuery] Guid? dutyChartId, [FromQuery] string? status, [FromQuery] string? roleType)
         {
             try
             {
                 var claims = await _service.GetClaimsAsync(dutyChartId, status, roleType);
-                return Ok(claims);
+
+                // Serialize here, inside the try, so a cycle can't escape as a 500.
+                // IgnoreCycles drops only the back-reference (item -> claim); all other fields are unchanged.
+                var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+                {
+                    ReferenceHandler = ReferenceHandler.IgnoreCycles
+                };
+                var json = JsonSerializer.Serialize(claims, options);
+                return Content(json, "application/json");
             }
             catch (Exception ex)
             {
