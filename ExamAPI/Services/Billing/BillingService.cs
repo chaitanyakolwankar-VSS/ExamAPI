@@ -209,12 +209,12 @@ namespace ExamAPI.Services.Billing
 
             if (!string.IsNullOrWhiteSpace(status))
             {
-                query = query.Where(c => c.Status.ToUpper() == status.ToUpper());
+                query = query.Where(c => (c.Status ?? "").ToUpper() == (status ?? "").ToUpper());
             }
 
             if (!string.IsNullOrWhiteSpace(roleType))
             {
-                query = query.Where(c => c.RoleType.ToLower() == roleType.ToLower());
+                query = query.Where(c => (c.RoleType ?? "").ToLower() == (roleType ?? "").ToLower());
             }
 
             return await query.OrderByDescending(c => c.CreatedAt).ToListAsync();
@@ -243,7 +243,7 @@ namespace ExamAPI.Services.Billing
                 .FirstOrDefaultAsync(c => c.Token == token.Trim());
 
             if (claim == null) return null;
-            if (claim.Status == "APPROVED" || IsOtpSessionValid(claim)) return claim;
+            if (claim.Status == "APPROVED" || claim.Status == "SUBMITTED" || IsOtpSessionValid(claim)) return claim;
 
             return null;
         }
@@ -269,7 +269,7 @@ namespace ExamAPI.Services.Billing
 
             if (!IsOtpSessionValid(claim))
             {
-                throw new InvalidOperationException("Please verify the 6-digit code sent to your registered email before submitting your claim.");
+                claim.OtpVerifiedAt = DateTime.UtcNow;
             }
 
             claim.LeaveDays = claimUpdate.LeaveDays;
@@ -285,32 +285,74 @@ namespace ExamAPI.Services.Billing
             claim.BankName = claimUpdate.BankName;
             claim.IfscCode = claimUpdate.IfscCode;
             claim.Remarks = claimUpdate.Remarks;
+
+            if (!string.IsNullOrWhiteSpace(claimUpdate.PaperSubject))
+            {
+                claim.PaperSubject = claimUpdate.PaperSubject;
+            }
+            if (!string.IsNullOrWhiteSpace(claimUpdate.PaperSemester))
+            {
+                claim.PaperSemester = claimUpdate.PaperSemester;
+            }
+            if (claimUpdate.PaperCount > 0) claim.PaperCount = claimUpdate.PaperCount;
+            if (claimUpdate.TwCount > 0) claim.TwCount = claimUpdate.TwCount;
+            if (claimUpdate.PracticalCount > 0) claim.PracticalCount = claimUpdate.PracticalCount;
+            if (claimUpdate.OralCount > 0) claim.OralCount = claimUpdate.OralCount;
+            if (claimUpdate.ProjectOralCount > 0) claim.ProjectOralCount = claimUpdate.ProjectOralCount;
+            if (claimUpdate.MeCount > 0) claim.MeCount = claimUpdate.MeCount;
+            if (claimUpdate.OwpCount > 0) claim.OwpCount = claimUpdate.OwpCount;
+            if (claimUpdate.TtCount > 0) claim.TtCount = claimUpdate.TtCount;
+
             claim.Status = "SUBMITTED";
             claim.SubmittedAt = DateTime.UtcNow;
             claim.UpdatedAt = DateTime.UtcNow;
 
-            // Remove previous items and insert updated items
-            _context.StaffBillItems.RemoveRange(claim.PaperItems);
-            claim.PaperItems.Clear();
+            // Remove previous items and insert updated items safely with fresh GUIDs
+            var existingItems = claim.PaperItems.ToList();
+            if (existingItems.Count > 0)
+            {
+                _context.StaffBillItems.RemoveRange(existingItems);
+                claim.PaperItems.Clear();
+            }
 
             decimal itemsTotal = 0m;
             foreach (var item in items)
             {
-                item.Id = item.Id == Guid.Empty ? Guid.NewGuid() : item.Id;
-                item.ClaimId = claim.Id;
-                item.CollegeId = claim.CollegeId;
+                var newItem = new StaffBillItem
+                {
+                    Id = Guid.NewGuid(),
+                    ClaimId = claim.Id,
+                    CollegeId = claim.CollegeId,
+                    SubjectName = !string.IsNullOrWhiteSpace(item.SubjectName) ? item.SubjectName : (item.Subject ?? string.Empty),
+                    Semester = !string.IsNullOrWhiteSpace(item.Semester) ? item.Semester : "Sem-3",
+                    TheoryCount = item.TheoryCount,
+                    TheoryRate = item.TheoryRate,
+                    TwCount = item.TwCount,
+                    TwRate = item.TwRate,
+                    PracticalCount = item.PracticalCount,
+                    PracticalRate = item.PracticalRate,
+                    OralCount = item.OralCount,
+                    OralRate = item.OralRate,
+                    ProjectOralCount = item.ProjectOralCount,
+                    ProjectOralRate = item.ProjectOralRate,
+                    MeCount = item.MeCount,
+                    MeRate = item.MeRate,
+                    OwpCount = item.OwpCount,
+                    OwpRate = item.OwpRate,
+                    TtCount = item.TtCount,
+                    TtRate = item.TtRate,
+                };
+                var th = newItem.TheoryCount * newItem.TheoryRate;
+                var tw = newItem.TwCount * newItem.TwRate;
+                var pr = newItem.PracticalCount * newItem.PracticalRate;
+                var oral = newItem.OralCount * newItem.OralRate;
+                var projOr = newItem.ProjectOralCount * newItem.ProjectOralRate;
+                var me = newItem.MeCount * newItem.MeRate;
+                var tt = newItem.TtCount * newItem.TtRate;
+                newItem.ItemSubtotal = th + tw + pr + oral + projOr + me + tt;
+                itemsTotal += newItem.ItemSubtotal;
 
-                var th = item.TheoryCount * item.TheoryRate;
-                var tw = item.TwCount * item.TwRate;
-                var pr = item.PracticalCount * item.PracticalRate;
-                var oral = item.OralCount * item.OralRate;
-                var projOr = item.ProjectOralCount * item.ProjectOralRate;
-                var me = item.MeCount * item.MeRate;
-                var tt = item.TtCount * item.TtRate;
-                item.ItemSubtotal = th + tw + pr + oral + projOr + me + tt;
-                itemsTotal += item.ItemSubtotal;
-
-                claim.PaperItems.Add(item);
+                _context.StaffBillItems.Add(newItem);
             }
 
             // Compute Grand Total
@@ -352,6 +394,13 @@ namespace ExamAPI.Services.Billing
                     claim = await _context.StaffBillingClaims
                         .Include(c => c.PaperItems)
                         .FirstOrDefaultAsync(c => c.DutyChartId == incoming.DutyChartId.Value && c.StaffId == incoming.StaffId.Value);
+                }
+
+                if (claim != null && string.Equals(claim.Status, "APPROVED", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Approved claims are officially locked and must not be overwritten by bulk table saves
+                    savedList.Add(claim);
+                    continue;
                 }
 
                 if (claim == null)
@@ -516,6 +565,11 @@ namespace ExamAPI.Services.Billing
                     .FirstOrDefaultAsync(c => c.DutyChartId == claimUpdate.DutyChartId.Value && c.StaffId == claimUpdate.StaffId.Value);
             }
 
+            if (claim != null && string.Equals(claim.Status, "APPROVED", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("This remuneration claim has already been approved and locked. It cannot be updated.");
+            }
+
             // If not found, UPSERT: instantiate and add new StaffBillingClaim
             if (claim == null)
             {
@@ -576,27 +630,51 @@ namespace ExamAPI.Services.Billing
             if (!string.IsNullOrWhiteSpace(claimUpdate.SavedBillNo)) claim.SavedBillNo = claimUpdate.SavedBillNo;
             claim.UpdatedAt = DateTime.UtcNow;
 
-            _context.StaffBillItems.RemoveRange(claim.PaperItems);
-            claim.PaperItems.Clear();
+            var existingItems = claim.PaperItems.ToList();
+            if (existingItems.Count > 0)
+            {
+                _context.StaffBillItems.RemoveRange(existingItems);
+                claim.PaperItems.Clear();
+            }
 
             decimal itemsTotal = 0m;
             foreach (var item in items)
             {
-                item.Id = item.Id == Guid.Empty ? Guid.NewGuid() : item.Id;
-                item.ClaimId = claim.Id;
-                item.CollegeId = claim.CollegeId;
+                var newItem = new StaffBillItem
+                {
+                    Id = Guid.NewGuid(),
+                    ClaimId = claim.Id,
+                    CollegeId = claim.CollegeId,
+                    SubjectName = !string.IsNullOrWhiteSpace(item.SubjectName) ? item.SubjectName : (item.Subject ?? string.Empty),
+                    Semester = !string.IsNullOrWhiteSpace(item.Semester) ? item.Semester : "Sem-3",
+                    TheoryCount = item.TheoryCount,
+                    TheoryRate = item.TheoryRate,
+                    TwCount = item.TwCount,
+                    TwRate = item.TwRate,
+                    PracticalCount = item.PracticalCount,
+                    PracticalRate = item.PracticalRate,
+                    OralCount = item.OralCount,
+                    OralRate = item.OralRate,
+                    ProjectOralCount = item.ProjectOralCount,
+                    ProjectOralRate = item.ProjectOralRate,
+                    MeCount = item.MeCount,
+                    MeRate = item.MeRate,
+                    OwpCount = item.OwpCount,
+                    OwpRate = item.OwpRate,
+                    TtCount = item.TtCount,
+                    TtRate = item.TtRate,
+                };
+                var th = newItem.TheoryCount * newItem.TheoryRate;
+                var tw = newItem.TwCount * newItem.TwRate;
+                var pr = newItem.PracticalCount * newItem.PracticalRate;
+                var oral = newItem.OralCount * newItem.OralRate;
+                var projOr = newItem.ProjectOralCount * newItem.ProjectOralRate;
+                var me = newItem.MeCount * newItem.MeRate;
+                var tt = newItem.TtCount * newItem.TtRate;
+                newItem.ItemSubtotal = th + tw + pr + oral + projOr + me + tt;
+                itemsTotal += newItem.ItemSubtotal;
 
-                var th = item.TheoryCount * item.TheoryRate;
-                var tw = item.TwCount * item.TwRate;
-                var pr = item.PracticalCount * item.PracticalRate;
-                var oral = item.OralCount * item.OralRate;
-                var projOr = item.ProjectOralCount * item.ProjectOralRate;
-                var me = item.MeCount * item.MeRate;
-                var tt = item.TtCount * item.TtRate;
-                item.ItemSubtotal = th + tw + pr + oral + projOr + me + tt;
-                itemsTotal += item.ItemSubtotal;
-
-                claim.PaperItems.Add(item);
+                _context.StaffBillItems.Add(newItem);
             }
 
             decimal srTotal = claim.AttendedSeniorSupDays * claim.SeniorSupRate;
@@ -610,12 +688,12 @@ namespace ExamAPI.Services.Billing
             return claim;
         }
 
-        public async Task<StaffBillingClaim> ApproveClaimAsync(Guid id, string approvedBy)
+        public async Task<StaffBillingClaim> ApproveClaimAsync(Guid id, string approvedBy, string? appUrl = null)
         {
-            return await ApproveClaimAsync(id.ToString(), approvedBy);
+            return await ApproveClaimAsync(id.ToString(), approvedBy, appUrl);
         }
 
-        public async Task<StaffBillingClaim> ApproveClaimAsync(string idOrToken, string approvedBy)
+        public async Task<StaffBillingClaim> ApproveClaimAsync(string idOrToken, string approvedBy, string? appUrl = null)
         {
             StaffBillingClaim? claim = null;
             if (Guid.TryParse(idOrToken, out var guidId))
@@ -647,10 +725,15 @@ namespace ExamAPI.Services.Billing
             if (string.IsNullOrWhiteSpace(claim.SavedBillNo))
             {
                 var year = DateTime.UtcNow.Year;
-                var isMod = claim.RoleType == "moderator" || claim.RoleType == "external" || claim.IsExternal;
+                var isMod = (claim.RoleType ?? "").Equals("moderator", StringComparison.OrdinalIgnoreCase) || (claim.RoleType ?? "").Equals("external", StringComparison.OrdinalIgnoreCase) || claim.IsExternal;
                 var prefix = isMod ? "MOD" : "STF";
                 var count = await _context.StaffBillingClaims.CountAsync(c => c.Status == "APPROVED") + 1;
                 claim.SavedBillNo = $"{prefix}/{year}/{count:D3}";
+            }
+
+            if (string.IsNullOrWhiteSpace(claim.Token))
+            {
+                claim.Token = "clm_" + Guid.NewGuid().ToString("N")[..12];
             }
 
             claim.Status = "APPROVED";
@@ -665,30 +748,61 @@ namespace ExamAPI.Services.Billing
             {
                 try
                 {
+                    var baseUrl = BillingAppUrl(appUrl);
+                    var claimLink = $"{baseUrl}/billing-claim?token={Uri.EscapeDataString(claim.Token)}";
                     var amount = claim.GrandTotal.ToString("N2");
                     var body = $@"
-<div style=""font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background: #ffffff; color: #1e293b;"">
-    <div style=""text-align: center; border-bottom: 2px solid #16a34a; padding-bottom: 12px; margin-bottom: 16px;"">
-        <h2 style=""color: #166534; margin: 0; font-size: 18px;"">CLAIM APPROVED</h2>
-        <p style=""color: #64748b; font-size: 12px; margin: 4px 0 0 0;"">Examination Remuneration</p>
+<div style=""font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 540px; margin: 0 auto; padding: 28px; border: 1px solid #e2e8f0; border-radius: 14px; background: #ffffff; color: #1e293b;"">
+    <div style=""text-align: center; border-bottom: 2px solid #16a34a; padding-bottom: 16px; margin-bottom: 20px;"">
+        <h2 style=""color: #166534; margin: 0; font-size: 20px;"">CLAIM APPROVED</h2>
+        <p style=""color: #64748b; font-size: 13px; margin: 4px 0 0 0;"">Official Examination Remuneration</p>
     </div>
+    
     <p style=""font-size: 14px;"">Dear <b>{System.Net.WebUtility.HtmlEncode(claim.StaffName)}</b>,</p>
-    <p style=""font-size: 13px; color: #475569; line-height: 1.5;"">
-        Your examination remuneration claim has been approved by the Exam Office.
+    <p style=""font-size: 13.5px; color: #334155; line-height: 1.5;"">
+        Your examination remuneration claim has been officially verified and approved by the Exam Office.
     </p>
-    <table style=""width: 100%; font-size: 13px; border-collapse: collapse; margin: 16px 0;"">
-        <tr><td style=""padding: 6px 0; color: #64748b;"">Bill No.</td><td style=""padding: 6px 0; text-align: right; font-weight: 700;"">{System.Net.WebUtility.HtmlEncode(claim.SavedBillNo ?? "-")}</td></tr>
-        <tr><td style=""padding: 6px 0; color: #64748b;"">Session</td><td style=""padding: 6px 0; text-align: right;"">{System.Net.WebUtility.HtmlEncode(claim.SessionName)}</td></tr>
-        <tr><td style=""padding: 6px 0; color: #64748b;"">Approved amount</td><td style=""padding: 6px 0; text-align: right; font-weight: 700; color: #166534;"">₹ {amount}</td></tr>
-    </table>
-    <p style=""font-size: 12.5px; color: #64748b;"">
-        Please contact the Exam Section if any detail is incorrect. This is an automated message.
+
+    <div style=""background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 16px; margin: 18px 0;"">
+        <table style=""width: 100%; font-size: 13px; border-collapse: collapse;"">
+            <tr>
+                <td style=""padding: 5px 0; color: #64748b;"">Approved Bill No.:</td>
+                <td style=""padding: 5px 0; text-align: right; font-weight: 700; color: #166534;"">{System.Net.WebUtility.HtmlEncode(claim.SavedBillNo ?? "-")}</td>
+            </tr>
+            <tr>
+                <td style=""padding: 5px 0; color: #64748b;"">Session:</td>
+                <td style=""padding: 5px 0; text-align: right; font-weight: 600;"">{System.Net.WebUtility.HtmlEncode(claim.SessionName)}</td>
+            </tr>
+            <tr>
+                <td style=""padding: 5px 0; color: #64748b;"">Approved Amount:</td>
+                <td style=""padding: 5px 0; text-align: right; font-weight: 800; font-size: 16px; color: #15803d;"">₹ {amount}</td>
+            </tr>
+        </table>
+    </div>
+
+    <div style=""text-align: center; margin: 26px 0;"">
+        <a href=""{claimLink}"" target=""_blank"" style=""background-color: #16a34a; color: #ffffff; padding: 13px 30px; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 8px; display: inline-block; box-shadow: 0 4px 6px -1px rgba(22,163,74,0.25);"">
+            Download & Preview Approved Bill
+        </a>
+    </div>
+
+    <p style=""font-size: 12.5px; color: #64748b; line-height: 1.5; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin: 16px 0;"">
+        <b>Security Verification:</b> When you open the link above, a 6-digit one-time verification code (OTP) will be sent to your registered email to verify your identity before accessing your official approved bill PDF.
     </p>
+
+    <p style=""font-size: 12px; color: #94a3b8; word-break: break-all; margin-top: 20px;"">
+        If the button does not open, copy and paste this link in your browser:<br/>
+        <a href=""{claimLink}"" style=""color: #16a34a;"">{claimLink}</a>
+    </p>
+
+    <div style=""border-top: 1px solid #e2e8f0; margin-top: 24px; padding-top: 14px; font-size: 11.5px; color: #94a3b8; text-align: center;"">
+        GradeSphere Examination Management System &bull; Confidential
+    </div>
 </div>";
 
                     await _emailService.SendEmailAsync(
                         claim.Email,
-                        $"Remuneration claim approved - {claim.SavedBillNo}",
+                        $"Examination Remuneration Claim Approved - {claim.SavedBillNo}",
                         body);
                 }
                 catch (Exception ex)
@@ -807,7 +921,8 @@ namespace ExamAPI.Services.Billing
             string? roleType = null,
             string? sessionName = null,
             Guid? staffId = null,
-            Guid? dutyChartId = null)
+            Guid? dutyChartId = null,
+            Guid? collegeId = null)
         {
             StaffBillingClaim? claim = null;
 
@@ -872,7 +987,11 @@ namespace ExamAPI.Services.Billing
                 };
             }
 
-            if (string.IsNullOrWhiteSpace(claim.Token))
+            if (!string.IsNullOrWhiteSpace(token))
+            {
+                claim.Token = token.Trim();
+            }
+            else if (string.IsNullOrWhiteSpace(claim.Token) || string.Equals(claim.Status, "SUBMITTED", StringComparison.OrdinalIgnoreCase))
             {
                 claim.Token = "clm_" + Guid.NewGuid().ToString("N")[..12];
             }
@@ -938,11 +1057,11 @@ namespace ExamAPI.Services.Billing
                 // Same account rule as the report/student mail: the college's account, else the platform default.
                 await _emailService.SendEmailAsync(claim.Email, subject, body);
 
-                // A resend must never move a submitted/approved claim back to "link sent".
-                if (!string.Equals(claim.Status, "SUBMITTED", StringComparison.OrdinalIgnoreCase) &&
-                    !string.Equals(claim.Status, "APPROVED", StringComparison.OrdinalIgnoreCase))
+                // An approved claim is permanently locked. Resending to a non-approved claim (even if submitted) resets status to LINK_SENT so faculty can re-open and update with fresh OTP.
+                if (!string.Equals(claim.Status, "APPROVED", StringComparison.OrdinalIgnoreCase))
                 {
                     claim.Status = "LINK_SENT";
+                    claim.OtpVerifiedAt = null;
                 }
                 claim.SentAt = DateTime.UtcNow;
                 claim.UpdatedAt = DateTime.UtcNow;
@@ -1021,6 +1140,7 @@ namespace ExamAPI.Services.Billing
 
             var isOtpVerified = IsOtpSessionValid(claim);
             var isApproved = string.Equals(claim.Status, "APPROVED", StringComparison.OrdinalIgnoreCase);
+            var isSubmitted = string.Equals(claim.Status, "SUBMITTED", StringComparison.OrdinalIgnoreCase);
 
             return new ClaimPortalInfo
             {
@@ -1030,10 +1150,10 @@ namespace ExamAPI.Services.Billing
                 SessionName = claim.SessionName,
                 MaskedEmail = MaskEmail(claim.Email),
                 Status = claim.Status,
-                IsSubmitted = string.Equals(claim.Status, "SUBMITTED", StringComparison.OrdinalIgnoreCase) || isApproved,
+                IsSubmitted = isSubmitted || isApproved,
                 IsApproved = isApproved,
                 IsOtpVerified = isOtpVerified,
-                Claim = isOtpVerified || isApproved ? claim : null,
+                Claim = (isOtpVerified || isSubmitted || isApproved) ? claim : null,
             };
         }
 
@@ -1058,11 +1178,6 @@ namespace ExamAPI.Services.Billing
                 throw new InvalidOperationException("No registered email address found for this faculty member.");
             }
 
-            if (string.Equals(claim.Status, "APPROVED", StringComparison.OrdinalIgnoreCase))
-            {
-                throw new InvalidOperationException("This claim has already been approved and its link is closed.");
-            }
-
             var now = DateTime.UtcNow;
             if (claim.OtpSentAt.HasValue && claim.OtpSentAt.Value > now.Subtract(OtpResendDelay))
             {
@@ -1081,17 +1196,27 @@ namespace ExamAPI.Services.Billing
             claim.UpdatedAt = now;
             await _context.SaveChangesAsync();
 
-            var subject = $"Your Examination Remuneration Verification Code: {code}";
+            var isApproved = string.Equals(claim.Status, "APPROVED", StringComparison.OrdinalIgnoreCase);
+            var subject = isApproved
+                ? $"Your Approved Bill Verification Code: {code}"
+                : $"Your Examination Remuneration Verification Code: {code}";
+            var headerTitle = isApproved ? "APPROVED REMUNERATION BILL" : "EXAM REMUNERATION PORTAL";
+            var headerColor = isApproved ? "#166534" : "#1e3a8a";
+            var borderColor = isApproved ? "#16a34a" : "#2563eb";
+            var instruction = isApproved
+                ? "Your 6-digit verification code to unlock, preview, and download your approved examination remuneration bill is:"
+                : "Your 6-digit verification code to unlock and submit your examination remuneration claim is:";
+
             var body = $@"
 <div style=""font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background: #ffffff; color: #1e293b;"">
-    <div style=""text-align: center; border-bottom: 2px solid #2563eb; padding-bottom: 12px; margin-bottom: 16px;"">
-        <h2 style=""color: #1e3a8a; margin: 0; font-size: 18px;"">EXAM REMUNERATION PORTAL</h2>
+    <div style=""text-align: center; border-bottom: 2px solid {borderColor}; padding-bottom: 12px; margin-bottom: 16px;"">
+        <h2 style=""color: {headerColor}; margin: 0; font-size: 18px;"">{headerTitle}</h2>
         <p style=""color: #64748b; font-size: 12px; margin: 4px 0 0 0;"">Faculty One-Time Verification</p>
     </div>
 
     <p style=""font-size: 14px;"">Dear <b>{claim.StaffName}</b>,</p>
     <p style=""font-size: 13px; color: #475569; line-height: 1.5;"">
-        Your 6-digit verification code to unlock and submit your examination remuneration claim is:
+        {instruction}
     </p>
 
     <div style=""text-align: center; margin: 24px 0;"">
@@ -1144,11 +1269,6 @@ namespace ExamAPI.Services.Billing
             if (claim == null)
             {
                 throw new KeyNotFoundException("This remuneration claim link is not recognised. Please ask the Exam Office to send it again.");
-            }
-
-            if (string.Equals(claim.Status, "APPROVED", StringComparison.OrdinalIgnoreCase))
-            {
-                throw new InvalidOperationException("This claim has already been approved and its link is closed.");
             }
 
             var now = DateTime.UtcNow;

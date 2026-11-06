@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json.Serialization;
 
 namespace ExamAPI.Models
 {
@@ -15,6 +16,8 @@ namespace ExamAPI.Models
 
         // Foreign Key to parent Claim
         public Guid ClaimId { get; set; }
+
+        [JsonIgnore]
         public StaffBillingClaim? Claim { get; set; }
 
         [MaxLength(150)]

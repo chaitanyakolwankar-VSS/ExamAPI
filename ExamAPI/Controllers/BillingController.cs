@@ -12,29 +12,104 @@ namespace ExamAPI.Controllers
     public class BillingController : ControllerBase
     {
         private readonly IBillingService _service;
+        private static readonly JsonSerializerOptions ClaimJsonOptions =
+            new(JsonSerializerDefaults.Web)
+            {
+                ReferenceHandler = ReferenceHandler.IgnoreCycles
+            };
 
         public BillingController(IBillingService service)
         {
             _service = service;
         }
 
+        private ContentResult JsonWithoutCycles(object value) =>
+            Content(JsonSerializer.Serialize(value, ClaimJsonOptions), "application/json");
+
         public class SubmitClaimRequest
         {
             public StaffBillingClaim Claim { get; set; } = new StaffBillingClaim();
-            public List<StaffBillItem> PaperItems { get; set; } = new List<StaffBillItem>();
+            public List<StaffBillItemDto>? PaperItems { get; set; }
+        }
+
+        public class StaffBillItemDto
+        {
+            public string? Id { get; set; }
+            public string? ClaimId { get; set; }
+            public string? SubjectName { get; set; }
+            public string? Subject { get; set; }
+            public string? Semester { get; set; }
+            public int TheoryCount { get; set; }
+            public decimal TheoryRate { get; set; }
+            public int TwCount { get; set; }
+            public decimal TwRate { get; set; }
+            public int PracticalCount { get; set; }
+            public decimal PracticalRate { get; set; }
+            public int OralCount { get; set; }
+            public decimal OralRate { get; set; }
+            public int ProjectOralCount { get; set; }
+            public decimal ProjectOralRate { get; set; }
+            public int MeCount { get; set; }
+            public decimal MeRate { get; set; }
+            public int OwpCount { get; set; }
+            public decimal OwpRate { get; set; }
+            public int TtCount { get; set; }
+            public decimal TtRate { get; set; }
+            public decimal ItemSubtotal { get; set; }
+            public decimal Total { get; set; }
+
+            public StaffBillItem ToEntity(Guid claimId, Guid? collegeId)
+            {
+                var subj = !string.IsNullOrWhiteSpace(SubjectName) ? SubjectName : (Subject ?? string.Empty);
+                var sem = !string.IsNullOrWhiteSpace(Semester) ? Semester : "Sem-3";
+                var entity = new StaffBillItem
+                {
+                    Id = Guid.NewGuid(),
+                    ClaimId = claimId,
+                    CollegeId = collegeId,
+                    SubjectName = subj,
+                    Semester = sem,
+                    TheoryCount = TheoryCount,
+                    TheoryRate = TheoryRate,
+                    TwCount = TwCount,
+                    TwRate = TwRate,
+                    PracticalCount = PracticalCount,
+                    PracticalRate = PracticalRate,
+                    OralCount = OralCount,
+                    OralRate = OralRate,
+                    ProjectOralCount = ProjectOralCount,
+                    ProjectOralRate = ProjectOralRate,
+                    MeCount = MeCount,
+                    MeRate = MeRate,
+                    OwpCount = OwpCount,
+                    OwpRate = OwpRate,
+                    TtCount = TtCount,
+                    TtRate = TtRate,
+                };
+                var th = entity.TheoryCount * entity.TheoryRate;
+                var tw = entity.TwCount * entity.TwRate;
+                var pr = entity.PracticalCount * entity.PracticalRate;
+                var oral = entity.OralCount * entity.OralRate;
+                var projOr = entity.ProjectOralCount * entity.ProjectOralRate;
+                var me = entity.MeCount * entity.MeRate;
+                var tt = entity.TtCount * entity.TtRate;
+                entity.ItemSubtotal = th + tw + pr + oral + projOr + me + tt;
+                return entity;
+            }
         }
 
         public class SendClaimEmailRequest
         {
-            public Guid? ClaimId { get; set; }
+            public string? ClaimId { get; set; }
             public string? Token { get; set; }
             public string? AppUrl { get; set; }
             public string? Email { get; set; }
             public string? StaffName { get; set; }
             public string? RoleType { get; set; }
             public string? SessionName { get; set; }
-            public Guid? StaffId { get; set; }
-            public Guid? DutyChartId { get; set; }
+            public string? StaffId { get; set; }
+            public string? DutyChartId { get; set; }
+            public string? CollegeId { get; set; }
         }
 
         public class SendBatchClaimEmailRequest
@@ -119,14 +194,7 @@ namespace ExamAPI.Controllers
             {
                 var claims = await _service.GetClaimsAsync(dutyChartId, status, roleType);
 
-                // Serialize here, inside the try, so a cycle can't escape as a 500.
-                // IgnoreCycles drops only the back-reference (item -> claim); all other fields are unchanged.
-                var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
-                {
-                    ReferenceHandler = ReferenceHandler.IgnoreCycles
-                };
-                var json = JsonSerializer.Serialize(claims, options);
-                return Content(json, "application/json");
+                return JsonWithoutCycles(claims);
             }
             catch (Exception ex)
             {
@@ -141,7 +209,7 @@ namespace ExamAPI.Controllers
             {
                 var claim = await _service.GetClaimByIdAsync(id);
                 if (claim == null) return NotFound(new { message = "Claim not found." });
-                return Ok(claim);
+                return JsonWithoutCycles(claim);
             }
             catch (Exception ex)
             {
@@ -160,7 +228,7 @@ namespace ExamAPI.Controllers
             {
                 var claim = await _service.GetClaimByTokenAsync(token);
                 if (claim == null) return NotFound(new { message = "Invalid or expired claim token." });
-                return Ok(claim);
+                return JsonWithoutCycles(claim);
             }
             catch (Exception ex)
             {
@@ -177,8 +245,11 @@ namespace ExamAPI.Controllers
         {
             try
             {
-                var updated = await _service.SubmitClaimAsync(token, request.Claim, request.PaperItems ?? new List<StaffBillItem>());
-                return Ok(updated);
+                var items = (request.PaperItems ?? new List<StaffBillItemDto>())
+                    .Select(dto => dto.ToEntity(Guid.Empty, null))
+                    .ToList();
+                var updated = await _service.SubmitClaimAsync(token, request.Claim, items);
+                return JsonWithoutCycles(updated);
             }
             catch (KeyNotFoundException ex)
             {
@@ -197,7 +268,7 @@ namespace ExamAPI.Controllers
             try
             {
                 var saved = await _service.SaveClaimsAsync(claims);
-                return Ok(saved);
+                return JsonWithoutCycles(saved);
             }
             catch (Exception ex)
             {
@@ -207,13 +278,16 @@ namespace ExamAPI.Controllers
 
         [HttpPost("claims/{id}/approve")]
         [HttpPost("approve-claim/{id}")]
-        public async Task<IActionResult> ApproveClaim(string id, [FromQuery] string? approvedBy)
+        public async Task<IActionResult> ApproveClaim(string id, [FromQuery] string? approvedBy, [FromQuery] string? appUrl)
         {
             try
             {
                 var approver = string.IsNullOrWhiteSpace(approvedBy) ? User.Identity?.Name ?? "Exam Office" : approvedBy;
-                var approved = await _service.ApproveClaimAsync(id, approver);
-                return Ok(approved);
+                var clientUrl = string.IsNullOrWhiteSpace(appUrl)
+                    ? $"{Request.Scheme}://{Request.Host}"
+                    : appUrl;
+                var approved = await _service.ApproveClaimAsync(id, approver, clientUrl);
+                return JsonWithoutCycles(approved);
             }
             catch (KeyNotFoundException ex)
             {
@@ -235,8 +309,11 @@ namespace ExamAPI.Controllers
             {
                 Guid? guidId = Guid.TryParse(id, out var parsed) ? parsed : null;
                 var token = guidId == null ? id : null;
-                var updated = await _service.UpdateClaimByAdminAsync(guidId, token, request.Claim, request.PaperItems ?? new List<StaffBillItem>());
-                return Ok(updated);
+                var items = (request.PaperItems ?? new List<StaffBillItemDto>())
+                    .Select(dto => dto.ToEntity(Guid.Empty, null))
+                    .ToList();
+                var updated = await _service.UpdateClaimByAdminAsync(guidId, token, request.Claim, items);
+                return JsonWithoutCycles(updated);
             }
             catch (Exception ex)
             {
@@ -274,16 +351,24 @@ namespace ExamAPI.Controllers
                 var appUrl = string.IsNullOrWhiteSpace(request.AppUrl)
                     ? $"{Request.Scheme}://{Request.Host}"
                     : request.AppUrl;
+
+                Guid? claimIdGuid = Guid.TryParse(request.ClaimId, out var cid) ? cid : null;
+                Guid? staffIdGuid = Guid.TryParse(request.StaffId, out var sid) ? sid : null;
+                Guid? dutyChartIdGuid = Guid.TryParse(request.DutyChartId, out var did) ? did : null;
+                Guid? collegeIdGuid = Guid.TryParse(request.CollegeId, out var colid) ? colid : null;
+
+                // Pass CollegeId through so the service can use college-first email account selection
                 var result = await _service.SendClaimEmailAsync(
-                    request.ClaimId,
+                    claimIdGuid,
                     request.Token,
                     appUrl,
                     request.Email,
                     request.StaffName,
                     request.RoleType,
                     request.SessionName,
-                    request.StaffId,
-                    request.DutyChartId
+                    staffIdGuid,
+                    dutyChartIdGuid,
+                    collegeIdGuid
                 );
                 return Ok(result);
             }
@@ -317,7 +402,7 @@ namespace ExamAPI.Controllers
             try
             {
                 var info = await _service.OpenClaimPortalAsync(token);
-                return Ok(info);
+                return JsonWithoutCycles(info);
             }
             catch (Exception ex)
             {
@@ -347,7 +432,7 @@ namespace ExamAPI.Controllers
             try
             {
                 var result = await _service.VerifyClaimOtpAsync(token, request?.Code ?? string.Empty);
-                return Ok(result);
+                return JsonWithoutCycles(result);
             }
             catch (Exception ex)
             {

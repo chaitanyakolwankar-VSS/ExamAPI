@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json.Serialization;
 
 namespace ExamAPI.Models
 {
@@ -141,10 +142,15 @@ namespace ExamAPI.Models
 
         // OTP verification for secure direct faculty submission
         [MaxLength(100)]
+        [JsonIgnore]
         public string? OtpCodeHash { get; set; }
+        [JsonIgnore]
         public DateTime? OtpExpiresAt { get; set; }
+        [JsonIgnore]
         public DateTime? OtpSentAt { get; set; }
+        [JsonIgnore]
         public int OtpAttempts { get; set; } = 0;
+        [JsonIgnore]
         public DateTime? OtpVerifiedAt { get; set; }
 
         // Multi-subject aggregate convenience accessors for frontend synchronization

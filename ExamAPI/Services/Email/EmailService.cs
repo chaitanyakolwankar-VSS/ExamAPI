@@ -48,5 +48,38 @@ namespace ExamAPI.Services.Email
             var html = $"<!doctype html><html><body>{body}</body></html>";
             await _sender.SendAsync(account, new EmailMessage(toEmail, subject, html, text));
         }
+
+        public async Task SendEmailAsync(string toEmail, string subject, string body, Guid? collegeId = null)
+        {
+            EmailAccountSettings? account;
+            try
+            {
+                if (collegeId.HasValue)
+                {
+                    var result = await _accounts.ForCollegeAsync(collegeId.Value);
+                    account = result.Account;
+                }
+                else
+                {
+                    account = await _accounts.DefaultAsync();
+                }
+            }
+            catch (CryptographicException)
+            {
+                throw new InvalidOperationException(EmailQueueProcessor.UnreadablePassword);
+            }
+            if (account == null)
+            {
+                // Fall back to default if college-specific not found
+                account = await _accounts.DefaultAsync();
+                if (account == null)
+                    throw new InvalidOperationException("Email is not set up yet: the platform admin has to add the default email account.");
+            }
+
+            var plain = WebUtility.HtmlDecode(Tags().Replace(body.Replace("<br>", "\n").Replace("</p>", "\n"), " "));
+            var text = BlankLines().Replace(Spaces().Replace(plain, " "), "\n").Trim();
+            var html = $"<!doctype html><html><body>{body}</body></html>";
+            await _sender.SendAsync(account, new EmailMessage(toEmail, subject, html, text));
+        }
     }
 }
