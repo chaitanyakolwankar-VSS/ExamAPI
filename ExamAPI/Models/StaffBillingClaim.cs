@@ -57,12 +57,6 @@ namespace ExamAPI.Models
         [MaxLength(100)]
         public string? City { get; set; }
 
-        // Leave declaration (internal staff)
-        public int LeaveDays { get; set; } = 0;
-
-        [MaxLength(500)]
-        public string? LeaveDatesAndReason { get; set; }
-
         // Supervision duties
         public int AssignedSeniorSupDays { get; set; } = 0;
         public int AttendedSeniorSupDays { get; set; } = 0;

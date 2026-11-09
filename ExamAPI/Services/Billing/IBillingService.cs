@@ -18,6 +18,7 @@ namespace ExamAPI.Services.Billing
         public string SessionName { get; set; } = string.Empty;
         public string MaskedEmail { get; set; } = string.Empty;
         public string Status { get; set; } = "NOT_SENT";
+        public string Message { get; set; } = string.Empty;
         public bool IsSubmitted { get; set; }
         public bool IsApproved { get; set; }
         public bool IsOtpVerified { get; set; }
@@ -61,5 +62,6 @@ namespace ExamAPI.Services.Billing
         Task<ClaimPortalInfo> OpenClaimPortalAsync(string token);
         Task<ClaimOtpResult> SendClaimOtpAsync(string token);
         Task<VerifyClaimOtpResult> VerifyClaimOtpAsync(string token, string code);
+        Task<int> StopClaimsAsync(List<string>? tokens = null, List<Guid>? claimIds = null, Guid? dutyChartId = null);
     }
 }

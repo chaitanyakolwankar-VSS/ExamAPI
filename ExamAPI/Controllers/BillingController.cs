@@ -123,6 +123,13 @@ namespace ExamAPI.Controllers
             public string? Code { get; set; }
         }
 
+        public class StopClaimsRequest
+        {
+            public List<string>? Tokens { get; set; }
+            public List<Guid>? ClaimIds { get; set; }
+            public Guid? DutyChartId { get; set; }
+        }
+
         // ==========================================
         // 1. PRICE SETS & REMUNERATION RATES
         // ==========================================
@@ -433,6 +440,26 @@ namespace ExamAPI.Controllers
             {
                 var result = await _service.VerifyClaimOtpAsync(token, request?.Code ?? string.Empty);
                 return JsonWithoutCycles(result);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+        [HttpPost("claims/stop")]
+        public async Task<IActionResult> StopClaims([FromBody] StopClaimsRequest request)
+        {
+            try
+            {
+                var stopped = await _service.StopClaimsAsync(request.Tokens, request.ClaimIds, request.DutyChartId);
+                return Ok(new
+                {
+                    success = true,
+                    stopped,
+                    message = stopped > 0
+                        ? $"Successfully stopped {stopped} claim link{(stopped == 1 ? "" : "s")}."
+                        : "No active claim links were stopped."
+                });
             }
             catch (Exception ex)
             {

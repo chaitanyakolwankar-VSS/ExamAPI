@@ -267,13 +267,16 @@ namespace ExamAPI.Services.Billing
                 throw new InvalidOperationException("This claim has already been approved by Admin and is locked.");
             }
 
+            if (string.Equals(claim.Status, "STOPPED", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("This remuneration claim link has been stopped by the exam administrator. Please request a new link.");
+            }
+
             if (!IsOtpSessionValid(claim))
             {
                 claim.OtpVerifiedAt = DateTime.UtcNow;
             }
 
-            claim.LeaveDays = claimUpdate.LeaveDays;
-            claim.LeaveDatesAndReason = claimUpdate.LeaveDatesAndReason;
             claim.AttendedSeniorSupDays = claimUpdate.AttendedSeniorSupDays;
             claim.AttendedJuniorSupDays = claimUpdate.AttendedJuniorSupDays;
             claim.TravelDays = claimUpdate.TravelDays;
@@ -465,8 +468,6 @@ namespace ExamAPI.Services.Billing
                     claim.IsExternal = incoming.IsExternal;
                     if (!string.IsNullOrWhiteSpace(incoming.VisitingCollegeName)) claim.VisitingCollegeName = incoming.VisitingCollegeName;
                     if (!string.IsNullOrWhiteSpace(incoming.City)) claim.City = incoming.City;
-                    claim.LeaveDays = incoming.LeaveDays;
-                    if (!string.IsNullOrWhiteSpace(incoming.LeaveDatesAndReason)) claim.LeaveDatesAndReason = incoming.LeaveDatesAndReason;
                     claim.AssignedSeniorSupDays = incoming.AssignedSeniorSupDays;
                     claim.AttendedSeniorSupDays = incoming.AttendedSeniorSupDays;
                     claim.SeniorSupRate = incoming.SeniorSupRate;
@@ -606,8 +607,6 @@ namespace ExamAPI.Services.Billing
             claim.IsExternal = claimUpdate.IsExternal;
             if (!string.IsNullOrWhiteSpace(claimUpdate.VisitingCollegeName)) claim.VisitingCollegeName = claimUpdate.VisitingCollegeName;
             if (!string.IsNullOrWhiteSpace(claimUpdate.City)) claim.City = claimUpdate.City;
-            claim.LeaveDays = claimUpdate.LeaveDays;
-            if (!string.IsNullOrWhiteSpace(claimUpdate.LeaveDatesAndReason)) claim.LeaveDatesAndReason = claimUpdate.LeaveDatesAndReason;
             claim.AttendedSeniorSupDays = claimUpdate.AttendedSeniorSupDays;
             claim.SeniorSupRate = claimUpdate.SeniorSupRate;
             claim.AttendedJuniorSupDays = claimUpdate.AttendedJuniorSupDays;
@@ -991,7 +990,9 @@ namespace ExamAPI.Services.Billing
             {
                 claim.Token = token.Trim();
             }
-            else if (string.IsNullOrWhiteSpace(claim.Token) || string.Equals(claim.Status, "SUBMITTED", StringComparison.OrdinalIgnoreCase))
+            else if (string.IsNullOrWhiteSpace(claim.Token) 
+                || string.Equals(claim.Status, "SUBMITTED", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(claim.Status, "STOPPED", StringComparison.OrdinalIgnoreCase))
             {
                 claim.Token = "clm_" + Guid.NewGuid().ToString("N")[..12];
             }
@@ -1138,6 +1139,24 @@ namespace ExamAPI.Services.Billing
                 return new ClaimPortalInfo { Exists = false, Status = "NOT_FOUND" };
             }
 
+            if (string.Equals(claim.Status, "STOPPED", StringComparison.OrdinalIgnoreCase))
+            {
+                return new ClaimPortalInfo
+                {
+                    Exists = true,
+                    StaffName = claim.StaffName,
+                    RoleType = claim.RoleType,
+                    SessionName = claim.SessionName,
+                    MaskedEmail = MaskEmail(claim.Email),
+                    Status = "STOPPED",
+                    Message = "This remuneration claim link has been stopped by the exam administrator. Please request a new link from the Exam Section.",
+                    IsSubmitted = false,
+                    IsApproved = false,
+                    IsOtpVerified = false,
+                    Claim = null,
+                };
+            }
+
             var isOtpVerified = IsOtpSessionValid(claim);
             var isApproved = string.Equals(claim.Status, "APPROVED", StringComparison.OrdinalIgnoreCase);
             var isSubmitted = string.Equals(claim.Status, "SUBMITTED", StringComparison.OrdinalIgnoreCase);
@@ -1171,6 +1190,11 @@ namespace ExamAPI.Services.Billing
             if (claim == null)
             {
                 throw new KeyNotFoundException("Remuneration claim not found.");
+            }
+
+            if (string.Equals(claim.Status, "STOPPED", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("This remuneration claim link has been stopped by the exam administrator. Please request a new link.");
             }
 
             if (string.IsNullOrWhiteSpace(claim.Email))
@@ -1271,6 +1295,11 @@ namespace ExamAPI.Services.Billing
                 throw new KeyNotFoundException("This remuneration claim link is not recognised. Please ask the Exam Office to send it again.");
             }
 
+            if (string.Equals(claim.Status, "STOPPED", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("This remuneration claim link has been stopped by the exam administrator. Please request a new link.");
+            }
+
             var now = DateTime.UtcNow;
 
             if (string.IsNullOrWhiteSpace(claim.OtpCodeHash) || !claim.OtpExpiresAt.HasValue)
@@ -1325,6 +1354,47 @@ namespace ExamAPI.Services.Billing
                 Message = "Verification successful! Access granted.",
                 Claim = claim,
             };
+        }
+
+        public async Task<int> StopClaimsAsync(List<string>? tokens = null, List<Guid>? claimIds = null, Guid? dutyChartId = null)
+        {
+            var query = _context.StaffBillingClaims
+                .IgnoreQueryFilters()
+                .Where(c => c.Status != "APPROVED");
+
+            if (claimIds != null && claimIds.Count > 0)
+            {
+                query = query.Where(c => claimIds.Contains(c.Id));
+            }
+            else if (tokens != null && tokens.Count > 0)
+            {
+                var cleanTokens = tokens.Where(t => !string.IsNullOrWhiteSpace(t)).Select(t => t.Trim()).ToList();
+                query = query.Where(c => cleanTokens.Contains(c.Token));
+            }
+            else if (dutyChartId.HasValue && dutyChartId.Value != Guid.Empty)
+            {
+                query = query.Where(c => c.DutyChartId == dutyChartId.Value);
+            }
+            else
+            {
+                return 0;
+            }
+
+            var claims = await query.ToListAsync();
+            if (claims.Count == 0) return 0;
+
+            var now = DateTime.UtcNow;
+            foreach (var claim in claims)
+            {
+                claim.Status = "STOPPED";
+                claim.OtpVerifiedAt = null;
+                claim.OtpCodeHash = null;
+                claim.OtpExpiresAt = null;
+                claim.UpdatedAt = now;
+            }
+
+            await _context.SaveChangesAsync();
+            return claims.Count;
         }
     }
 }
