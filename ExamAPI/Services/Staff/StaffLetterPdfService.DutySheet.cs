@@ -4,6 +4,7 @@ using ExamAPI.Models;
 using ExamAPI.Services.Common;
 using ExamAPI.Services.Report.Documents;
 using Microsoft.EntityFrameworkCore;
+using QuestPDF.Elements;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
@@ -42,7 +43,7 @@ namespace ExamAPI.Services.Staff
                 .Select(a => a.ShortDuration ?? a.FullDuration).FirstOrDefaultAsync();
             var title = DutySheetTitle(chart.Half, year);
 
-            var bytes = Document.Create(container => container.Page(p =>
+            void SheetPage(PageDescriptor p, Action<IContainer> content)
             {
                 p.Size(PageSizes.A4);
                 p.Margin(12, Unit.Millimetre);
@@ -53,12 +54,7 @@ namespace ExamAPI.Services.Staff
                     col.Item().Element(c => Header(c, branding.Info, 4));
                     col.Item().PaddingBottom(8).AlignCenter().Text(title).FontSize(12).SemiBold();
                 });
-                p.Content().Column(col =>
-                {
-                    col.Spacing(16);
-                    // A session stays on one page when it fits; a longer one runs on with its heading row repeated.
-                    foreach (var session in sessions) col.Item().PreventPageBreak().Element(c => SheetSessionBlock(c, session));
-                });
+                p.Content().Element(content);
                 p.Footer().PaddingTop(6).Row(row =>
                 {
                     row.ConstantItem(170).Column(sign =>
@@ -75,8 +71,24 @@ namespace ExamAPI.Services.Staff
                         t.TotalPages();
                     });
                 });
-            })).GeneratePdf();
+            }
 
+            // First pass: measure each session on the real page, so a session a little too long for one page can be
+            // drawn tighter instead of running onto a second page (owner 2026-11-13, the 17th's afternoon split in two).
+            var measure = new SheetMeasure(sessions);
+            Document.Create(container => container.Page(p => SheetPage(p, c => c.Dynamic(measure)))).GeneratePdf();
+
+            var bytes = Document.Create(container => container.Page(p => SheetPage(p, c => c.Column(col =>
+            {
+                col.Spacing(16);
+                // Each session starts on a new page when it does not fit below the previous one. A session too long
+                // even when drawn tightest runs on, with its heading row repeated.
+                for (var i = 0; i < sessions.Count; i++)
+                {
+                    var (session, density) = (sessions[i], measure.Density[i]);
+                    col.Item().PreventPageBreak().Element(c => SheetSessionBlock(c, session, density));
+                }
+            })))).GeneratePdf();
             var name = date == null ? $"{chart.Name} duty sheet.pdf" : $"{chart.Name} duty sheet {date.Value.ToString("dd-MM-yyyy", CultureInfo.InvariantCulture)}.pdf";
             return (bytes, CleanFileName(name));
         }
@@ -170,11 +182,46 @@ namespace ExamAPI.Services.Staff
                     .Select(n => $"Sem {(n < Roman.Length ? Roman[n] : n.ToString(CultureInfo.InvariantCulture))}")));
         }
 
-        private static void SheetSessionBlock(IContainer container, SheetSession session)
+        /// <summary>How tight a session too long for one page may be drawn: rows and text at 75% of normal, still signable.</summary>
+        internal const float MinSheetDensity = 0.75f;
+
+        /// <summary>
+        /// Measures every session against an empty page and keeps the largest density (1, 0.95 ... 0.75) at which it fits
+        /// on one page. A session that fits as it is, or does not fit even at the tightest, stays at 1.
+        /// </summary>
+        internal sealed class SheetMeasure(List<SheetSession> sessions) : IDynamicComponent
         {
-            container.Column(col =>
+            public float[] Density { get; } = Enumerable.Repeat(1f, sessions.Count).ToArray();
+
+            public DynamicComponentComposeResult Compose(DynamicContext context)
             {
-                col.Item().PaddingBottom(3).Row(row =>
+                var width = context.AvailableSize.Width;
+                var room = context.AvailableSize.Height - 2;
+                float Height(SheetSession s, float d) =>
+                    context.CreateElement(c => c.Width(width).Element(x => SheetSessionBlock(x, s, d))).Size.Height;
+
+                for (var i = 0; i < sessions.Count; i++)
+                {
+                    Density[i] = 1f;
+                    if (Height(sessions[i], 1f) <= room) continue;
+                    for (var step = 19; step >= (int)Math.Round(MinSheetDensity * 20); step--)
+                    {
+                        var d = step / 20f;
+                        if (Height(sessions[i], d) > room) continue;
+                        Density[i] = d;
+                        break;
+                    }
+                }
+                return new DynamicComponentComposeResult { Content = context.CreateElement(_ => { }), HasMoreContent = false };
+            }
+        }
+
+        internal static void SheetSessionBlock(IContainer container, SheetSession session, float density = 1f)
+        {
+            IContainer Cell(IContainer c) => SheetCell(c, density);
+            container.DefaultTextStyle(x => x.FontSize(10 * density)).Column(col =>
+            {
+                col.Item().PaddingBottom(3 * density).Row(row =>
                 {
                     row.RelativeItem().Text(t =>
                     {
@@ -199,27 +246,27 @@ namespace ExamAPI.Services.Staff
                     table.Header(h =>
                     {
                         foreach (var heading in new[] { "Sr. No", "Name", "Duty Allotted", "Block No", "Reporting Time", "Sign" })
-                            h.Cell().Element(SheetCell).AlignCenter().Text(heading).SemiBold();
+                            h.Cell().Element(Cell).AlignCenter().Text(heading).SemiBold();
                     });
                     var no = 1;
                     foreach (var line in session.Rows)
                     {
                         var lead = line.Role == SupervisionRoles.ChiefConductor || line.Role == SupervisionRoles.Senior;
                         var fill = lead ? LeadFill : line.Role == SupervisionRoles.NonTeaching ? NonTeachingFill : null;
-                        table.Cell().Element(SheetCell).AlignCenter().Text(no++.ToString(CultureInfo.InvariantCulture));
-                        table.Cell().Element(c => fill == null ? SheetCell(c) : SheetCell(c.Background(fill))).Text(line.Name);
-                        var duty = table.Cell().Element(SheetCell).AlignCenter().Text(line.Duty);
+                        table.Cell().Element(Cell).AlignCenter().Text(no++.ToString(CultureInfo.InvariantCulture));
+                        table.Cell().Element(c => fill == null ? Cell(c) : Cell(c.Background(fill))).Text(line.Name);
+                        var duty = table.Cell().Element(Cell).AlignCenter().Text(line.Duty);
                         if (lead) duty.Bold();
-                        table.Cell().Element(SheetCell).Text("");
-                        table.Cell().Element(SheetCell).Text("");
-                        table.Cell().Element(SheetCell).Text("");
+                        table.Cell().Element(Cell).Text("");
+                        table.Cell().Element(Cell).Text("");
+                        table.Cell().Element(Cell).Text("");
                     }
                 });
             });
         }
 
-        /// <summary>A bordered cell tall enough to sign in.</summary>
-        private static IContainer SheetCell(IContainer c) =>
-            c.Border(0.75f).BorderColor(Colors.Black).MinHeight(20).PaddingHorizontal(5).PaddingVertical(3).AlignMiddle();
+        /// <summary>A bordered cell tall enough to sign in (a little shorter for a tightened session).</summary>
+        private static IContainer SheetCell(IContainer c, float density) =>
+            c.Border(0.75f).BorderColor(Colors.Black).MinHeight(20 * density).PaddingHorizontal(5).PaddingVertical(3 * density).AlignMiddle();
     }
 }

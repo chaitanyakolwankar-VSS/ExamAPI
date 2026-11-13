@@ -8,6 +8,9 @@ using ExamAPI.Services.Tenancy;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Moq;
+using QuestPDF.Fluent;
+using QuestPDF.Helpers;
+using QuestPDF.Infrastructure;
 
 namespace ExamAPI.Tests;
 
@@ -485,5 +488,29 @@ public sealed class StaffLetterPdfTests : IDisposable
     public void The_duty_sheet_title_names_the_half_and_year_like_the_hand_made_sheet(string? half, string? year, string title)
     {
         Assert.Equal(title, StaffLetterPdfService.DutySheetTitle(half, year));
+    }
+
+    [Fact]
+    public void A_session_a_little_too_long_for_a_page_is_drawn_tighter_so_it_stays_on_one_page()
+    {
+        static StaffLetterPdfService.SheetSession Session(int people) => new(new DateTime(2026, 11, 17), false, "02:30 PM - 04:30 PM", "Sem III",
+            Enumerable.Range(1, people).Select(i => new StaffLetterPdfService.SheetRow($"Prof. Person {i}", "Junior Supervisor", SupervisionRoles.Junior)).ToList());
+        var sessions = new List<StaffLetterPdfService.SheetSession> { Session(10), Session(42), Session(90) };
+        static void Page(PageDescriptor p, Action<IContainer> content)
+        {
+            p.Size(PageSizes.A4);
+            p.Margin(12, Unit.Millimetre);
+            p.Content().Element(content);
+        }
+        static int Pages(StaffLetterPdfService.SheetSession s, float density) => Document.Create(d => d.Page(p =>
+            Page(p, c => StaffLetterPdfService.SheetSessionBlock(c, s, density)))).GenerateImages().Count();
+
+        var measure = new StaffLetterPdfService.SheetMeasure(sessions);
+        Document.Create(d => d.Page(p => Page(p, c => c.Dynamic(measure)))).GeneratePdf();
+
+        Assert.Equal(1f, measure.Density[0]);   // fits as it is
+        Assert.InRange(measure.Density[1], StaffLetterPdfService.MinSheetDensity, 0.95f);   // tightened...
+        Assert.Equal((2, 1), (Pages(sessions[1], 1f), Pages(sessions[1], measure.Density[1])));   // ...from two pages to one
+        Assert.Equal(1f, measure.Density[2]);   // too long even at the tightest: runs on at normal size
     }
 }
