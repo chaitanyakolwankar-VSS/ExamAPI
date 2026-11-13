@@ -146,40 +146,28 @@ namespace ExamAPI.Services.Staff
         }
 
         /// <summary>
-        /// The classes examined in each session of the days, from the timetables of the chart's academic year ("MCA Sem I,
-        /// Computer Engineering Sem V"): a course's short name (before any bracket) and the paper's semester.
+        /// The semesters examined in each session of the days, from the timetables of the chart's academic year ("Sem III",
+        /// or "Sem III, Sem V" when two semesters write that session). The branches are left out (owner 2026-11-13: one
+        /// session can hold every branch, which made the line too long).
         /// </summary>
         private async Task<Dictionary<(DateTime Date, bool Morning), string>> SheetClassesAsync(DutyChart chart, HashSet<DateTime> dates)
         {
             var examIds = await _context.Exams.AsNoTracking()
                 .Where(e => e.AcademicYearAYID == chart.AYID && e.RevaluationForExamId == null).Select(e => e.ExamId).ToListAsync();
             var rows = (await _context.TimeTables.AsNoTracking()
-                    .Where(t => t.ExamId != null && examIds.Contains(t.ExamId.Value) && t.Date != null && t.Date != "" && t.Time != null && t.Time != "")
-                    .Select(t => new { Date = t.Date!, Time = t.Time!, t.SubjectId, t.CourseId }).ToListAsync())
-                .Select(r => new { Date = ExamSlotOrder.Date(r.Date).Date, Morning = ExamSlotOrder.StartTime(r.Time) < TimeSpan.FromHours(12), r.SubjectId, r.CourseId })
+                    .Where(t => t.ExamId != null && examIds.Contains(t.ExamId.Value) && t.SubjectId != null && t.Date != null && t.Date != "" && t.Time != null && t.Time != "")
+                    .Select(t => new { Date = t.Date!, Time = t.Time!, SubjectId = t.SubjectId!.Value }).ToListAsync())
+                .Select(r => new { Date = ExamSlotOrder.Date(r.Date).Date, Morning = ExamSlotOrder.StartTime(r.Time) < TimeSpan.FromHours(12), r.SubjectId })
                 .Where(r => dates.Contains(r.Date)).ToList();
             if (rows.Count == 0) return new();
 
-            var subjectIds = rows.Where(r => r.SubjectId != null).Select(r => r.SubjectId!.Value).Distinct().ToList();
-            var subjects = await _context.SubjectMasters.AsNoTracking().Where(s => subjectIds.Contains(s.SubjectId))
-                .ToDictionaryAsync(s => s.SubjectId, s => new { s.SemId, s.CourseId });
-            var courseIds = rows.Select(r => r.CourseId).Concat(subjects.Values.Select(s => s.CourseId)).Where(c => c != null).Select(c => c!.Value).Distinct().ToList();
-            var courses = await _context.CourseMasters.AsNoTracking().Where(c => courseIds.Contains(c.CourseId)).ToDictionaryAsync(c => c.CourseId, c => c.Name);
+            var subjectIds = rows.Select(r => r.SubjectId).Distinct().ToList();
+            var semesters = await _context.SubjectMasters.AsNoTracking().Where(s => subjectIds.Contains(s.SubjectId))
+                .ToDictionaryAsync(s => s.SubjectId, s => SemesterNumber(s.SemId));
 
-            string? Label(Guid? subjectId, Guid? courseId)
-            {
-                var subject = subjectId != null ? subjects.GetValueOrDefault(subjectId.Value) : null;
-                var course = subject?.CourseId ?? courseId;
-                var name = course != null ? courses.GetValueOrDefault(course.Value) : null;
-                if (string.IsNullOrWhiteSpace(name)) return null;
-                var bracket = name.IndexOf('(');
-                var shortName = (bracket > 0 ? name[..bracket] : name).Trim();
-                var n = SemesterNumber(subject?.SemId);
-                return n is > 0 ? $"{shortName} Sem {(n < Roman.Length ? Roman[n.Value] : n.Value.ToString(CultureInfo.InvariantCulture))}" : shortName;
-            }
-
-            return rows.GroupBy(r => (r.Date, r.Morning))
-                .ToDictionary(g => g.Key, g => string.Join(", ", g.Select(r => Label(r.SubjectId, r.CourseId)).Where(l => l != null).Distinct().OrderBy(l => l, StringComparer.OrdinalIgnoreCase)));
+            return rows.GroupBy(r => (r.Date, r.Morning)).ToDictionary(g => g.Key, g => string.Join(", ",
+                g.Select(r => semesters.GetValueOrDefault(r.SubjectId)).Where(n => n is > 0).Select(n => n!.Value).Distinct().Order()
+                    .Select(n => $"Sem {(n < Roman.Length ? Roman[n] : n.ToString(CultureInfo.InvariantCulture))}")));
         }
 
         private static void SheetSessionBlock(IContainer container, SheetSession session)

@@ -446,7 +446,7 @@ public sealed class StaffLetterPdfTests : IDisposable
             sessions[0].Rows.Select(r => (r.Name, r.Duty)));
         Assert.Equal(new[] { "Dr. Archana Ingle", "Prof. Asha Patil" }, sessions[1].Rows.Select(r => r.Name));   // both sessions: on both tables
         Assert.Equal(new[] { "Prof. Asha Patil" }, sessions[2].Rows.Select(r => r.Name));   // other work is not on the sheet
-        Assert.Equal(("10:30 AM - 1:30 PM", "Computer Engineering Sem VI"), (sessions[0].Time, sessions[0].Classes));   // the timetable's class
+        Assert.Equal(("10:30 AM - 1:30 PM", "Sem VI"), (sessions[0].Time, sessions[0].Classes));   // the timetable's semester, no branch
         Assert.Equal("", sessions[1].Classes);
     }
 
