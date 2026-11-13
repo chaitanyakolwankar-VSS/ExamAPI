@@ -17,5 +17,11 @@ namespace ExamAPI.Services.Staff
 
         /// <summary>Every live supervision letter of a duty chart in one PDF, one letter per page, in letter-number order.</summary>
         Task<(byte[] Bytes, string FileName)> ChartAsync(Guid dutyChartId);
+
+        /// <summary>
+        /// The daily duty sheet of a duty chart (every day, or only <paramref name="date"/>): one table per session of who is
+        /// on duty, to print and sign. Throws KeyNotFoundException when the chart is missing or nobody is on duty.
+        /// </summary>
+        Task<(byte[] Bytes, string FileName)> DutySheetAsync(Guid dutyChartId, DateTime? date);
     }
 }

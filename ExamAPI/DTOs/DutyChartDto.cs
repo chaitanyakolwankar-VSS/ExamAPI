@@ -120,6 +120,52 @@ namespace ExamAPI.DTOs
         public List<DutyChartEntryDto> Entries { get; set; } = new();
     }
 
+    /// <summary>
+    /// Fill automatically: how many people of each role every session needs and, optionally, who may take that role. The
+    /// chart as it is on the screen (saved or not) comes along; nothing is saved, the answer goes back onto the screen.
+    /// </summary>
+    public class DutyAutoFillRequest
+    {
+        /// <summary>The people on the chart (step 2), in order. Only they are given duties.</summary>
+        public List<Guid> Members { get; set; } = new();
+        /// <summary>The chart's entries on the screen now.</summary>
+        public List<DutyChartEntryDto> Entries { get; set; } = new();
+        public List<DutyAutoFillRole> Roles { get; set; } = new();
+        /// <summary>The most sessions one person is given in the whole exam period (both sessions of a day count 2); null = no limit.</summary>
+        public int? MaxPerPerson { get; set; }
+        /// <summary>At most one session a day per person.</summary>
+        public bool OneSessionPerDay { get; set; } = true;
+        /// <summary>Keep the duties already marked and fill only what is missing; false = start again (other work is always kept).</summary>
+        public bool KeepMarked { get; set; } = true;
+        /// <summary>The random draw; the same seed gives the same plan. Null = a new draw.</summary>
+        public int? Seed { get; set; }
+    }
+
+    public class DutyAutoFillRole
+    {
+        /// <summary>One of the supervision roles.</summary>
+        public string Role { get; set; } = "";
+        /// <summary>How many of this role every session needs.</summary>
+        public int PerSession { get; set; }
+        /// <summary>Who takes this role (and no other role). Empty = drawn from the people not picked for any role.</summary>
+        public List<Guid> People { get; set; } = new();
+    }
+
+    public class DutyAutoFillResult
+    {
+        /// <summary>The whole chart after filling: the kept entries and the new duties.</summary>
+        public List<DutyChartEntryDto> Entries { get; set; } = new();
+        /// <summary>How many sessions the exam period has, and how many places were wanted and filled by this fill.</summary>
+        public int Sessions { get; set; }
+        public int Wanted { get; set; }
+        public int Filled { get; set; }
+        /// <summary>Fewest and most sessions of the people given duties by this fill (whole period, all roles).</summary>
+        public int? Fewest { get; set; }
+        public int? Most { get; set; }
+        /// <summary>Sessions that could not be filled: "Mon 02-11-2026 morning: 6 of 8 Junior Supervisor".</summary>
+        public List<string> Short { get; set; } = new();
+    }
+
     public class DutyChartSaveResult
     {
         public int Created { get; set; }

@@ -384,4 +384,106 @@ public sealed class StaffLetterPdfTests : IDisposable
         _context.SaveChanges();
         Assert.Equal(10, (await _service.BrandingAsync(_college)).Guidelines.Count);   // at most ten
     }
+
+    // ------------------------------------------------------------------ daily duty sheet
+
+    /// <summary>A day of the chart with its times, a member and a duty entry.</summary>
+    private void SheetDay(string iso, string? morning = "10:30 AM - 1:30 PM", string? afternoon = "2:30 PM - 5:30 PM") =>
+        _context.DutyChartDays.Add(new DutyChartDay
+        {
+            Id = Guid.NewGuid(), CollegeId = _college, ChartId = _chart.Id, Date = DateTime.Parse(iso, System.Globalization.CultureInfo.InvariantCulture),
+            Morning = morning, Afternoon = afternoon
+        });
+
+    private void SheetDuty(StaffMaster person, string iso, string session, string role, int order)
+    {
+        if (!_context.DutyChartMembers.Local.Any(m => m.StaffId == person.StaffId))
+            _context.DutyChartMembers.Add(new DutyChartMember { Id = Guid.NewGuid(), CollegeId = _college, ChartId = _chart.Id, StaffId = person.StaffId, SortOrder = order });
+        _context.DutyChartEntries.Add(new DutyChartEntry
+        {
+            Id = Guid.NewGuid(), CollegeId = _college, ChartId = _chart.Id, StaffId = person.StaffId,
+            Date = DateTime.Parse(iso, System.Globalization.CultureInfo.InvariantCulture), Kind = DutyKinds.Duty, Session = session, Role = role
+        });
+    }
+
+    /// <summary>Two days: a chief conductor on both sessions, a junior, a peon (non-teaching, designation "Peon"), and other work (not on the sheet).</summary>
+    private (StaffMaster Chief, StaffMaster Peon) SheetChart()
+    {
+        var peonDesignation = new StaffOption { Id = Guid.NewGuid(), CollegeId = _college, Kind = StaffOptionKinds.Designation, Name = "Peon" };
+        _context.StaffOptions.Add(peonDesignation);
+        var chief = Person("Dr.", "Archana", "Ingle", false, null);
+        var peon = Person("Mr.", "Sunil", "Patil", false, peonDesignation.Id);
+        peon.IsTeaching = false;
+        SheetDay("2026-11-02");
+        SheetDay("2026-11-03", afternoon: null);
+        SheetDuty(peon, "2026-11-02", DutySessions.Morning, SupervisionRoles.NonTeaching, 0);   // first on the chart, still printed last
+        SheetDuty(_asha, "2026-11-02", DutySessions.Both, SupervisionRoles.Junior, 1);
+        SheetDuty(chief, "2026-11-02", DutySessions.Both, SupervisionRoles.ChiefConductor, 2);
+        SheetDuty(_asha, "2026-11-03", DutySessions.Morning, SupervisionRoles.Junior, 1);
+        _context.DutyChartEntries.Add(new DutyChartEntry
+        {
+            Id = Guid.NewGuid(), CollegeId = _college, ChartId = _chart.Id, StaffId = chief.StaffId, Date = new DateTime(2026, 11, 3), Kind = DutyKinds.Other, Note = "Exam cell"
+        });
+        _context.TimeTables.Add(new TimeTableMaster
+        {
+            Id = Guid.NewGuid(), CollegeId = _college, ExamId = _exam.ExamId, CourseId = _subject.CourseId, SubjectId = _subject.SubjectId,
+            Date = "02-11-2026", Time = "10:30 AM - 1:30 PM"
+        });
+        _context.SaveChanges();
+        return (chief, peon);
+    }
+
+    [Fact]
+    public async Task The_duty_sheet_lists_each_session_in_role_order_with_a_peons_designation()
+    {
+        SheetChart();
+
+        var sessions = await _service.DutySheetSessionsAsync(_chart, null);
+
+        Assert.Equal(new[] { ("2026-11-02", true), ("2026-11-02", false), ("2026-11-03", true) },
+            sessions.Select(s => (s.Date.ToString("yyyy-MM-dd"), s.Morning)));   // no afternoon on the 3rd: nobody on it
+        Assert.Equal(new[] { ("Dr. Archana Ingle", "Chief Conductor"), ("Prof. Asha Patil", "Junior Supervisor"), ("Mr. Sunil Patil", "Peon") },
+            sessions[0].Rows.Select(r => (r.Name, r.Duty)));
+        Assert.Equal(new[] { "Dr. Archana Ingle", "Prof. Asha Patil" }, sessions[1].Rows.Select(r => r.Name));   // both sessions: on both tables
+        Assert.Equal(new[] { "Prof. Asha Patil" }, sessions[2].Rows.Select(r => r.Name));   // other work is not on the sheet
+        Assert.Equal(("10:30 AM - 1:30 PM", "Computer Engineering Sem VI"), (sessions[0].Time, sessions[0].Classes));   // the timetable's class
+        Assert.Equal("", sessions[1].Classes);
+    }
+
+    [Fact]
+    public async Task The_duty_sheet_can_be_one_day_and_makes_a_pdf()
+    {
+        SheetChart();
+
+        var day = await _service.DutySheetSessionsAsync(_chart, new DateTime(2026, 11, 3));
+        Assert.Equal(new[] { true }, day.Select(s => s.Morning));
+
+        var (all, name) = await _service.DutySheetAsync(_chart.Id, null);
+        AssertPdf(all);
+        Assert.Equal("Nov-Dec 2026 End-Semester duty sheet.pdf", name);
+        var (one, oneName) = await _service.DutySheetAsync(_chart.Id, new DateTime(2026, 11, 3));
+        AssertPdf(one);
+        Assert.Equal("Nov-Dec 2026 End-Semester duty sheet 03-11-2026.pdf", oneName);
+    }
+
+    [Fact]
+    public async Task A_duty_sheet_with_nobody_on_duty_is_not_found()
+    {
+        SheetDay("2026-11-02");
+        _context.SaveChanges();
+
+        var ex = await Assert.ThrowsAsync<KeyNotFoundException>(() => _service.DutySheetAsync(_chart.Id, null));
+        Assert.Contains("Nobody is on duty", ex.Message);
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => _service.DutySheetAsync(Guid.NewGuid(), null));
+    }
+
+    [Theory]
+    [InlineData("First Half", "2026-27", "Examination Daily Duty Report FH2026")]
+    [InlineData("Second Half", "2025-2026", "Examination Daily Duty Report SH2025")]
+    [InlineData("", "01/June/2026-31/May/2027", "Examination Daily Duty Report 2026")]
+    [InlineData(null, null, "Examination Daily Duty Report")]
+    public void The_duty_sheet_title_names_the_half_and_year_like_the_hand_made_sheet(string? half, string? year, string title)
+    {
+        Assert.Equal(title, StaffLetterPdfService.DutySheetTitle(half, year));
+    }
 }

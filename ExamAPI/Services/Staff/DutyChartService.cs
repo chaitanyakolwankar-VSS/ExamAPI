@@ -23,6 +23,8 @@ namespace ExamAPI.Services.Staff
         Task<DutyChartSaveResult> SaveEntriesAsync(Guid id, DutyChartEntriesSave dto);
         Task<(byte[] Bytes, string FileName)> ExcelAsync(Guid id);
         Task<StaffImportResult> ImportAsync(Guid id, DutyChartImportRequest request);
+        /// <summary>Fills the chart on the screen automatically; saves nothing.</summary>
+        Task<DutyAutoFillResult> AutoFillAsync(Guid id, DutyAutoFillRequest request);
     }
 
     /// <summary>
@@ -31,7 +33,7 @@ namespace ExamAPI.Services.Staff
     /// person with at least one duty gets one numbered supervision letter that follows the chart. A letter number is
     /// never reused, even when the letter is cancelled.
     /// </summary>
-    public class DutyChartService : IDutyChartService
+    public partial class DutyChartService : IDutyChartService
     {
         private const string LetterDateFormat = "yyyy-MM-dd";
         private const string DayTextFormat = "dd-MM-yyyy";

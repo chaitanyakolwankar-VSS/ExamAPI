@@ -1430,4 +1430,62 @@ public sealed class DutyChartTests
         Assert.Null(code);
         Assert.Contains("cannot read", error);
     }
+
+    // ------------------------------------------------------------------ fill automatically
+
+    [Fact]
+    public async Task Fill_automatically_returns_the_filled_chart_and_saves_nothing()
+    {
+        var chart = await NewChart();
+        var id = chart.Chart.Id;
+        await SaveWith(id, null, Everyone);
+
+        var result = await _service.AutoFillAsync(id, new DutyAutoFillRequest
+        {
+            Members = Everyone.ToList(),
+            Roles = new()
+            {
+                new() { Role = SupervisionRoles.Senior, PerSession = 1, People = new() { _ravi.StaffId } },
+                new() { Role = "junior supervisor", PerSession = 1 }
+            }
+        });
+
+        Assert.Equal(4, result.Sessions);   // the sessions with a time on the chart's 3 days
+        Assert.Equal(8, result.Wanted);     // 1 senior + 1 junior each
+        Assert.All(result.Entries.Where(e => e.StaffId == _ravi.StaffId), e => Assert.Equal(SupervisionRoles.Senior, e.Role));
+        Assert.All(result.Entries.Where(e => e.StaffId != _ravi.StaffId), e => Assert.Equal(SupervisionRoles.Junior, e.Role));
+        Assert.DoesNotContain(result.Entries, e => e.StaffId == _om.StaffId);   // non-teaching: no supervisor role
+        Assert.Empty(await _context.DutyChartEntries.Where(e => e.ChartId == id).ToListAsync());   // nothing saved
+    }
+
+    [Fact]
+    public async Task Fill_automatically_refuses_a_person_in_two_roles_an_unknown_role_and_nothing_asked()
+    {
+        var chart = await NewChart();
+        var id = chart.Chart.Id;
+        await SaveWith(id, null, Everyone);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => _service.AutoFillAsync(id, new DutyAutoFillRequest
+        {
+            Members = Everyone.ToList(),
+            Roles = new()
+            {
+                new() { Role = SupervisionRoles.Senior, PerSession = 1, People = new() { _ravi.StaffId } },
+                new() { Role = SupervisionRoles.Junior, PerSession = 1, People = new() { _ravi.StaffId } },
+                new() { Role = "Captain", PerSession = 1 }
+            },
+            MaxPerPerson = 0
+        }));
+        Assert.Contains("is picked for Senior Supervisor and Junior Supervisor", ex.Message);
+        Assert.Contains("\"Captain\" is not a supervision role", ex.Message);
+        Assert.Contains("must be 1 or more", ex.Message);
+
+        var none = await Assert.ThrowsAsync<InvalidOperationException>(() => _service.AutoFillAsync(id, new DutyAutoFillRequest
+        {
+            Members = Everyone.ToList(),
+            Roles = new() { new() { Role = SupervisionRoles.Junior, PerSession = 0 } }
+        }));
+        Assert.Contains("at least one role", none.Message);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _service.AutoFillAsync(id, new DutyAutoFillRequest { Roles = new() { new() { Role = SupervisionRoles.Junior, PerSession = 1 } } }));
+    }
 }

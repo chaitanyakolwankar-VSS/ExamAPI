@@ -19,7 +19,7 @@ namespace ExamAPI.Services.Staff
     /// moderator appointment letter. Only reads; the letters print what was written when they were saved (name, chart or
     /// exam title, half, duty lines), plus the current designation, department, subject and branch.
     /// </summary>
-    public class StaffLetterPdfService : IStaffLetterPdfService
+    public partial class StaffLetterPdfService : IStaffLetterPdfService
     {
         private const float Margin = 15;   // mm
         private const float BodySize = 11;

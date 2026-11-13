@@ -52,6 +52,10 @@ namespace ExamAPI.Controllers
         [HttpPut("{id:guid}/entries")]
         public Task<IActionResult> SaveEntries(Guid id, [FromBody] DutyChartEntriesSave dto) => Answer(() => _service.SaveEntriesAsync(id, dto));
 
+        /// <summary>Fill automatically: the chart on the screen with the open places shared out. Saves nothing.</summary>
+        [HttpPost("{id:guid}/autofill")]
+        public Task<IActionResult> AutoFill(Guid id, [FromBody] DutyAutoFillRequest request) => Answer(() => _service.AutoFillAsync(id, request));
+
         /// <summary>The chart as a sheet with its people (a blank template when nobody is on it): download, fill in, upload.</summary>
         [HttpGet("{id:guid}/excel")]
         public async Task<IActionResult> Excel(Guid id)
@@ -83,6 +87,32 @@ namespace ExamAPI.Controllers
             try
             {
                 var (bytes, fileName) = await _pdf.ChartAsync(id);
+                return File(bytes, "application/pdf", fileName);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = SafeError.Message(ex) });
+            }
+        }
+
+        /// <summary>The daily duty sheet to print and sign: every day of the chart, or one day (date=yyyy-MM-dd).</summary>
+        [HttpGet("{id:guid}/duty-sheet")]
+        public async Task<IActionResult> DutySheet(Guid id, [FromQuery] string? date)
+        {
+            DateTime? day = null;
+            if (!string.IsNullOrWhiteSpace(date))
+            {
+                if (!DateTime.TryParseExact(date, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var parsed))
+                    return BadRequest(new { message = "The date must be yyyy-MM-dd." });
+                day = parsed.Date;
+            }
+            try
+            {
+                var (bytes, fileName) = await _pdf.DutySheetAsync(id, day);
                 return File(bytes, "application/pdf", fileName);
             }
             catch (KeyNotFoundException ex)
