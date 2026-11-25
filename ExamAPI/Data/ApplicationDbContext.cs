@@ -221,6 +221,15 @@ namespace ExamAPI.Data
                 .IsUnique()
                 .HasFilter("[IsDeleted] = 0");
 
+            // Staff Billing Claim indexes
+            modelBuilder.Entity<StaffBillingClaim>()
+                .HasIndex(c => c.Token)
+                .IsUnique()
+                .HasFilter("[Token] IS NOT NULL AND [Token] <> ''");
+
+            modelBuilder.Entity<StaffBillingClaim>()
+                .HasIndex(c => new { c.DutyChartId, c.StaffId });
+
             // Configure Decimal Precision for Grades 
             modelBuilder.Entity<RuleAction>()
                 .Property(p => p.Param1Value)

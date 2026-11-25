@@ -45,18 +45,20 @@ namespace ExamAPI.Services.Billing
         Task<List<BillingPriceSet>> GetPriceSetsAsync();
         Task<BillingPriceSet> SavePriceSetAsync(BillingPriceSet priceSet);
         Task<bool> DeletePriceSetAsync(Guid id);
-        Task<List<StaffBillingClaim>> GetClaimsAsync(Guid? dutyChartId = null, string? status = null, string? roleType = null);
+        Task<List<StaffBillingClaim>> GetClaimsAsync(Guid? dutyChartId = null, string? status = null, string? roleType = null, Guid? ayid = null, Guid? collegeId = null);
         Task<StaffBillingClaim?> GetClaimByIdAsync(Guid id);
         Task<StaffBillingClaim?> GetClaimByTokenAsync(string token);
         Task<StaffBillingClaim> SubmitClaimAsync(string token, StaffBillingClaim claimUpdate, List<StaffBillItem> items);
         Task<StaffBillingClaim> UpdateClaimByAdminAsync(Guid? id, string? token, StaffBillingClaim claimUpdate, List<StaffBillItem> items);
         Task<StaffBillingClaim> ApproveClaimAsync(string idOrToken, string approvedBy, string? appUrl = null);
         Task<StaffBillingClaim> ApproveClaimAsync(Guid id, string approvedBy, string? appUrl = null);
+        Task<string> GetNextUniqueBillNoAsync(string type, Guid? collegeId = null);
         Task<List<StaffBillingClaim>> SyncFromDutyChartAsync(Guid dutyChartId);
         Task<List<StaffBillingClaim>> SaveClaimsAsync(List<StaffBillingClaim> claims);
 
         // Email dispatch & OTP verification
         Task<ClaimEmailResult> SendClaimEmailAsync(Guid? claimId, string? token, string appUrl, string? email = null, string? staffName = null, string? roleType = null, string? sessionName = null, Guid? staffId = null, Guid? dutyChartId = null, Guid? collegeId = null);
+        Task<ClaimEmailResult> SendApprovedBillEmailAsync(Guid? claimId, string? token, string appUrl, string? overrideEmail = null);
         Task<ClaimEmailResult> SendBatchClaimEmailsAsync(List<string> claimIdsOrTokens, string appUrl);
         Task<ClaimEmailResult> SendBatchClaimEmailsAsync(List<Guid> claimIds, string appUrl);
         Task<ClaimPortalInfo> OpenClaimPortalAsync(string token);

@@ -7,20 +7,23 @@ using System.Text.Json.Serialization;
 
 namespace ExamAPI.Controllers
 {
+    [Authorize]
     [Route("api/[controller]")]
     [ApiController]
     public class BillingController : ControllerBase
     {
         private readonly IBillingService _service;
+        private readonly ILogger<BillingController> _logger;
         private static readonly JsonSerializerOptions ClaimJsonOptions =
             new(JsonSerializerDefaults.Web)
             {
                 ReferenceHandler = ReferenceHandler.IgnoreCycles
             };
 
-        public BillingController(IBillingService service)
+        public BillingController(IBillingService service, ILogger<BillingController> logger)
         {
             _service = service;
+            _logger = logger;
         }
 
         private ContentResult JsonWithoutCycles(object value) =>
@@ -118,6 +121,12 @@ namespace ExamAPI.Controllers
             public string? AppUrl { get; set; }
         }
 
+        public class SendApprovedBillEmailRequest
+        {
+            public string? Email { get; set; }
+            public string? AppUrl { get; set; }
+        }
+
         public class VerifyOtpRequest
         {
             public string? Code { get; set; }
@@ -144,7 +153,9 @@ namespace ExamAPI.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest(new { message = ex.Message });
+                var fullMsg = GetFullException(ex);
+                _logger.LogError(ex, "Billing: send-claim-email failed: {Message}", fullMsg);
+                return BadRequest(new { message = fullMsg });
             }
         }
 
@@ -158,7 +169,9 @@ namespace ExamAPI.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest(new { message = ex.Message });
+                var fullMsg = GetFullException(ex);
+                _logger.LogError(ex, "Billing: send-claim-email failed: {Message}", fullMsg);
+                return BadRequest(new { message = fullMsg });
             }
         }
 
@@ -172,7 +185,9 @@ namespace ExamAPI.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest(new { message = ex.Message });
+                var fullMsg = GetFullException(ex);
+                _logger.LogError(ex, "Billing: send-claim-email failed: {Message}", fullMsg);
+                return BadRequest(new { message = fullMsg });
             }
         }
 
@@ -195,17 +210,19 @@ namespace ExamAPI.Controllers
         //}
 
         [HttpGet("claims")]
-        public async Task<IActionResult> GetClaims([FromQuery] Guid? dutyChartId, [FromQuery] string? status, [FromQuery] string? roleType)
+        public async Task<IActionResult> GetClaims([FromQuery] Guid? dutyChartId, [FromQuery] string? status, [FromQuery] string? roleType, [FromQuery] Guid? ayid, [FromQuery] Guid? collegeId)
         {
             try
             {
-                var claims = await _service.GetClaimsAsync(dutyChartId, status, roleType);
+                var claims = await _service.GetClaimsAsync(dutyChartId, status, roleType, ayid, collegeId);
 
                 return JsonWithoutCycles(claims);
             }
             catch (Exception ex)
             {
-                return BadRequest(new { message = ex.Message });
+                var fullMsg = GetFullException(ex);
+                _logger.LogError(ex, "Billing: send-claim-email failed: {Message}", fullMsg);
+                return BadRequest(new { message = fullMsg });
             }
         }
 
@@ -220,7 +237,9 @@ namespace ExamAPI.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest(new { message = ex.Message });
+                var fullMsg = GetFullException(ex);
+                _logger.LogError(ex, "Billing: send-claim-email failed: {Message}", fullMsg);
+                return BadRequest(new { message = fullMsg });
             }
         }
 
@@ -239,7 +258,9 @@ namespace ExamAPI.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest(new { message = ex.Message });
+                var fullMsg = GetFullException(ex);
+                _logger.LogError(ex, "Billing: send-claim-email failed: {Message}", fullMsg);
+                return BadRequest(new { message = fullMsg });
             }
         }
 
@@ -264,7 +285,9 @@ namespace ExamAPI.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest(new { message = ex.Message });
+                var fullMsg = GetFullException(ex);
+                _logger.LogError(ex, "Billing: send-claim-email failed: {Message}", fullMsg);
+                return BadRequest(new { message = fullMsg });
             }
         }
 
@@ -272,6 +295,11 @@ namespace ExamAPI.Controllers
         [HttpPost("claims/save-batch")]
         public async Task<IActionResult> SaveClaims([FromBody] List<StaffBillingClaim> claims)
         {
+            if (claims == null || claims.Count == 0)
+            {
+                return Ok(new List<StaffBillingClaim>());
+            }
+
             try
             {
                 var saved = await _service.SaveClaimsAsync(claims);
@@ -279,7 +307,8 @@ namespace ExamAPI.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest(new { message = ex.Message });
+                _logger.LogError(ex, "Failed to save claims batch: {Message}. Inner: {Inner}", ex.Message, ex.InnerException?.Message);
+                return BadRequest(new { message = ex.Message, inner = ex.InnerException?.Message });
             }
         }
 
@@ -302,7 +331,23 @@ namespace ExamAPI.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest(new { message = ex.Message });
+                var fullMsg = GetFullException(ex);
+                _logger.LogError(ex, "Billing: send-claim-email failed: {Message}", fullMsg);
+                return BadRequest(new { message = fullMsg });
+            }
+        }
+
+        [HttpGet("next-bill-no")]
+        public async Task<IActionResult> GetNextBillNo([FromQuery] string? type = "STAFF", [FromQuery] Guid? collegeId = null)
+        {
+            try
+            {
+                var nextNo = await _service.GetNextUniqueBillNoAsync(type ?? "STAFF", collegeId);
+                return Ok(new { billNo = nextNo });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = GetFullException(ex) });
             }
         }
 
@@ -324,7 +369,9 @@ namespace ExamAPI.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest(new { message = ex.Message });
+                var fullMsg = GetFullException(ex);
+                _logger.LogError(ex, "Billing: send-claim-email failed: {Message}", fullMsg);
+                return BadRequest(new { message = fullMsg });
             }
         }
 
@@ -342,7 +389,9 @@ namespace ExamAPI.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest(new { message = ex.Message });
+                var fullMsg = GetFullException(ex);
+                _logger.LogError(ex, "Billing: send-claim-email failed: {Message}", fullMsg);
+                return BadRequest(new { message = fullMsg });
             }
         }
 
@@ -381,7 +430,35 @@ namespace ExamAPI.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest(new { message = ex.Message });
+                var fullMsg = GetFullException(ex);
+                _logger.LogError(ex, "Billing: send-claim-email failed: {Message}", fullMsg);
+                return BadRequest(new { message = fullMsg });
+            }
+        }
+
+        [HttpPost("claims/{id}/send-approved-email")]
+        public async Task<IActionResult> SendApprovedBillEmail(
+            string id,
+            [FromBody] SendApprovedBillEmailRequest? body = null,
+            [FromQuery] string? email = null,
+            [FromQuery] string? appUrl = null)
+        {
+            try
+            {
+                var targetEmail = !string.IsNullOrWhiteSpace(body?.Email) ? body.Email : email;
+                var rawUrl = !string.IsNullOrWhiteSpace(body?.AppUrl) ? body.AppUrl : appUrl;
+                var resolvedUrl = string.IsNullOrWhiteSpace(rawUrl)
+                    ? $"{Request.Scheme}://{Request.Host}"
+                    : rawUrl;
+                Guid? guidId = Guid.TryParse(id, out var gid) ? gid : null;
+                var result = await _service.SendApprovedBillEmailAsync(guidId, id, resolvedUrl, targetEmail);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                var fullMsg = GetFullException(ex);
+                _logger.LogError(ex, "Billing: send-claim-email failed: {Message}", fullMsg);
+                return BadRequest(new { message = fullMsg });
             }
         }
 
@@ -398,7 +475,9 @@ namespace ExamAPI.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest(new { message = ex.Message });
+                var fullMsg = GetFullException(ex);
+                _logger.LogError(ex, "Billing: send-claim-email failed: {Message}", fullMsg);
+                return BadRequest(new { message = fullMsg });
             }
         }
 
@@ -413,7 +492,9 @@ namespace ExamAPI.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest(new { message = ex.Message });
+                var fullMsg = GetFullException(ex);
+                _logger.LogError(ex, "Billing: send-claim-email failed: {Message}", fullMsg);
+                return BadRequest(new { message = fullMsg });
             }
         }
 
@@ -428,7 +509,9 @@ namespace ExamAPI.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest(new { message = ex.Message });
+                var fullMsg = GetFullException(ex);
+                _logger.LogError(ex, "Billing: send-claim-email failed: {Message}", fullMsg);
+                return BadRequest(new { message = fullMsg });
             }
         }
 
@@ -443,7 +526,9 @@ namespace ExamAPI.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest(new { message = ex.Message });
+                var fullMsg = GetFullException(ex);
+                _logger.LogError(ex, "Billing: send-claim-email failed: {Message}", fullMsg);
+                return BadRequest(new { message = fullMsg });
             }
         }
         [HttpPost("claims/stop")]
@@ -463,8 +548,23 @@ namespace ExamAPI.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest(new { message = ex.Message });
+                var fullMsg = GetFullException(ex);
+                _logger.LogError(ex, "Billing: stop-claims failed: {Message}", fullMsg);
+                return BadRequest(new { message = fullMsg });
             }
+        }
+
+        private static string GetFullException(Exception ex)
+        {
+            var sb = new System.Text.StringBuilder();
+            var cur = ex;
+            while (cur != null)
+            {
+                if (sb.Length > 0) sb.Append(" --> ");
+                sb.Append(cur.Message);
+                cur = cur.InnerException;
+            }
+            return sb.ToString();
         }
     }
 }

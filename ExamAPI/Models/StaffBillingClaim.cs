@@ -22,6 +22,8 @@ namespace ExamAPI.Models
         public Guid? DutyChartId { get; set; }
         public Guid? StaffId { get; set; }
         public Guid? PriceSetId { get; set; }
+        [NotMapped]
+        public string? PriceSetName { get; set; }
         public Guid? AYID { get; set; }
 
         [MaxLength(150)]
