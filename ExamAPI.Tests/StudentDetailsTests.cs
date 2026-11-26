@@ -220,7 +220,7 @@ public sealed class StudentDetailsTests : IDisposable
     private sealed class FakeEmail : IEmailService
     {
         public List<(string To, string Body)> Sent { get; } = new();
-        public Task SendEmailAsync(string toEmail, string subject, string body)
+        public Task SendEmailAsync(string toEmail, string subject, string body, Guid? collegeId = null)
         {
             Sent.Add((toEmail, body));
             return Task.CompletedTask;

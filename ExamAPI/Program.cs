@@ -46,6 +46,7 @@ builder.Services.AddSingleton<ExamAPI.Services.Files.IFileStorage>(sp =>
 });
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<ExamAPI.Services.Auth.IAuthService, ExamAPI.Services.Auth.AuthService>();
+builder.Services.AddScoped<ExamAPI.Services.Billing.IBillingService, ExamAPI.Services.Billing.BillingService>();
 builder.Services.AddScoped<ExamAPI.Services.Common.IGenericRepository, ExamAPI.Services.Common.GenericRepository>();
 builder.Services.AddScoped<ExamAPI.Services.Common.IAcademicYearService, ExamAPI.Services.Common.AcademicYearService>();
 builder.Services.AddScoped<ExamAPI.Services.Ordinance.IOrdinanceService, ExamAPI.Services.Ordinance.OrdinanceService>(); 
