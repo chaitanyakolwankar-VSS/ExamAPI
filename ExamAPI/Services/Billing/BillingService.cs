@@ -55,6 +55,20 @@ namespace ExamAPI.Services.Billing
             claim.OtpVerifiedAt.HasValue &&
             claim.OtpVerifiedAt.Value > DateTime.UtcNow.Subtract(OtpSessionLifetime);
 
+        /// <summary>A claim link token: 128 random bits (was 48 bits of a Guid).</summary>
+        private static string NewClaimToken() => "clm_" + Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+
+        /// <summary>
+        /// The rate set a claim is paid from: its own set, else its college's default, else any set of its college.
+        /// Never another college's set, also on the anonymous claim pages (which run without a college).
+        /// </summary>
+        private async Task<BillingPriceSet?> ClaimPriceSetAsync(StaffBillingClaim claim)
+        {
+            var sets = await _context.BillingPriceSets.IgnoreQueryFilters()
+                .Where(s => s.CollegeId == claim.CollegeId && !s.IsDeleted).ToListAsync();
+            return sets.FirstOrDefault(s => s.Id == claim.PriceSetId) ?? sets.FirstOrDefault(s => s.IsDefault) ?? sets.FirstOrDefault();
+        }
+
         private static string BillingAppUrl(string? appUrl, string fallback = "http://localhost:5173")
         {
             var baseUrl = string.IsNullOrWhiteSpace(appUrl) ? fallback : appUrl.Trim();
@@ -153,11 +167,15 @@ namespace ExamAPI.Services.Billing
 
         private async Task PopulatePriceSetInfoAsync(IEnumerable<StaffBillingClaim> claims)
         {
-            var priceSets = await _context.BillingPriceSets.ToListAsync();
-            if (priceSets.Count == 0) return;
+            // Each claim matches only its own college's sets (the anonymous claim pages run without a college filter).
+            var collegeIds = claims.Select(c => c.CollegeId).Distinct().ToList();
+            var allSets = await _context.BillingPriceSets.IgnoreQueryFilters()
+                .Where(s => collegeIds.Contains(s.CollegeId) && !s.IsDeleted).ToListAsync();
+            if (allSets.Count == 0) return;
 
             foreach (var claim in claims)
             {
+                var priceSets = allSets.Where(s => s.CollegeId == claim.CollegeId).ToList();
                 BillingPriceSet? matched = null;
                 if (claim.PriceSetId.HasValue)
                 {
@@ -243,10 +261,11 @@ namespace ExamAPI.Services.Billing
                 .AsQueryable();
 
             // Multi-tenancy guard: Ensure claims are strictly scoped to the caller's college organization
-            var effectiveCollegeId = collegeId ?? _context.CurrentCollegeId;
+            // A college user always sees their own college; only the platform admin may pick one.
+            var effectiveCollegeId = _context.CurrentCollegeId ?? collegeId;
             if (effectiveCollegeId.HasValue)
             {
-                query = query.Where(c => c.CollegeId == effectiveCollegeId.Value || c.CollegeId == null);
+                query = query.Where(c => c.CollegeId == effectiveCollegeId.Value);
             }
 
             if (dutyChartId.HasValue)
@@ -285,9 +304,8 @@ namespace ExamAPI.Services.Billing
 
         /// <summary>
         /// Public token lookup. The token alone only identifies the claim; the bank and
-        /// remuneration details are returned once the emailed OTP has been verified
-        /// (or after approval, when the statement is final). This closes the gap where
-        /// anyone holding a forwarded link could read the faculty member's bank details.
+        /// remuneration details are returned only once the emailed OTP has been verified,
+        /// also after submission and approval (a forwarded link must not show bank details).
         /// </summary>
         public async Task<StaffBillingClaim?> GetClaimByTokenAsync(string token)
         {
@@ -298,11 +316,10 @@ namespace ExamAPI.Services.Billing
                 .Include(c => c.PaperItems)
                 .FirstOrDefaultAsync(c => c.Token == token.Trim());
 
-            if (claim == null) return null;
+            if (claim == null || claim.IsDeleted) return null;
+            if (string.Equals(claim.Status, "STOPPED", StringComparison.OrdinalIgnoreCase) || !IsOtpSessionValid(claim)) return null;
             await PopulatePriceSetInfoAsync(new[] { claim });
-            if (claim.Status == "APPROVED" || claim.Status == "SUBMITTED" || IsOtpSessionValid(claim)) return claim;
-
-            return null;
+            return claim;
         }
 
         public async Task<StaffBillingClaim> SubmitClaimAsync(string token, StaffBillingClaim claimUpdate, List<StaffBillItem> items)
@@ -348,27 +365,29 @@ namespace ExamAPI.Services.Billing
                 throw new InvalidOperationException("This remuneration claim link has expired. Please contact the Exam Section to request a fresh link.");
             }
 
+            // The emailed code must have been entered: the link alone may not submit (or set bank details).
             if (!IsOtpSessionValid(claim))
             {
-                claim.OtpVerifiedAt = DateTime.UtcNow;
+                throw new UnauthorizedAccessException("Please verify with the 6-digit code sent to your email before submitting.");
             }
 
-            if (claimUpdate.PriceSetId.HasValue)
+            // Only counts, bank details and remarks come from the form. The rates are the office's: the supervision,
+            // travel and CAP rates stay as set on the claim, and the paper rates come from the claim's rate set.
+            if (claimUpdate.AttendedSeniorSupDays < 0 || claimUpdate.AttendedJuniorSupDays < 0 || claimUpdate.TravelDays < 0 || claimUpdate.CapDays < 0
+                || claimUpdate.OtherAmount < 0 || claimUpdate.PaperCount < 0 || claimUpdate.TwCount < 0 || claimUpdate.PracticalCount < 0
+                || claimUpdate.OralCount < 0 || claimUpdate.ProjectOralCount < 0 || claimUpdate.MeCount < 0 || claimUpdate.OwpCount < 0 || claimUpdate.TtCount < 0
+                || items.Any(i => i.TheoryCount < 0 || i.TwCount < 0 || i.PracticalCount < 0 || i.OralCount < 0 || i.ProjectOralCount < 0 || i.MeCount < 0 || i.OwpCount < 0 || i.TtCount < 0))
             {
-                claim.PriceSetId = claimUpdate.PriceSetId;
+                throw new InvalidOperationException("Days, counts and amounts cannot be negative.");
             }
-            else if (claimUpdate.SeniorSupRate > 0 || claimUpdate.JuniorSupRate > 0)
+            if (items.Count > 100)
             {
-                var priceSets = await _context.BillingPriceSets.ToListAsync();
-                var match = priceSets.FirstOrDefault(s =>
-                    (claimUpdate.SeniorSupRate == 0 || s.SeniorSupRate == claimUpdate.SeniorSupRate) &&
-                    (claimUpdate.JuniorSupRate == 0 || s.JuniorSupRate == claimUpdate.JuniorSupRate));
-                if (match != null) claim.PriceSetId = match.Id;
+                throw new InvalidOperationException("Too many paper rows in one claim.");
             }
-            if (claimUpdate.SeniorSupRate > 0) claim.SeniorSupRate = claimUpdate.SeniorSupRate;
-            if (claimUpdate.JuniorSupRate > 0) claim.JuniorSupRate = claimUpdate.JuniorSupRate;
-            if (claimUpdate.TravelRate > 0) claim.TravelRate = claimUpdate.TravelRate;
-            if (claimUpdate.CapRate > 0) claim.CapRate = claimUpdate.CapRate;
+            var rateSet = await ClaimPriceSetAsync(claim);
+            if (rateSet != null) claim.PriceSetId = rateSet.Id;
+            var rates = rateSet ?? new BillingPriceSet();
+            var moderatorRates = claim.RoleType == "moderator" || claim.RoleType == "external" || claim.IsExternal;
 
             claim.AttendedSeniorSupDays = claimUpdate.AttendedSeniorSupDays;
             claim.AttendedJuniorSupDays = claimUpdate.AttendedJuniorSupDays;
@@ -422,21 +441,21 @@ namespace ExamAPI.Services.Billing
                     SubjectName = !string.IsNullOrWhiteSpace(item.SubjectName) ? item.SubjectName : (item.Subject ?? string.Empty),
                     Semester = !string.IsNullOrWhiteSpace(item.Semester) ? item.Semester : "Sem-3",
                     TheoryCount = item.TheoryCount,
-                    TheoryRate = item.TheoryRate,
+                    TheoryRate = moderatorRates ? rates.ModerationRate : rates.TheoryAssessmentRate,
                     TwCount = item.TwCount,
-                    TwRate = item.TwRate,
+                    TwRate = rates.TwRate,
                     PracticalCount = item.PracticalCount,
-                    PracticalRate = item.PracticalRate,
+                    PracticalRate = rates.PracticalRate,
                     OralCount = item.OralCount,
-                    OralRate = item.OralRate,
+                    OralRate = rates.OralRate,
                     ProjectOralCount = item.ProjectOralCount,
-                    ProjectOralRate = item.ProjectOralRate,
+                    ProjectOralRate = rates.ProjectOralRate,
                     MeCount = item.MeCount,
-                    MeRate = item.MeRate,
+                    MeRate = rates.MeRate,
                     OwpCount = item.OwpCount,
-                    OwpRate = item.OwpRate,
+                    OwpRate = rates.OwpRate,
                     TtCount = item.TtCount,
-                    TtRate = item.TtRate,
+                    TtRate = rates.TtRate,
                 };
                 var th = newItem.TheoryCount * newItem.TheoryRate;
                 var tw = newItem.TwCount * newItem.TwRate;
@@ -523,14 +542,13 @@ namespace ExamAPI.Services.Billing
 
                 if (claim == null)
                 {
-                    var tokenToUse = string.IsNullOrWhiteSpace(incoming.Token)
-                        ? "clm_" + Guid.NewGuid().ToString("N")[..12]
-                        : incoming.Token.Trim();
+                    // The server makes every claim token (a browser-made one would be guessable).
+                    var tokenToUse = NewClaimToken();
 
                     // Check if token already exists to prevent unique index violation
                     while (await _context.StaffBillingClaims.AnyAsync(c => c.Token == tokenToUse))
                     {
-                        tokenToUse = "clm_" + Guid.NewGuid().ToString("N")[..12];
+                        tokenToUse = NewClaimToken();
                     }
 
                     // Check if an incoming.Id already exists in DB to prevent PK duplicate key violation
@@ -769,7 +787,7 @@ namespace ExamAPI.Services.Billing
                 claim = new StaffBillingClaim
                 {
                     Id = (id.HasValue && id.Value != Guid.Empty) ? id.Value : Guid.NewGuid(),
-                    CollegeId = claimUpdate.CollegeId ?? _context.CurrentCollegeId,
+                    CollegeId = _context.CurrentCollegeId ?? claimUpdate.CollegeId,
                     DutyChartId = claimUpdate.DutyChartId,
                     StaffId = claimUpdate.StaffId,
                     AYID = claimUpdate.AYID,
@@ -785,7 +803,7 @@ namespace ExamAPI.Services.Billing
                     IsExternal = claimUpdate.IsExternal,
                     VisitingCollegeName = claimUpdate.VisitingCollegeName,
                     City = claimUpdate.City,
-                    Token = !string.IsNullOrWhiteSpace(token) ? token : (!string.IsNullOrWhiteSpace(claimUpdate.Token) ? claimUpdate.Token : "clm_" + Guid.NewGuid().ToString("N")[..12]),
+                    Token = NewClaimToken(),
                     Status = string.IsNullOrWhiteSpace(claimUpdate.Status) ? "SUBMITTED" : claimUpdate.Status,
                     ShowPricingToStaff = claimUpdate.ShowPricingToStaff,
                     SubmittedAt = DateTime.UtcNow,
@@ -798,7 +816,7 @@ namespace ExamAPI.Services.Billing
             if (!claim.DutyChartId.HasValue && claimUpdate.DutyChartId.HasValue) claim.DutyChartId = claimUpdate.DutyChartId;
             if (!claim.StaffId.HasValue && claimUpdate.StaffId.HasValue) claim.StaffId = claimUpdate.StaffId;
             if (!claim.AYID.HasValue && claimUpdate.AYID.HasValue) claim.AYID = claimUpdate.AYID;
-            if (!claim.CollegeId.HasValue) claim.CollegeId = claimUpdate.CollegeId ?? _context.CurrentCollegeId;
+            if (!claim.CollegeId.HasValue) claim.CollegeId = _context.CurrentCollegeId ?? claimUpdate.CollegeId;
             if (claimUpdate.PriceSetId.HasValue)
             {
                 claim.PriceSetId = claimUpdate.PriceSetId;
@@ -977,7 +995,7 @@ namespace ExamAPI.Services.Billing
 
             if (string.IsNullOrWhiteSpace(claim.Token))
             {
-                claim.Token = "clm_" + Guid.NewGuid().ToString("N")[..12];
+                claim.Token = NewClaimToken();
             }
 
             claim.Status = "APPROVED";
@@ -1068,14 +1086,10 @@ namespace ExamAPI.Services.Billing
                 return new ClaimEmailResult { Success = false, Message = $"No email address registered for {claim.StaffName}.", FailedCount = 1 };
             }
 
-            if (!string.IsNullOrWhiteSpace(overrideEmail) && overrideEmail.Trim() != claim.Email)
-            {
-                claim.Email = overrideEmail.Trim();
-            }
 
             if (string.IsNullOrWhiteSpace(claim.Token))
             {
-                claim.Token = "clm_" + Guid.NewGuid().ToString("N")[..12];
+                claim.Token = NewClaimToken();
             }
 
             // Whenever the admin sends or re-sends the approved bill email,
@@ -1239,7 +1253,7 @@ namespace ExamAPI.Services.Billing
                         VisitingCollegeName = staff?.ExternalCollege,
                         City = staff?.ExternalCity,
                         ShowPricingToStaff = activeSet.ShowPricingToStaff,
-                        Token = "clm_" + Guid.NewGuid().ToString("N")[..12],
+                        Token = NewClaimToken(),
                         AssignedSeniorSupDays = seniorCount,
                         AttendedSeniorSupDays = seniorCount,
                         SeniorSupRate = activeSet.SeniorSupRate,
@@ -1329,7 +1343,7 @@ namespace ExamAPI.Services.Billing
             // If not found in DB yet, create and persist automatically
             if (claim == null && !string.IsNullOrWhiteSpace(email))
             {
-                var effectiveCollegeId = collegeId ?? _context.CurrentCollegeId;
+                var effectiveCollegeId = _context.CurrentCollegeId ?? collegeId;   // a college user cannot make a claim for another college
                 Guid? effectiveAyid = null;
                 if (dutyChartId.HasValue && dutyChartId.Value != Guid.Empty)
                 {
@@ -1339,10 +1353,10 @@ namespace ExamAPI.Services.Billing
                         .FirstOrDefaultAsync();
                 }
 
-                var tokenToUse = !string.IsNullOrWhiteSpace(token) ? token.Trim() : "clm_" + Guid.NewGuid().ToString("N")[..12];
+                var tokenToUse = NewClaimToken();
                 while (await _context.StaffBillingClaims.AnyAsync(c => c.Token == tokenToUse))
                 {
-                    tokenToUse = "clm_" + Guid.NewGuid().ToString("N")[..12];
+                    tokenToUse = NewClaimToken();
                 }
 
                 claim = new StaffBillingClaim
@@ -1398,15 +1412,11 @@ namespace ExamAPI.Services.Billing
                 };
             }
 
-            if (!string.IsNullOrWhiteSpace(token))
-            {
-                claim.Token = token.Trim();
-            }
-            else if (string.IsNullOrWhiteSpace(claim.Token) 
+            if (string.IsNullOrWhiteSpace(claim.Token)
                 || string.Equals(claim.Status, "SUBMITTED", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(claim.Status, "STOPPED", StringComparison.OrdinalIgnoreCase))
             {
-                claim.Token = "clm_" + Guid.NewGuid().ToString("N")[..12];
+                claim.Token = NewClaimToken();
             }
 
             var baseUrl = BillingAppUrl(appUrl);
@@ -1637,7 +1647,7 @@ namespace ExamAPI.Services.Billing
                 IsSubmitted = isSubmitted || isApproved,
                 IsApproved = isApproved,
                 IsOtpVerified = isOtpVerified,
-                Claim = (isOtpVerified || isSubmitted || isApproved) ? claim : null,
+                Claim = isOtpVerified ? claim : null,   // details (bank account) only after the emailed code, also once submitted or approved
             };
         }
 
@@ -1851,8 +1861,8 @@ namespace ExamAPI.Services.Billing
 
         public async Task<int> StopClaimsAsync(List<string>? tokens = null, List<Guid>? claimIds = null, Guid? dutyChartId = null)
         {
+            // The college filter applies: a college stops only its own claims.
             var query = _context.StaffBillingClaims
-                .IgnoreQueryFilters()
                 .Where(c => c.Status != "APPROVED");
 
             if (claimIds != null && claimIds.Count > 0)
