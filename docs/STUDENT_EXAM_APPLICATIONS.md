@@ -1,9 +1,16 @@
 # Student exam applications: apply and pay for ATKT, Re-exam and Revaluation by link
 
-**Status:** steps 0–2 built 2026-11-27 on branch `exam-applications` (both repos, not merged): Re-Exam as assign
-target, Exam Fees screen, payment core with the test gateway, Platform payment gateway card; migration
-`AddExamApplicationsAndPayments` is on demo `DBExamAPI`. Next: step 3 (Exam Applications screen, send links). Tasks:
-TASKS.md T-78, T-79.
+**Status:** steps 0–5 and the live script (step 7) built 2026-11-27 on branch `exam-applications` (both repos, not
+merged; 830 tests): Re-Exam as assign target, Exam Fees, payment core with the test gateway, Platform payment gateway
+card, Exam Applications (send links, students, office payment, register again, cancel, refund done, receipts, fee
+report + Excel), the student page, automatic registration after payment (ATKT assignment run in a scope acting for the
+college, `TenantScope`), receipt + application PDF and receipt email. Migration `AddExamApplicationsAndPayments` is on
+demo `DBExamAPI`; `deploy/LiveUpdate-ExamApplications.sql` (after LiveUpdate-Billing) rehearsed twice. Left: step 6
+(real gateway adapter, once the owner chooses, T-79). Tasks: TASKS.md T-78, T-79.
+
+**Build notes:** the student result page never sends the order number (student routes take no ids; the server re-checks
+the student's own open payments). The application link (task type `ATKT_PAYMENT`, now "Apply for exam") lives until
+the closing date; `TaskBatch.Pattern` carries the class's pattern for the subject rules.
 
 **Goal:** staff open applications for an ATKT, Re-exam or Revaluation exam and email each eligible student a link.
 The student confirms it's them with the 6-digit code, picks subjects, sees the fee, pays online, and is put into the
