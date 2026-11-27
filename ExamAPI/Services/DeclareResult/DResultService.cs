@@ -88,6 +88,7 @@ namespace ExamAPI.Services.DeclareResult
         private static string DisplayName(ExamMaster e) =>
             e.RevaluationForExamId != null ? e.Name + " (Revaluation)"
             : ExamTypeKeys.IsAtkt(e.ExamType) ? e.Name + " (A.T.K.T)"
+            : ExamTypeKeys.IsReExam(e.ExamType) ? e.Name + " (Re-Exam)"
             : e.Name;
 
         /// <summary>The exams Declare Result lists and saves: locked exams stay hidden (owner, 2026-10-04).</summary>

@@ -60,10 +60,13 @@ namespace ExamAPI.Services.AtktRevalExam
         /// <summary>
         /// Exam-type keys that make an exam a valid ATKT target. Exam Master authors the type as
         /// "A.T.K.T"; historical / seeded data uses "KT". Both normalise into this set so a Regular
-        /// exam is never offered as an ATKT target. Revaluation targets are matched separately by
-        /// their <see cref="ExamMaster.RevaluationForExamId"/> link, not by exam type.
+        /// exam is never offered as an ATKT target. A "Re-Exam" (REEXAM) is the same kind of
+        /// follow-up attempt (failed subjects of the latest attempt, like the old LTCE re-exam) and
+        /// is assigned the same way; its own rule set is matched by its ExamType. Revaluation
+        /// targets are matched separately by their <see cref="ExamMaster.RevaluationForExamId"/>
+        /// link, not by exam type.
         /// </summary>
-        private static readonly HashSet<string> AtktTargetExamTypeKeys = new() { "ATKT", "KT" };
+        private static readonly HashSet<string> AtktTargetExamTypeKeys = new() { "ATKT", "KT", ExamTypeKeys.ReExam };
 
         private static bool IsAtktTargetType(string? examType) =>
             AtktTargetExamTypeKeys.Contains(HeadTargetSpec.NormalizeKey(examType));

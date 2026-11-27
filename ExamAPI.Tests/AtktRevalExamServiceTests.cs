@@ -338,6 +338,26 @@ namespace ExamAPI.Tests
         }
 
         [Fact]
+        public async Task ReExam_IsOfferedAsTargetAndTakesAssignments()
+        {
+            Seed();
+
+            // Exam Master's "Re-Exam" type: the same follow-up attempt as an ATKT (failed subjects).
+            var target = _context.Exams.Single(e => e.ExamId == _targetExamId);
+            target.ExamType = "Re-Exam";
+            await _context.SaveChangesAsync();
+
+            var targets = await _service.GetTargetExamsAsync(
+                _courseId, _ayid, Semester, AssignmentModes.Atkt, null);
+            Assert.Contains(targets, exam => exam.ExamId == _targetExamId);
+
+            var response = await SaveSelection(_failedSubjectId);
+            Assert.True(response.Success, response.Message);
+            Assert.Equal(1, response.Data!.StudentsAssigned);
+            Assert.Contains(TargetHeads(), h => h.SubjectId == _failedSubjectId && !h.IsCarryForward);
+        }
+
+        [Fact]
         public async Task Matrix_UsesLatestValidAttemptAndSkipsNewerBlankRegistration()
         {
             Seed();

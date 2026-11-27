@@ -11,6 +11,8 @@ namespace ExamAPI.Services.Common
     public static class ExamTypeKeys
     {
         public const string Atkt = "ATKT";
+        /// <summary>Exam Master's "Re-Exam", normalised.</summary>
+        public const string ReExam = "REEXAM";
 
         /// <summary>Uppercase alphanumerics; "KT" and "ATKT" (any punctuation) become "ATKT".</summary>
         public static string Canonical(string? examType)
@@ -21,5 +23,8 @@ namespace ExamAPI.Services.Common
 
         /// <summary>True for "KT", "ATKT", "A.T.K.T" and any case/punctuation variant.</summary>
         public static bool IsAtkt(string? examType) => Canonical(examType) == Atkt;
+
+        /// <summary>True for "Re-Exam", "REEXAM" and any case/punctuation variant.</summary>
+        public static bool IsReExam(string? examType) => Canonical(examType) == ReExam;
     }
 }
