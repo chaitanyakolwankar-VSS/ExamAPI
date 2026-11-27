@@ -143,6 +143,17 @@ namespace ExamAPI.Data
         public DbSet<StaffBillingClaim> StaffBillingClaims { get; set; }
         public DbSet<StaffBillItem> StaffBillItems { get; set; }
 
+        // =========================================
+        // 12. Student exam applications and payments (docs/STUDENT_EXAM_APPLICATIONS.md)
+        // =========================================
+        public DbSet<ExamFeeSetup> ExamFeeSetups { get; set; }
+        public DbSet<ExamFeeCategoryRate> ExamFeeCategoryRates { get; set; }
+        public DbSet<ExamApplication> ExamApplications { get; set; }
+        public DbSet<ExamApplicationSubject> ExamApplicationSubjects { get; set; }
+        public DbSet<PaymentOrder> PaymentOrders { get; set; }
+        public DbSet<PaymentAccount> PaymentAccounts { get; set; }
+        public DbSet<ReceiptCounter> ReceiptCounters { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -259,6 +270,7 @@ namespace ExamAPI.Data
                 .IsRequired();
 
             StudentAccessModel.Configure(modelBuilder);
+            ExamApplicationsModel.Configure(modelBuilder);
             StaffModel.Configure(modelBuilder);
             StaffAccessModel.Configure(modelBuilder);
 

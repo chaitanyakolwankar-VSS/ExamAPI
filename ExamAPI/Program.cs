@@ -106,6 +106,16 @@ builder.Services.AddScoped<ExamAPI.Services.Email.IEmailBodyRenderer, ExamAPI.Se
 builder.Services.AddScoped<ExamAPI.Services.Staff.IStaffLinkService, ExamAPI.Services.Staff.StaffLinkService>();
 builder.Services.AddScoped<ExamAPI.Services.Staff.IStaffSignInService, ExamAPI.Services.Staff.StaffSignInService>();
 builder.Services.AddScoped<ExamAPI.Services.Staff.IStaffPortalService, ExamAPI.Services.Staff.StaffPortalService>();
+// Student exam applications (docs/STUDENT_EXAM_APPLICATIONS.md): fees per exam, gateway accounts (platform page, keys
+// encrypted like mail passwords), payments confirmed only by the gateway, a background re-check of open payments.
+builder.Services.AddScoped<ExamAPI.Services.ExamApplications.IExamFeeService, ExamAPI.Services.ExamApplications.ExamFeeService>();
+builder.Services.AddSingleton<ExamAPI.Services.Payments.TestPaymentGateway>();
+builder.Services.AddSingleton<ExamAPI.Services.Payments.IPaymentGateway>(sp => sp.GetRequiredService<ExamAPI.Services.Payments.TestPaymentGateway>());
+builder.Services.AddScoped<ExamAPI.Services.Payments.PaymentAccountResolver>();
+builder.Services.AddScoped<ExamAPI.Services.Payments.IPaymentAccountResolver>(sp => sp.GetRequiredService<ExamAPI.Services.Payments.PaymentAccountResolver>());
+builder.Services.AddScoped<ExamAPI.Services.Payments.IPaymentAccountService, ExamAPI.Services.Payments.PaymentAccountService>();
+builder.Services.AddScoped<ExamAPI.Services.Payments.IPaymentService, ExamAPI.Services.Payments.PaymentService>();
+builder.Services.AddHostedService<ExamAPI.Services.Payments.PaymentRecheckWorker>();
 builder.Services.AddOrdinanceEngine();
 builder.Services.AddHttpClient();
 builder.Services.AddHostedService<ExamAPI.Services.Common.KeepAliveService>(); // KeepAlive:Url, see the class

@@ -18,7 +18,9 @@ namespace ExamAPI.Data
                 new TaskType { Code = TaskTypes.StudentMaster, Name = "Verify student details", ExpiryRule = TaskExpiryRules.OnDeadline, RequiresOtp = true },
                 new TaskType { Code = TaskTypes.HallTicket, Name = "Download hall ticket", ExpiryRule = TaskExpiryRules.OnDeadline, RequiresOtp = true },
                 new TaskType { Code = TaskTypes.Marksheet, Name = "Download marksheet", ExpiryRule = TaskExpiryRules.OnDeadline, RequiresOtp = true },
-                new TaskType { Code = TaskTypes.AtktPayment, Name = "Pay ATKT exam fee", ExpiryRule = TaskExpiryRules.OnPayment, RequiresOtp = true });
+                // ATKT, Re-exam and Revaluation applications share this code (kept: the row is on live). The link stays
+                // open until the closing date so the student can come back for the receipt.
+                new TaskType { Code = TaskTypes.AtktPayment, Name = "Apply for exam", ExpiryRule = TaskExpiryRules.OnDeadline, RequiresOtp = true });
 
             // Every relation is NO ACTION: nothing here is ever hard-deleted, and SQL Server refuses
             // the several cascade paths that College -> Student -> TaskLink -> ... would create.

@@ -34,7 +34,8 @@ public sealed class StudentAccessSchemaTests
         var types = context.TaskTypes.OrderBy(t => t.Code).ToList();
 
         Assert.Equal(new[] { TaskTypes.AtktPayment, TaskTypes.HallTicket, TaskTypes.Marksheet, TaskTypes.StudentMaster }, types.Select(t => t.Code));
-        Assert.Equal(TaskExpiryRules.OnPayment, types.Single(t => t.Code == TaskTypes.AtktPayment).ExpiryRule);
+        // Exam applications: the link stays open until the closing date, so the student can come back for the receipt.
+        Assert.Equal(TaskExpiryRules.OnDeadline, types.Single(t => t.Code == TaskTypes.AtktPayment).ExpiryRule);
         Assert.Equal(TaskExpiryRules.OnDeadline, types.Single(t => t.Code == TaskTypes.StudentMaster).ExpiryRule);
         Assert.All(types, t => Assert.True(t.RequiresOtp));
     }

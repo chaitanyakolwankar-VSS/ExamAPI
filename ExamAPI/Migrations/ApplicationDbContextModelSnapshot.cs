@@ -773,6 +773,246 @@ namespace ExamAPI.Migrations
                     b.ToTable("EmailQueue");
                 });
 
+            modelBuilder.Entity("ExamAPI.Models.ExamApplication", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("AmountDue")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<string>("AssignError")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTime?>("AssignedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("CollegeId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("FeeBreakdownJson")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTime?>("PaidAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("PaidTwice")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("PaidVia")
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<string>("PaymentReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("ReceiptNo")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<Guid?>("SourceExamId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<Guid>("StdMstId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("TargetExamId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("TaskLinkId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TargetExamId");
+
+                    b.HasIndex("StdMstId", "TargetExamId")
+                        .IsUnique()
+                        .HasFilter("[IsDeleted] = 0 AND [Status] NOT IN ('Cancelled', 'Refunded')");
+
+                    b.HasIndex("CollegeId", "TargetExamId", "Status");
+
+                    b.ToTable("ExamApplication");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.ExamApplicationSubject", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ApplicationId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CollegeId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Heads")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid>("SubjectId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CollegeId");
+
+                    b.HasIndex("ApplicationId", "SubjectId")
+                        .IsUnique();
+
+                    b.ToTable("ExamApplicationSubject");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.ExamFeeCategoryRate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<Guid?>("CollegeId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("FeeSetupId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal?>("FixedFee")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<bool>("IsExempt")
+                        .HasColumnType("bit");
+
+                    b.Property<decimal?>("PerSubjectFee")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CollegeId");
+
+                    b.HasIndex("FeeSetupId", "Category")
+                        .IsUnique();
+
+                    b.ToTable("ExamFeeCategoryRate");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.ExamFeeSetup", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("ClosesAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("CollegeId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("ExamId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("FixedFee")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<string>("FixedFeeLabel")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<decimal>("LateFee")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<DateTime?>("LateFeeFrom")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal?>("MaxSubjectFee")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTime?>("OpensAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal>("PerSubjectFee")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExamId");
+
+                    b.HasIndex("CollegeId", "ExamId")
+                        .IsUnique()
+                        .HasFilter("[IsDeleted] = 0");
+
+                    b.ToTable("ExamFeeSetup");
+                });
+
             modelBuilder.Entity("ExamAPI.Models.ExamMaster", b =>
                 {
                     b.Property<Guid>("ExamId")
@@ -1169,6 +1409,149 @@ namespace ExamAPI.Migrations
                     b.ToTable("PatternMaster");
                 });
 
+            modelBuilder.Entity("ExamAPI.Models.PaymentAccount", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CollegeId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsTestMode")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("MerchantId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("SecretsProtected")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CollegeId")
+                        .IsUnique()
+                        .HasFilter("[CollegeId] IS NOT NULL");
+
+                    b.ToTable("PaymentAccount");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.PaymentOrder", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<Guid>("ApplicationId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Bank")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int>("CheckCount")
+                        .HasColumnType("int");
+
+                    b.Property<Guid?>("CollegeId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("ConfirmedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("nvarchar(3)");
+
+                    b.Property<string>("GatewayStatus")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("GatewayTxnId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<bool>("IsTestMode")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime?>("LastCheckedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Message")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("Mode")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<DateTime?>("NextCheckAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("OrderNo")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<Guid?>("PaymentAccountId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("ReturnBaseUrl")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApplicationId");
+
+                    b.HasIndex("CollegeId");
+
+                    b.HasIndex("OrderNo")
+                        .IsUnique();
+
+                    b.HasIndex("PaymentAccountId");
+
+                    b.HasIndex("Status", "NextCheckAt");
+
+                    b.ToTable("PaymentOrder");
+                });
+
             modelBuilder.Entity("ExamAPI.Models.Permission", b =>
                 {
                     b.Property<Guid>("PermissionId")
@@ -1205,6 +1588,24 @@ namespace ExamAPI.Migrations
                     b.HasKey("PermissionId");
 
                     b.ToTable("Permission");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.ReceiptCounter", b =>
+                {
+                    b.Property<Guid>("CollegeId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Series")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<int>("LastNo")
+                        .IsConcurrencyToken()
+                        .HasColumnType("int");
+
+                    b.HasKey("CollegeId", "Series");
+
+                    b.ToTable("ReceiptCounter");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.ResolutionMaster", b =>
@@ -3100,8 +3501,8 @@ namespace ExamAPI.Migrations
                         new
                         {
                             Code = "ATKT_PAYMENT",
-                            ExpiryRule = "DIE_ON_PAYMENT",
-                            Name = "Pay ATKT exam fee",
+                            ExpiryRule = "DIE_ON_DEADLINE",
+                            Name = "Apply for exam",
                             RequiresOtp = true
                         });
                 });
@@ -3405,6 +3806,74 @@ namespace ExamAPI.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
+            modelBuilder.Entity("ExamAPI.Models.ExamApplication", b =>
+                {
+                    b.HasOne("ExamAPI.Models.College", null)
+                        .WithMany()
+                        .HasForeignKey("CollegeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ExamAPI.Models.StudentMaster", "Student")
+                        .WithMany()
+                        .HasForeignKey("StdMstId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ExamAPI.Models.ExamMaster", "TargetExam")
+                        .WithMany()
+                        .HasForeignKey("TargetExamId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Student");
+
+                    b.Navigation("TargetExam");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.ExamApplicationSubject", b =>
+                {
+                    b.HasOne("ExamAPI.Models.ExamApplication", null)
+                        .WithMany("Subjects")
+                        .HasForeignKey("ApplicationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ExamAPI.Models.College", null)
+                        .WithMany()
+                        .HasForeignKey("CollegeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.ExamFeeCategoryRate", b =>
+                {
+                    b.HasOne("ExamAPI.Models.College", null)
+                        .WithMany()
+                        .HasForeignKey("CollegeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ExamAPI.Models.ExamFeeSetup", null)
+                        .WithMany("CategoryRates")
+                        .HasForeignKey("FeeSetupId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.ExamFeeSetup", b =>
+                {
+                    b.HasOne("ExamAPI.Models.College", null)
+                        .WithMany()
+                        .HasForeignKey("CollegeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ExamAPI.Models.ExamMaster", "Exam")
+                        .WithMany()
+                        .HasForeignKey("ExamId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Exam");
+                });
+
             modelBuilder.Entity("ExamAPI.Models.ExamMaster", b =>
                 {
                     b.HasOne("ExamAPI.Models.AcademicYear", null)
@@ -3514,6 +3983,44 @@ namespace ExamAPI.Migrations
                         .HasForeignKey("CollegeId");
 
                     b.Navigation("College");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.PaymentAccount", b =>
+                {
+                    b.HasOne("ExamAPI.Models.College", null)
+                        .WithMany()
+                        .HasForeignKey("CollegeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.PaymentOrder", b =>
+                {
+                    b.HasOne("ExamAPI.Models.ExamApplication", "Application")
+                        .WithMany()
+                        .HasForeignKey("ApplicationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ExamAPI.Models.College", null)
+                        .WithMany()
+                        .HasForeignKey("CollegeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ExamAPI.Models.PaymentAccount", null)
+                        .WithMany()
+                        .HasForeignKey("PaymentAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Application");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.ReceiptCounter", b =>
+                {
+                    b.HasOne("ExamAPI.Models.College", null)
+                        .WithMany()
+                        .HasForeignKey("CollegeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("ExamAPI.Models.ResolutionMaster", b =>
@@ -4065,6 +4572,16 @@ namespace ExamAPI.Migrations
                     b.Navigation("Days");
 
                     b.Navigation("Entries");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.ExamApplication", b =>
+                {
+                    b.Navigation("Subjects");
+                });
+
+            modelBuilder.Entity("ExamAPI.Models.ExamFeeSetup", b =>
+                {
+                    b.Navigation("CategoryRates");
                 });
 
             modelBuilder.Entity("ExamAPI.Models.ExamMaster", b =>
