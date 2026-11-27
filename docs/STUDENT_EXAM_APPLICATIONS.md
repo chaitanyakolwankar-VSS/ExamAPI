@@ -1,6 +1,9 @@
 # Student exam applications: apply and pay for ATKT, Re-exam and Revaluation by link
 
-**Status:** plan, agreed with the owner 2026-11-27. Nothing built yet. Tasks: TASKS.md T-78 … T-80.
+**Status:** steps 0–2 built 2026-11-27 on branch `exam-applications` (both repos, not merged): Re-Exam as assign
+target, Exam Fees screen, payment core with the test gateway, Platform payment gateway card; migration
+`AddExamApplicationsAndPayments` is on demo `DBExamAPI`. Next: step 3 (Exam Applications screen, send links). Tasks:
+TASKS.md T-78, T-79.
 
 **Goal:** staff open applications for an ATKT, Re-exam or Revaluation exam and email each eligible student a link.
 The student confirms it's them with the 6-digit code, picks subjects, sees the fee, pays online, and is put into the
