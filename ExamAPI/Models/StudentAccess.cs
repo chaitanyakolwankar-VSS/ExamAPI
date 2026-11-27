@@ -321,6 +321,14 @@ namespace ExamAPI.Models
         /// <summary>Hall tickets: the "Instructions to candidates", one per line. Empty = the default list.</summary>
         [MaxLength(1500)]
         public string? HallTicketInstructions { get; set; }
+
+        /// <summary>Exam application form: the declaration the student accepts (null = the built-in text).</summary>
+        [MaxLength(2000)]
+        public string? ExamFormDeclaration { get; set; }
+
+        /// <summary>Exam application form: the note printed under the subjects (null = the built-in text; "" = none).</summary>
+        [MaxLength(1000)]
+        public string? ExamFormNote { get; set; }
     }
 
     /// <summary>

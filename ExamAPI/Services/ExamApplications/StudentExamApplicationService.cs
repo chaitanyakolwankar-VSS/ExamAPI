@@ -62,6 +62,10 @@ namespace ExamAPI.Services.ExamApplications
         /// <summary>Applications and payments are taken now.</summary>
         public bool IsOpen { get; set; }
         public string? Notes { get; set; }
+        /// <summary>What the student declares before paying (printed on the form).</summary>
+        public string Declaration { get; set; } = "";
+        /// <summary>The college's note on the form (e.g. attach previous marksheets).</summary>
+        public string? FormNote { get; set; }
         /// <summary>Why the student can't apply (closed, nothing to apply for, ...); null when they can.</summary>
         public string? Message { get; set; }
         public int? MaxSubjects { get; set; }
@@ -83,11 +87,11 @@ namespace ExamAPI.Services.ExamApplications
         /// <summary>What these subjects would cost now (nothing saved).</summary>
         Task<FeeBreakdown> QuoteAsync(ClaimsPrincipal user, List<Guid> subjectIds);
         /// <summary>Saves the chosen subjects and starts the payment (or finishes at once when there is no fee).</summary>
-        Task<StudentPayResult> PayAsync(ClaimsPrincipal user, List<Guid> subjectIds, string apiBaseUrl, string siteBaseUrl);
+        Task<StudentPayResult> PayAsync(ClaimsPrincipal user, List<Guid> subjectIds, bool declared, string apiBaseUrl, string siteBaseUrl);
         /// <summary>After the gateway: asks it about the student's own open payments (never one named by the browser), then answers the page.</summary>
         Task<StudentApplicationView> PaymentResultAsync(ClaimsPrincipal user);
         /// <summary>The receipt and application form (PDF), once paid.</summary>
-        Task<(byte[] Pdf, string FileName)> ReceiptAsync(ClaimsPrincipal user);
+        Task<(byte[] Pdf, string FileName)> DocumentAsync(ClaimsPrincipal user, ExamDocumentParts part);
     }
 
     /// <summary>
@@ -100,12 +104,15 @@ namespace ExamAPI.Services.ExamApplications
         private readonly ApplicationDbContext _context;
         private readonly IAtktRevalExamService _atkt;
         private readonly IPaymentService _payments;
+        private readonly ExamAPI.Services.Files.IFileStorage? _storage;
 
-        public StudentExamApplicationService(ApplicationDbContext context, IAtktRevalExamService atkt, IPaymentService payments)
+        public StudentExamApplicationService(ApplicationDbContext context, IAtktRevalExamService atkt, IPaymentService payments,
+            ExamAPI.Services.Files.IFileStorage? storage = null)
         {
             _context = context;
             _atkt = atkt;
             _payments = payments;
+            _storage = storage;
         }
 
         private sealed record LinkContext(TaskLink Link, TaskBatch Batch, StudentMaster Student, ExamMaster Exam, string Kind, ExamFeeSetup? Setup);
@@ -175,6 +182,9 @@ namespace ExamAPI.Services.ExamApplications
                 Notes = c.Setup?.Notes,
             };
             view.IsOpen = c.Setup != null && (c.Setup.OpensAt == null || now >= c.Setup.OpensAt) && now < c.Setup.ClosesAt;
+            var wording = await ExamFormWording.LoadAsync(_context, c.Link.CollegeId);
+            view.Declaration = wording.Declaration;
+            view.FormNote = wording.Note;
 
             var app = await ApplicationAsync(c);
             if (app != null) view.Application = await InfoAsync(app);
@@ -277,13 +287,14 @@ namespace ExamAPI.Services.ExamApplications
             return FeeCalculator.Compute(c.Setup, c.Student.Category, chosen.Count, DateTime.UtcNow);
         }
 
-        public async Task<StudentPayResult> PayAsync(ClaimsPrincipal user, List<Guid> subjectIds, string apiBaseUrl, string siteBaseUrl)
+        public async Task<StudentPayResult> PayAsync(ClaimsPrincipal user, List<Guid> subjectIds, bool declared, string apiBaseUrl, string siteBaseUrl)
         {
             var c = await LoadAsync(user);
             if (c.Setup == null) throw new InvalidOperationException("Applications for this exam are not open yet.");
             var app = await ApplicationAsync(c, tracking: true);
             if (app != null && app.Status != ExamApplicationStatuses.Draft)
                 return new StudentPayResult { Paid = true, Amount = app.AmountDue };
+            if (!declared) throw new InvalidOperationException("Read and tick the declaration first.");
 
             var chosen = await CheckSelectionAsync(c, subjectIds);
             if (app == null)
@@ -313,6 +324,7 @@ namespace ExamAPI.Services.ExamApplications
             }
             foreach (var id in chosen)
                 app.Subjects.Add(new ExamApplicationSubject { Id = Guid.NewGuid(), CollegeId = c.Link.CollegeId, ApplicationId = app.Id, SubjectId = id });
+            app.DeclaredAt = DateTime.UtcNow;
             try
             {
                 await _context.SaveChangesAsync();
@@ -339,14 +351,15 @@ namespace ExamAPI.Services.ExamApplications
             return await ViewAsync(c);
         }
 
-        public async Task<(byte[] Pdf, string FileName)> ReceiptAsync(ClaimsPrincipal user)
+        public async Task<(byte[] Pdf, string FileName)> DocumentAsync(ClaimsPrincipal user, ExamDocumentParts part)
         {
             var c = await LoadAsync(user);
             var app = await ApplicationAsync(c);
             if (app == null || !ExamApplicationStatuses.IsPaid(app.Status))
-                throw new InvalidOperationException("The receipt is ready once the fee is paid.");
-            var pdf = await ExamReceiptPdf.BuildAsync(_context, app.Id);
-            return (pdf, $"Receipt-{(app.ReceiptNo ?? "exam").Replace('/', '-')}.pdf");
+                throw new InvalidOperationException("The application form and receipt are ready once the fee is paid.");
+            var pdf = await ExamReceiptPdf.BuildAsync(_context, _storage, app.Id, part);
+            var what = part == ExamDocumentParts.Form ? "Application-form" : part == ExamDocumentParts.Receipt ? "Receipt" : "Application-and-receipt";
+            return (pdf, $"{what}-{(app.ReceiptNo ?? "exam").Replace('/', '-')}.pdf");
         }
 
         private static DateTime? Utc(DateTime? value) => value == null ? null : DateTime.SpecifyKind(value.Value, DateTimeKind.Utc);

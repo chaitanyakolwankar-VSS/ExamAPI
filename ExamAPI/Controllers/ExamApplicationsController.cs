@@ -22,6 +22,15 @@ namespace ExamAPI.Controllers
         [HttpGet("exam/{examId:guid}")]
         public Task<IActionResult> List(Guid examId) => Run(() => _service.ListAsync(examId));
 
+        /// <summary>For the ATKT/Reval Exam screen: who has paid for this exam.</summary>
+        [HttpGet("exam/{examId:guid}/fee-status")]
+        public Task<IActionResult> FeeStatus(Guid examId) => Run(() => _service.FeeStatusAsync(examId));
+
+        /// <summary>A student registered on the ATKT/Reval Exam screen paid at the office.</summary>
+        [HttpPost("exam/{examId:guid}/student/{stdMstId:guid}/office")]
+        public Task<IActionResult> RecordOffice(Guid examId, Guid stdMstId, [FromBody] TextRequest request) =>
+            Run(() => _service.RecordOfficePaymentAsync(examId, stdMstId, request.Text ?? ""));
+
         [HttpPost("{applicationId:guid}/office")]
         public Task<IActionResult> Office(Guid applicationId, [FromBody] TextRequest request) => Run(() => _service.PayAtOfficeAsync(applicationId, request.Text ?? ""));
 

@@ -18,6 +18,12 @@ namespace ExamAPI.Controllers
         public Task<IActionResult> Exams([FromQuery] Guid courseId, [FromQuery] Guid ayid) =>
             Run(() => _service.GetExamsAsync(courseId, ayid));
 
+        [HttpGet("form-wording")]
+        public Task<IActionResult> FormWording() => Run(() => _service.GetFormWordingAsync());
+
+        [HttpPut("form-wording")]
+        public Task<IActionResult> SaveFormWording([FromBody] ExamFormWordingInput input) => Run(() => _service.SaveFormWordingAsync(input));
+
         [HttpGet("{examId:guid}")]
         public Task<IActionResult> Get(Guid examId) => Run(() => _service.GetAsync(examId));
 

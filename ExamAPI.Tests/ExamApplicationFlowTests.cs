@@ -161,7 +161,7 @@ public class ExamApplicationFlowTests : IDisposable
     }
 
     private StudentPayResult Pay(params Guid[] subjects) =>
-        Run(_college, sp => sp.GetRequiredService<IStudentExamApplicationService>().PayAsync(Student(), subjects.ToList(), "https://api.test/", "https://site.test/app"));
+        Run(_college, sp => sp.GetRequiredService<IStudentExamApplicationService>().PayAsync(Student(), subjects.ToList(), true, "https://api.test/", "https://site.test/app"));
 
     private PaymentOrder GatewayReturn(string orderNo) =>
         Run<PaymentOrder>(null, sp => sp.GetRequiredService<IPaymentService>().ConfirmAsync(orderNo));
@@ -210,7 +210,9 @@ public class ExamApplicationFlowTests : IDisposable
         var after = Run(_college, sp => sp.GetRequiredService<IStudentExamApplicationService>().PaymentResultAsync(Student()));
         Assert.Equal(ExamApplicationStatuses.Assigned, after.Application!.Status);
         Assert.Equal("AT/2025-26/00001", after.Application.ReceiptNo);
-        var receipt = Run(_college, sp => sp.GetRequiredService<IStudentExamApplicationService>().ReceiptAsync(Student()));
+        var receipt = Run(_college, sp => sp.GetRequiredService<IStudentExamApplicationService>().DocumentAsync(Student(), ExamDocumentParts.Receipt));
+        var form = Run(_college, sp => sp.GetRequiredService<IStudentExamApplicationService>().DocumentAsync(Student(), ExamDocumentParts.Form));
+        Assert.Equal("%PDF", System.Text.Encoding.ASCII.GetString(form.Pdf, 0, 4));
         Assert.Equal("%PDF", System.Text.Encoding.ASCII.GetString(receipt.Pdf, 0, 4));
 
         // Staff see it, and the fee report counts it once.
@@ -292,4 +294,94 @@ public class ExamApplicationFlowTests : IDisposable
         Assert.Equal(1, preview.Sendable);
         Assert.True(preview.FeesSet);
     }
+    [Fact]
+    public void Paying_needs_the_declaration()
+    {
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            Run(_college, sp => sp.GetRequiredService<IStudentExamApplicationService>().PayAsync(Student(), new List<Guid> { _failed }, false, "https://api.test/", "https://site.test/app")));
+        Assert.Contains("declaration", error.Message);
+        var view = Run(_college, sp => sp.GetRequiredService<IStudentExamApplicationService>().GetAsync(Student()));
+        Assert.Equal(ExamFormWording.DefaultDeclaration, view.Declaration);
+        Assert.Equal(ExamFormWording.DefaultNote, view.FormNote);
+    }
+
+    private DTOs.AtktMatrixRequest Filter() => new()
+    {
+        CourseId = _course, Ayid = _ayid, Semester = Semester, Pattern = Pattern, Mode = AssignmentModes.Atkt, TargetExamId = _target,
+    };
+
+    [Fact]
+    public void A_student_registered_on_the_ATKT_screen_shows_and_can_have_the_office_fee_recorded_without_changing_the_registration()
+    {
+        // Staff register the student directly, re-sitting only the ESE part of Maths.
+        var saved = Run(_college, sp => sp.GetRequiredService<IAtktRevalExamService>().SaveAsync(new DTOs.AtktSaveRequest
+        {
+            Filter = Filter(),
+            Students = new() { new() { StdMstId = _student, Subjects = new() { new() { SubjectId = _failed, Heads = new() { "H1" } } } } },
+        }));
+        Assert.True(saved.Success, saved.Message);
+
+        var row = Run(_college, sp => sp.GetRequiredService<IExamApplicationAdminService>().ListAsync(_target)).Rows.Single();
+        Assert.True(row.InExam);
+        Assert.True(row.RegisteredByStaff);
+        Assert.Null(row.Status);
+
+        var paid = Run(_college, sp => sp.GetRequiredService<IExamApplicationAdminService>().RecordOfficePaymentAsync(_target, _student, "Office 12"));
+        Assert.Equal(ExamApplicationStatuses.Assigned, paid.Status);
+        Assert.Equal(PaidVia.Office, paid.PaidVia);
+        Assert.Equal(360, paid.Amount);
+        Assert.False(Run(_college, sp => sp.GetRequiredService<IExamApplicationAdminService>().ListAsync(_target)).Rows.Single().RegisteredByStaff);
+
+        // The registration is untouched: only H1 of Maths is fresh.
+        Run(null, async sp =>
+        {
+            var heads = await Db(sp).StudentMarks.IgnoreQueryFilters().Include(h => h.MarksMaster)
+                .Where(h => h.MarksMaster!.ExamId == _target && h.SubjectId == _failed).ToListAsync();
+            Assert.False(heads.Single(h => h.Head == "H1").IsCarryForward);
+            Assert.True(heads.Single(h => h.Head == "H2").IsCarryForward);
+            return 0;
+        });
+        var status = Run(_college, sp => sp.GetRequiredService<IExamApplicationAdminService>().FeeStatusAsync(_target));
+        Assert.Equal(PaidVia.Office, Assert.Single(status).PaidVia);
+        var docs = Run(_college, sp => sp.GetRequiredService<IExamApplicationAdminService>().ReceiptAsync(paid.ApplicationId!.Value));
+        Assert.Equal("%PDF", System.Text.Encoding.ASCII.GetString(docs.Pdf, 0, 4));
+    }
+
+    [Fact]
+    public void A_paid_student_removed_on_the_ATKT_screen_is_flagged()
+    {
+        var pay = Pay(_failed);
+        _gateway.Decide(pay.OrderNo!, TestPaymentGateway.Outcome.Success);
+        GatewayReturn(pay.OrderNo!);
+        var removed = Run(_college, sp => sp.GetRequiredService<IAtktRevalExamService>().DeleteAssignmentAsync(new DTOs.AtktDeleteRequest { Filter = Filter(), StdMstId = _student }));
+        Assert.True(removed.Success, removed.Message);
+
+        var list = Run(_college, sp => sp.GetRequiredService<IExamApplicationAdminService>().ListAsync(_target));
+        var row = Assert.Single(list.Rows);
+        Assert.True(row.NotInExam);
+        Assert.Equal(1, list.NeedAttention);
+
+        var again = Run(_college, sp => sp.GetRequiredService<IExamApplicationAdminService>().RetryAssignAsync(row.ApplicationId!.Value));
+        Assert.Equal(ExamApplicationStatuses.Assigned, again.Status);
+        Assert.False(Run(_college, sp => sp.GetRequiredService<IExamApplicationAdminService>().ListAsync(_target)).Rows.Single().NotInExam);
+    }
+
+    [Fact]
+    public void The_college_can_word_the_form_itself()
+    {
+        var saved = Run(_college, sp => new ExamFeeService(Db(sp)).SaveFormWordingAsync(new ExamFormWordingInput { Declaration = "Our own words.", NoNote = true }));
+        Assert.Equal("Our own words.", saved.Declaration);
+        Assert.Null(saved.Note);
+        Assert.False(saved.DeclarationIsDefault);
+        var back = Run(_college, sp => new ExamFeeService(Db(sp)).SaveFormWordingAsync(new ExamFormWordingInput()));
+        Assert.True(back.DeclarationIsDefault);
+        Assert.Equal(ExamFormWording.DefaultNote, back.Note);
+    }
+
+    [Theory]
+    [InlineData(360, "Rupees Three Hundred Sixty Only")]
+    [InlineData(125050, "Rupees One Lakh Twenty Five Thousand Fifty Only")]
+    [InlineData(0, "Rupees Zero Only")]
+    public void Amounts_are_written_in_words_the_Indian_way(int amount, string words) =>
+        Assert.Equal(words, IndianWords.Rupees(amount));
 }

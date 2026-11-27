@@ -26,6 +26,8 @@ namespace ExamAPI.Controllers
         public class SubjectsRequest
         {
             public List<Guid>? SubjectIds { get; set; }
+            /// <summary>The student ticked the declaration (pay only).</summary>
+            public bool Declared { get; set; }
             /// <summary>The student site the browser is on (checked against the allowed origins).</summary>
             public string? AppUrl { get; set; }
         }
@@ -42,19 +44,26 @@ namespace ExamAPI.Controllers
             var site = _site.Resolve(request.AppUrl)
                 ?? throw new InvalidOperationException("The student site address isn't known to the server.");
             var apiBase = $"{Request.Scheme}://{Request.Host}{Request.PathBase}/";
-            return _service.PayAsync(User, request.SubjectIds ?? new(), apiBase, site);
+            return _service.PayAsync(User, request.SubjectIds ?? new(), request.Declared, apiBase, site);
         });
 
         /// <summary>Back from the gateway: re-checks the student's own open payments and answers the page.</summary>
         [HttpPost("payment")]
         public Task<IActionResult> Payment() => Answer(() => _service.PaymentResultAsync(User));
 
+        /// <summary>The application form (the old printed form to the Principal), once paid.</summary>
+        [HttpGet("form")]
+        public Task<IActionResult> Form() => Document(ExamDocumentParts.Form);
+
+        /// <summary>The fee receipt, once paid.</summary>
         [HttpGet("receipt")]
-        public async Task<IActionResult> Receipt()
+        public Task<IActionResult> Receipt() => Document(ExamDocumentParts.Receipt);
+
+        private async Task<IActionResult> Document(ExamDocumentParts part)
         {
             try
             {
-                var (pdf, name) = await _service.ReceiptAsync(User);
+                var (pdf, name) = await _service.DocumentAsync(User, part);
                 Response.Headers.CacheControl = "no-store";
                 return File(pdf, "application/pdf", name);
             }

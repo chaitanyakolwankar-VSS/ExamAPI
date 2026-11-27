@@ -313,6 +313,14 @@ namespace ExamAPI.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)");
 
+                    b.Property<string>("ExamFormDeclaration")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("ExamFormNote")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
                     b.Property<string>("ExamOfficeEmail")
                         .HasMaxLength(255)
                         .HasColumnType("nvarchar(255)");
@@ -801,6 +809,9 @@ namespace ExamAPI.Migrations
 
                     b.Property<Guid?>("CreatedBy")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("DeclaredAt")
+                        .HasColumnType("datetime2");
 
                     b.Property<DateTime?>("DeletedAt")
                         .HasColumnType("datetime2");

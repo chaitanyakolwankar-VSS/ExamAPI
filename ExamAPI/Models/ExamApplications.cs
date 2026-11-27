@@ -149,6 +149,9 @@ namespace ExamAPI.Models
         [MaxLength(50)]
         public string? Pattern { get; set; }
 
+        /// <summary>When the student ticked the declaration (the form prints it). Null for staff-made applications.</summary>
+        public DateTime? DeclaredAt { get; set; }
+
         /// <summary>The link the student applied through.</summary>
         public Guid? TaskLinkId { get; set; }
 

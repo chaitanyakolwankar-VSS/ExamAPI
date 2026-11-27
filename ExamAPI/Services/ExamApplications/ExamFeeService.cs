@@ -82,8 +82,32 @@ namespace ExamAPI.Services.ExamApplications
         public List<ExamFeeExample> Examples { get; set; } = new();
     }
 
+    public class ExamFormWordingView
+    {
+        public string Declaration { get; set; } = "";
+        /// <summary>Null = no note printed.</summary>
+        public string? Note { get; set; }
+        public bool DeclarationIsDefault { get; set; }
+        public bool NoteIsDefault { get; set; }
+        public string DefaultDeclaration { get; set; } = ExamFormWording.DefaultDeclaration;
+        public string DefaultNote { get; set; } = ExamFormWording.DefaultNote;
+    }
+
+    public class ExamFormWordingInput
+    {
+        /// <summary>Blank = the built-in declaration.</summary>
+        public string? Declaration { get; set; }
+        /// <summary>Blank = the built-in note (unless <see cref="NoNote"/>).</summary>
+        public string? Note { get; set; }
+        public bool NoNote { get; set; }
+    }
+
     public interface IExamFeeService
     {
+        /// <summary>The declaration and note on this college's exam application forms (all exams).</summary>
+        Task<ExamFormWordingView> GetFormWordingAsync();
+        Task<ExamFormWordingView> SaveFormWordingAsync(ExamFormWordingInput input);
+
         /// <summary>The ATKT, Re-Exam and Revaluation exams of a class, with their fee setup if any.</summary>
         Task<List<ExamFeeExamDto>> GetExamsAsync(Guid courseId, Guid ayid);
         Task<ExamFeeView> GetAsync(Guid examId);
@@ -118,6 +142,45 @@ namespace ExamAPI.Services.ExamApplications
 
         private Guid CollegeId => _context.CurrentCollegeId
             ?? throw new UnauthorizedAccessException("Sign in as staff of a college to set exam fees.");
+
+        public async Task<ExamFormWordingView> GetFormWordingAsync()
+        {
+            var collegeId = CollegeId;
+            var stored = await _context.CollegeSettings.AsNoTracking()
+                .Where(s => s.CollegeId == collegeId)
+                .Select(s => new { s.ExamFormDeclaration, s.ExamFormNote })
+                .FirstOrDefaultAsync();
+            var text = await ExamFormWording.LoadAsync(_context, collegeId);
+            return new ExamFormWordingView
+            {
+                Declaration = text.Declaration,
+                Note = text.Note,
+                DeclarationIsDefault = string.IsNullOrWhiteSpace(stored?.ExamFormDeclaration),
+                NoteIsDefault = stored?.ExamFormNote == null,
+            };
+        }
+
+        public async Task<ExamFormWordingView> SaveFormWordingAsync(ExamFormWordingInput input)
+        {
+            var collegeId = CollegeId;
+            var declaration = (input.Declaration ?? "").Trim();
+            var note = (input.Note ?? "").Trim();
+            if (declaration.Length > 2000) throw new InvalidOperationException("The declaration can be at most 2000 characters.");
+            if (note.Length > 1000) throw new InvalidOperationException("The note can be at most 1000 characters.");
+
+            var settings = await _context.CollegeSettings.FirstOrDefaultAsync(s => s.CollegeId == collegeId);
+            if (settings == null)
+            {
+                settings = new CollegeSettings { Id = Guid.NewGuid(), CollegeId = collegeId };
+                _context.CollegeSettings.Add(settings);
+            }
+            settings.ExamFormDeclaration = declaration == "" || declaration == ExamFormWording.DefaultDeclaration ? null : declaration;
+            settings.ExamFormNote = input.NoNote ? "" : note == "" || note == ExamFormWording.DefaultNote ? null : note;
+            Audit(collegeId, settings.Id, "ExamFormWordingChanged",
+                $"Exam application form: declaration {(settings.ExamFormDeclaration == null ? "built-in" : "own")}, note {(input.NoNote ? "none" : settings.ExamFormNote == null ? "built-in" : "own")}.");
+            await _context.SaveChangesAsync();
+            return await GetFormWordingAsync();
+        }
 
         public async Task<List<ExamFeeExamDto>> GetExamsAsync(Guid courseId, Guid ayid)
         {

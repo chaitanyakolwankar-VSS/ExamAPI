@@ -29,6 +29,12 @@ namespace ExamAPI.Services.ExamApplications
         public string? LastPaymentStatus { get; set; }
         public string? AssignError { get; set; }
         public bool PaidTwice { get; set; }
+        /// <summary>Has a registration (marks row) in the exam, however it got there.</summary>
+        public bool InExam { get; set; }
+        /// <summary>Put into the exam on the ATKT/Reval Exam screen, with no fee recorded here.</summary>
+        public bool RegisteredByStaff { get; set; }
+        /// <summary>Paid and was registered, but is no longer in the exam (removed on the ATKT/Reval Exam screen).</summary>
+        public bool NotInExam { get; set; }
         public string? Note { get; set; }
     }
 
@@ -46,8 +52,20 @@ namespace ExamAPI.Services.ExamApplications
         public int Paid { get; set; }
         public int Assigned { get; set; }
         public int NeedAttention { get; set; }
+        /// <summary>Registered on the ATKT/Reval Exam screen with no fee recorded here.</summary>
+        public int RegisteredByStaff { get; set; }
         public decimal Collected { get; set; }
         public List<ExamApplicationRow> Rows { get; set; } = new();
+    }
+
+    public class ExamFeeStatusDto
+    {
+        public Guid StdMstId { get; set; }
+        public string Status { get; set; } = "";
+        public string? PaidVia { get; set; }
+        public string? ReceiptNo { get; set; }
+        public decimal Amount { get; set; }
+        public DateTime? PaidAt { get; set; }
     }
 
     public class FeeReportFilter
@@ -90,6 +108,10 @@ namespace ExamAPI.Services.ExamApplications
         /// <summary>Every student with a link or an application for this exam, with where they are.</summary>
         Task<ExamApplicationList> ListAsync(Guid examId);
         Task<ExamApplicationRow> PayAtOfficeAsync(Guid applicationId, string reference);
+        /// <summary>A student put into the exam on the ATKT/Reval Exam screen paid at the office: records the fee (the registration stays as it is).</summary>
+        Task<ExamApplicationRow> RecordOfficePaymentAsync(Guid examId, Guid stdMstId, string reference);
+        /// <summary>Fee status per registered student, for the ATKT/Reval Exam screen.</summary>
+        Task<List<ExamFeeStatusDto>> FeeStatusAsync(Guid examId);
         Task<ExamApplicationRow> RetryAssignAsync(Guid applicationId);
         Task<ExamApplicationRow> CancelAsync(Guid applicationId, string reason);
         /// <summary>A double payment was refunded at the gateway: clears the flag, keeps the note.</summary>
@@ -106,13 +128,16 @@ namespace ExamAPI.Services.ExamApplications
         private readonly IPaymentService _payments;
         private readonly IExamApplicationAssigner _assigner;
         private readonly IPaymentAccountResolver _accounts;
+        private readonly ExamAPI.Services.Files.IFileStorage? _storage;
 
-        public ExamApplicationAdminService(ApplicationDbContext context, IPaymentService payments, IExamApplicationAssigner assigner, IPaymentAccountResolver accounts)
+        public ExamApplicationAdminService(ApplicationDbContext context, IPaymentService payments, IExamApplicationAssigner assigner, IPaymentAccountResolver accounts,
+            ExamAPI.Services.Files.IFileStorage? storage = null)
         {
             _context = context;
             _payments = payments;
             _assigner = assigner;
             _accounts = accounts;
+            _storage = storage;
         }
 
         private Guid CollegeId => _context.CurrentCollegeId
@@ -138,7 +163,11 @@ namespace ExamAPI.Services.ExamApplications
                     .Select(l => new { l.StdMstId, l.Status, l.SentAt, l.OpenedAt, l.CreatedAt }).ToListAsync())
                 .GroupBy(l => l.StdMstId).ToDictionary(g => g.Key, g => g.OrderByDescending(l => l.CreatedAt).First());
 
-            var studentIds = links.Keys.Concat(apps.Select(a => a.StdMstId)).Distinct().ToList();
+            // Everyone registered in the exam, also those put there on the ATKT/Reval Exam screen without an application.
+            var inExam = (await _context.MarksMasters.AsNoTracking()
+                    .Where(m => m.ExamId == examId && m.StdMstId != null)
+                    .Select(m => m.StdMstId!.Value).Distinct().ToListAsync()).ToHashSet();
+            var studentIds = links.Keys.Concat(apps.Select(a => a.StdMstId)).Concat(inExam).Distinct().ToList();
             var students = await _context.StudentMasters.AsNoTracking().Where(s => studentIds.Contains(s.StdMstId)).ToListAsync();
 
             var rows = students.Select(s =>
@@ -162,6 +191,9 @@ namespace ExamAPI.Services.ExamApplications
                     LinkSentAt = Utc(link?.SentAt),
                 };
                 if (app != null) Fill(row, app, lastOrders.TryGetValue(app.Id, out var st) ? st : null);
+                row.InExam = inExam.Contains(s.StdMstId);
+                row.RegisteredByStaff = row.InExam && (row.Status == null || !ExamApplicationStatuses.IsPaid(row.Status));
+                row.NotInExam = row.Status == ExamApplicationStatuses.Assigned && !row.InExam;
                 return row;
             }).OrderBy(r => r.StudentId).ToList();
 
@@ -178,7 +210,8 @@ namespace ExamAPI.Services.ExamApplications
                 Applied = rows.Count(r => r.Status != null && r.Status != ExamApplicationStatuses.Cancelled),
                 Paid = rows.Count(r => r.Status != null && ExamApplicationStatuses.IsPaid(r.Status)),
                 Assigned = rows.Count(r => r.Status == ExamApplicationStatuses.Assigned),
-                NeedAttention = rows.Count(r => r.Status == ExamApplicationStatuses.AssignFailed || r.PaidTwice),
+                NeedAttention = rows.Count(r => r.Status == ExamApplicationStatuses.AssignFailed || r.PaidTwice || r.NotInExam),
+                RegisteredByStaff = rows.Count(r => r.RegisteredByStaff),
                 Collected = rows.Where(r => r.Status != null && ExamApplicationStatuses.IsPaid(r.Status)).Sum(r => r.Amount ?? 0),
                 Rows = rows,
             };
@@ -235,11 +268,78 @@ namespace ExamAPI.Services.ExamApplications
             return await RowAsync(applicationId);
         }
 
+        public async Task<ExamApplicationRow> RecordOfficePaymentAsync(Guid examId, Guid stdMstId, string reference)
+        {
+            var collegeId = CollegeId;
+            var exam = await _context.Exams.AsNoTracking().FirstOrDefaultAsync(e => e.ExamId == examId)
+                ?? throw new KeyNotFoundException("Exam not found.");
+            var kind = ExamFeeService.KindOf(exam) ?? throw new InvalidOperationException("Fees can be recorded only for an A.T.K.T, Re-Exam or Revaluation exam.");
+            var marks = await _context.MarksMasters.AsNoTracking().Include(m => m.StudentMarks)
+                .FirstOrDefaultAsync(m => m.ExamId == examId && m.StdMstId == stdMstId)
+                ?? throw new InvalidOperationException("This student is not registered in the exam. Register them on the ATKT/Reval Exam screen first.");
+            if (await _context.ExamApplications.AnyAsync(a => a.StdMstId == stdMstId && a.TargetExamId == examId
+                    && a.Status != ExamApplicationStatuses.Cancelled && a.Status != ExamApplicationStatuses.Refunded))
+                throw new InvalidOperationException("This student already has an application for this exam: use its own buttons.");
+            // The subjects being sat are those with fresh (not carried forward) parts in the registration.
+            var subjects = (marks.StudentMarks ?? new List<StudentMarks>())
+                .Where(sm => !sm.IsDeleted && !sm.IsCarryForward && sm.SubjectId != null)
+                .Select(sm => sm.SubjectId!.Value).Distinct().ToList();
+            if (subjects.Count == 0) throw new InvalidOperationException("The registration has no subjects being sat.");
+
+            var app = new ExamApplication
+            {
+                Id = Guid.NewGuid(),
+                CollegeId = collegeId,
+                StdMstId = stdMstId,
+                TargetExamId = examId,
+                SourceExamId = kind == ExamApplicationKinds.Revaluation ? exam.RevaluationForExamId : null,
+                Kind = kind,
+                SemesterId = marks.SemesterId,
+                Pattern = marks.Pattern,
+                Note = "Registered by staff on the ATKT/Reval Exam screen; fee taken at the office.",
+            };
+            foreach (var id in subjects)
+                app.Subjects.Add(new ExamApplicationSubject { Id = Guid.NewGuid(), CollegeId = collegeId, ApplicationId = app.Id, SubjectId = id });
+            _context.ExamApplications.Add(app);
+            await _context.SaveChangesAsync();
+
+            var paid = await _payments.PayAtOfficeAsync(app.Id, reference, alreadyInExam: true);
+            Audit(paid.Id, "ExamApplicationPaidAtOffice", $"Staff registration, paid at the office: Rs. {FeeCalculator.Money(paid.AmountDue)}, reference {paid.PaymentReference}, receipt {paid.ReceiptNo}.");
+            await _context.SaveChangesAsync();
+            return await RowAsync(app.Id);
+        }
+
+        public async Task<List<ExamFeeStatusDto>> FeeStatusAsync(Guid examId)
+        {
+            _ = CollegeId;
+            var apps = await _context.ExamApplications.AsNoTracking()
+                .Where(a => a.TargetExamId == examId && a.Status != ExamApplicationStatuses.Cancelled)
+                .OrderByDescending(a => a.CreatedAt)
+                .ToListAsync();
+            return apps.GroupBy(a => a.StdMstId).Select(g =>
+            {
+                var a = g.OrderBy(x => x.Status == ExamApplicationStatuses.Refunded ? 1 : 0).First();
+                return new ExamFeeStatusDto
+                {
+                    StdMstId = a.StdMstId, Status = a.Status, PaidVia = a.PaidVia, ReceiptNo = a.ReceiptNo, Amount = a.AmountDue, PaidAt = Utc(a.PaidAt),
+                };
+            }).ToList();
+        }
+
         public async Task<ExamApplicationRow> RetryAssignAsync(Guid applicationId)
         {
             var app = await OwnAsync(applicationId);
-            if (app.Status is not (ExamApplicationStatuses.Paid or ExamApplicationStatuses.AssignFailed))
-                throw new InvalidOperationException(app.Status == ExamApplicationStatuses.Assigned ? "This student is already in the exam." : "Only a paid application can be put into the exam.");
+            if (app.Status == ExamApplicationStatuses.Assigned)
+            {
+                // Removed on the ATKT/Reval Exam screen after paying: register them again with what they paid for.
+                if (await _context.MarksMasters.AnyAsync(m => m.ExamId == app.TargetExamId && m.StdMstId == app.StdMstId))
+                    throw new InvalidOperationException("This student is already in the exam.");
+                app.Status = ExamApplicationStatuses.Paid;
+                app.ConcurrencyStamp = Guid.NewGuid();
+                await _context.SaveChangesAsync();
+            }
+            else if (app.Status is not (ExamApplicationStatuses.Paid or ExamApplicationStatuses.AssignFailed))
+                throw new InvalidOperationException("Only a paid application can be put into the exam.");
             await _assigner.AssignAsync(applicationId);
             _context.ChangeTracker.Clear();
             return await RowAsync(applicationId);
@@ -278,7 +378,7 @@ namespace ExamAPI.Services.ExamApplications
         {
             var app = await OwnAsync(applicationId);
             if (!ExamApplicationStatuses.IsPaid(app.Status)) throw new InvalidOperationException("The receipt is ready once the fee is paid.");
-            return (await ExamReceiptPdf.BuildAsync(_context, app.Id), $"Receipt-{(app.ReceiptNo ?? "exam").Replace('/', '-')}.pdf");
+            return (await ExamReceiptPdf.BuildAsync(_context, _storage, app.Id), $"Application-and-receipt-{(app.ReceiptNo ?? "exam").Replace('/', '-')}.pdf");
         }
 
         public async Task<FeeReport> ReportAsync(FeeReportFilter filter)

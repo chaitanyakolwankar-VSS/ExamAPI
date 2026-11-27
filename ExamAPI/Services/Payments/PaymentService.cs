@@ -36,7 +36,7 @@ namespace ExamAPI.Services.Payments
         string ResultUrl(PaymentOrder order);
 
         /// <summary>Staff: a draft application paid at the college office (reference = the office receipt). Then assigned.</summary>
-        Task<ExamApplication> PayAtOfficeAsync(Guid applicationId, string reference, CancellationToken ct = default);
+        Task<ExamApplication> PayAtOfficeAsync(Guid applicationId, string reference, CancellationToken ct = default, bool alreadyInExam = false);
 
         /// <summary>What this application costs now (its subjects, the student's category, the late fee if due).</summary>
         Task<FeeBreakdown> FeeAsync(ExamApplication app, CancellationToken ct = default);
@@ -350,7 +350,7 @@ namespace ExamAPI.Services.Payments
             return Math.Max(due.Count, stale.Count);
         }
 
-        public async Task<ExamApplication> PayAtOfficeAsync(Guid applicationId, string reference, CancellationToken ct = default)
+        public async Task<ExamApplication> PayAtOfficeAsync(Guid applicationId, string reference, CancellationToken ct = default, bool alreadyInExam = false)
         {
             var refText = (reference ?? "").Trim();
             if (refText == "") throw new InvalidOperationException("Enter the office receipt number or reference.");
@@ -367,6 +367,13 @@ namespace ExamAPI.Services.Payments
             app.FeeBreakdownJson = JsonSerializer.Serialize(fee);
             app.PaymentReference = refText;
             await MarkPaidAsync(app, fee.Total == 0 ? PaidVia.Waived : PaidVia.Office, Now, ct);
+            if (alreadyInExam)
+            {
+                // Registered by staff already: keep their registration (it may name single parts) as it is.
+                app.Status = ExamApplicationStatuses.Assigned;
+                app.AssignedAt = Now;
+                _justPaid.Remove(app.Id);
+            }
             await _context.SaveChangesAsync(ct);
             await AssignJustPaidAsync(ct);
             return await LoadApplicationAsync(applicationId, ct);

@@ -3,8 +3,10 @@
   automatic registration, fee report) and payment gateway accounts. Run ONCE in SSMS on the database GradeSphereApp,
   AFTER LiveUpdate-Billing.sql, after stopping the API app pool and before copying the new API files. Safe to run
   again: the migration checks __EFMigrationsHistory and is skipped when already done.
-  Adds 1 migration (AddExamApplicationsAndPayments): 7 new tables (ExamFeeSetup, ExamFeeCategoryRate, ExamApplication,
-  ExamApplicationSubject, PaymentOrder, PaymentAccount, ReceiptCounter), one new nullable column TaskBatch.Pattern, and
+  Adds 2 migrations (AddExamApplicationsAndPayments, AddExamFormWording): 7 new tables (ExamFeeSetup, ExamFeeCategoryRate, ExamApplication,
+  ExamApplicationSubject, PaymentOrder, PaymentAccount, ReceiptCounter), new nullable columns TaskBatch.Pattern and
+  CollegeSettings.ExamFormDeclaration / ExamFormNote (the application form wording; empty = built-in text) and
+  ExamApplication.DeclaredAt, and
   renames the reserved student-link type ATKT_PAYMENT to "Apply for exam" (open until the closing date). Nothing
   existing is removed. Then adds the Exam Fees and Exam Applications screens to the permission catalog.
   Online payment stays off until a gateway account is saved on the Platform page (T-79).
@@ -344,6 +346,39 @@ IF NOT EXISTS (
 BEGIN
     INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
     VALUES (N'20261127085711_AddExamApplicationsAndPayments', N'9.0.2');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261127110620_AddExamFormWording'
+)
+BEGIN
+    ALTER TABLE [ExamApplication] ADD [DeclaredAt] datetime2 NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261127110620_AddExamFormWording'
+)
+BEGIN
+    ALTER TABLE [CollegeSettings] ADD [ExamFormDeclaration] nvarchar(2000) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261127110620_AddExamFormWording'
+)
+BEGIN
+    ALTER TABLE [CollegeSettings] ADD [ExamFormNote] nvarchar(1000) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261127110620_AddExamFormWording'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261127110620_AddExamFormWording', N'9.0.2');
 END;
 
 COMMIT;
