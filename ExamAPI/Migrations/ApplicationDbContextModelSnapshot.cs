@@ -867,7 +867,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("StdMstId", "TargetExamId")
                         .IsUnique()
-                        .HasFilter("[IsDeleted] = 0 AND [Status] NOT IN ('Cancelled', 'Refunded')");
+                        .HasFilter("[IsDeleted] = 0 AND [Status] <> 'Cancelled' AND [Status] <> 'Refunded'");
 
                     b.HasIndex("CollegeId", "TargetExamId", "Status");
 

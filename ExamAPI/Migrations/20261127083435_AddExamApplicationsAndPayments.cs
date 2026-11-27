@@ -270,7 +270,7 @@ namespace ExamAPI.Migrations
                 table: "ExamApplication",
                 columns: new[] { "StdMstId", "TargetExamId" },
                 unique: true,
-                filter: "[IsDeleted] = 0 AND [Status] NOT IN ('Cancelled', 'Refunded')");
+                filter: "[IsDeleted] = 0 AND [Status] <> 'Cancelled' AND [Status] <> 'Refunded'");
 
             migrationBuilder.CreateIndex(
                 name: "IX_ExamApplication_TargetExamId",

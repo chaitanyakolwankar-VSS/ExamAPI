@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace ExamAPI.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261127082550_AddExamApplicationsAndPayments")]
+    [Migration("20261127083435_AddExamApplicationsAndPayments")]
     partial class AddExamApplicationsAndPayments
     {
         /// <inheritdoc />
@@ -870,7 +870,7 @@ namespace ExamAPI.Migrations
 
                     b.HasIndex("StdMstId", "TargetExamId")
                         .IsUnique()
-                        .HasFilter("[IsDeleted] = 0 AND [Status] NOT IN ('Cancelled', 'Refunded')");
+                        .HasFilter("[IsDeleted] = 0 AND [Status] <> 'Cancelled' AND [Status] <> 'Refunded'");
 
                     b.HasIndex("CollegeId", "TargetExamId", "Status");
 

@@ -25,7 +25,7 @@ namespace ExamAPI.Data
             app.HasMany(a => a.Subjects).WithOne().HasForeignKey(s => s.ApplicationId).OnDelete(DeleteBehavior.Cascade);
             // One open application per student per exam; a cancelled or refunded one does not block a new one.
             app.HasIndex(a => new { a.StdMstId, a.TargetExamId }).IsUnique()
-                .HasFilter("[IsDeleted] = 0 AND [Status] NOT IN ('Cancelled', 'Refunded')");
+                .HasFilter("[IsDeleted] = 0 AND [Status] <> 'Cancelled' AND [Status] <> 'Refunded'"); // filtered indexes allow no NOT IN
             app.HasIndex(a => new { a.CollegeId, a.TargetExamId, a.Status });
 
             var subject = modelBuilder.Entity<ExamApplicationSubject>();
