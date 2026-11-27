@@ -113,6 +113,9 @@ namespace ExamAPI.Services.ExamApplications
         public static string DisplayName(ExamMaster exam) =>
             exam.RevaluationForExamId != null ? $"{exam.Name} (Revaluation)" : exam.Name;
 
+        /// <summary>Times are stored in UTC; SQL Server gives them back without that mark, so the browser would read them as local.</summary>
+        private static DateTime? Utc(DateTime? value) => value == null ? null : DateTime.SpecifyKind(value.Value, DateTimeKind.Utc);
+
         private Guid CollegeId => _context.CurrentCollegeId
             ?? throw new UnauthorizedAccessException("Sign in as staff of a college to set exam fees.");
 
@@ -140,8 +143,8 @@ namespace ExamAPI.Services.ExamApplications
                     Kind = kind,
                     KindLabel = ExamApplicationKinds.Label(kind),
                     HasSetup = s != null,
-                    OpensAt = s?.OpensAt,
-                    ClosesAt = s?.ClosesAt,
+                    OpensAt = Utc(s?.OpensAt),
+                    ClosesAt = Utc(s?.ClosesAt),
                     PerSubjectFee = s?.PerSubjectFee,
                     Applications = c.Applications,
                     Paid = c.Paid,
@@ -176,13 +179,13 @@ namespace ExamAPI.Services.ExamApplications
             };
             if (setup == null) return view;
 
-            view.OpensAt = setup.OpensAt;
-            view.ClosesAt = setup.ClosesAt;
+            view.OpensAt = Utc(setup.OpensAt);
+            view.ClosesAt = Utc(setup.ClosesAt);
             view.PerSubjectFee = setup.PerSubjectFee;
             view.MaxSubjectFee = setup.MaxSubjectFee;
             view.FixedFee = setup.FixedFee;
             view.FixedFeeLabel = setup.FixedFeeLabel;
-            view.LateFeeFrom = setup.LateFeeFrom;
+            view.LateFeeFrom = Utc(setup.LateFeeFrom);
             view.LateFee = setup.LateFee;
             view.Notes = setup.Notes;
             view.CategoryRates = setup.CategoryRates

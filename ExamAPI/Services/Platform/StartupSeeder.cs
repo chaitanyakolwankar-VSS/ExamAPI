@@ -37,6 +37,7 @@ namespace ExamAPI.Services.Platform
             ("Staff Admin", "Billing"),
             ("Conduct Exam", "Regular Exam"),
             ("Conduct Exam", "ATKT/Reval Exam"),
+            ("Conduct Exam", "Exam Fees"),
             ("Conduct Exam", "Assign Seat No"),
             ("Marks Entry", "Enter Marks"),
             ("Marks Entry", "Apply Grace Marks"),
