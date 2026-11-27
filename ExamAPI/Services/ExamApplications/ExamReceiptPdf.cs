@@ -33,7 +33,11 @@ namespace ExamAPI.Services.ExamApplications
 
         private sealed record SubjectLine(string Code, string Name, HashSet<string> Fresh, HashSet<string> All);
 
-        public static async Task<byte[]> BuildAsync(ApplicationDbContext db, IFileStorage? storage, Guid applicationId, ExamDocumentParts parts = ExamDocumentParts.Both)
+        public static async Task<byte[]> BuildAsync(ApplicationDbContext db, IFileStorage? storage, Guid applicationId, ExamDocumentParts parts = ExamDocumentParts.Both) =>
+            (await ComposeAsync(db, storage, applicationId, parts)).GeneratePdf();
+
+        /// <summary>The document itself (tests render it to images).</summary>
+        public static async Task<IDocument> ComposeAsync(ApplicationDbContext db, IFileStorage? storage, Guid applicationId, ExamDocumentParts parts = ExamDocumentParts.Both)
         {
             var app = await db.ExamApplications.IgnoreQueryFilters().AsNoTracking()
                 .Include(a => a.Subjects).Include(a => a.Student).Include(a => a.TargetExam)
@@ -58,7 +62,7 @@ namespace ExamAPI.Services.ExamApplications
             {
                 if (parts != ExamDocumentParts.Receipt) doc.Page(p => FormPage(p, data));
                 if (parts != ExamDocumentParts.Form) doc.Page(p => ReceiptPage(p, data));
-            }).GeneratePdf();
+            });
         }
 
         private sealed record Doc(
