@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using ExamAPI.Data;
 using ExamAPI.Models;
+using ExamAPI.Services.Email;
 using ExamAPI.Services.ExamApplications;
 using Microsoft.EntityFrameworkCore;
 
@@ -33,6 +34,12 @@ namespace ExamAPI.Services.Payments
 
         /// <summary>Where the browser goes after the gateway: the student site's result page for this order.</summary>
         string ResultUrl(PaymentOrder order);
+
+        /// <summary>Staff: a draft application paid at the college office (reference = the office receipt). Then assigned.</summary>
+        Task<ExamApplication> PayAtOfficeAsync(Guid applicationId, string reference, CancellationToken ct = default);
+
+        /// <summary>What this application costs now (its subjects, the student's category, the late fee if due).</summary>
+        Task<FeeBreakdown> FeeAsync(ExamApplication app, CancellationToken ct = default);
     }
 
     /// <summary>
@@ -53,13 +60,29 @@ namespace ExamAPI.Services.Payments
         private readonly IPaymentAccountResolver _accounts;
         private readonly TimeProvider _clock;
         private readonly ILogger<PaymentService>? _logger;
+        private readonly IExamApplicationAssigner? _assigner;
+        private readonly IEmailOutbox? _outbox;
 
-        public PaymentService(ApplicationDbContext context, IPaymentAccountResolver accounts, TimeProvider? clock = null, ILogger<PaymentService>? logger = null)
+        public PaymentService(ApplicationDbContext context, IPaymentAccountResolver accounts, TimeProvider? clock = null,
+            ILogger<PaymentService>? logger = null, IExamApplicationAssigner? assigner = null, IEmailOutbox? outbox = null)
         {
             _context = context;
             _accounts = accounts;
             _clock = clock ?? TimeProvider.System;
             _logger = logger;
+            _assigner = assigner;
+            _outbox = outbox;
+        }
+
+        /// <summary>Applications marked paid in this unit of work: put into the exam once it is saved.</summary>
+        private readonly List<Guid> _justPaid = new();
+
+        private async Task AssignJustPaidAsync(CancellationToken ct)
+        {
+            var ids = _justPaid.ToList();
+            _justPaid.Clear();
+            if (_assigner == null) return;
+            foreach (var id in ids) await _assigner.AssignAsync(id, ct);
         }
 
         private DateTime Now => _clock.GetUtcNow().UtcDateTime;
@@ -109,6 +132,7 @@ namespace ExamAPI.Services.Payments
             {
                 await MarkPaidAsync(app, PaidVia.Waived, now, ct);
                 await _context.SaveChangesAsync(ct);
+                await AssignJustPaidAsync(ct);
                 return new StartPaymentResult { Paid = true, Amount = 0 };
             }
 
@@ -171,9 +195,12 @@ namespace ExamAPI.Services.Payments
             for (var attempt = 0; ; attempt++)
             {
                 _context.ChangeTracker.Clear();
+                _justPaid.Clear();
                 try
                 {
-                    return await ConfirmOnceAsync(orderNo, ct);
+                    var order = await ConfirmOnceAsync(orderNo, ct);
+                    await AssignJustPaidAsync(ct);
+                    return order;
                 }
                 catch (DbUpdateConcurrencyException) when (attempt < 3)
                 {
@@ -306,7 +333,54 @@ namespace ExamAPI.Services.Payments
                     _logger?.LogError(ex, "Payment re-check failed for order {OrderNo}", no);
                 }
             }
-            return due.Count;
+
+            // Paid but not put into the exam (the server stopped in between): try again. AssignFailed waits for staff.
+            var stale = new List<Guid>();
+            if (_assigner != null)
+            {
+                var cutoff = now.AddMinutes(-2);
+                stale = await _context.ExamApplications.IgnoreQueryFilters().AsNoTracking()
+                    .Where(a => !a.IsDeleted && a.Status == ExamApplicationStatuses.Paid && a.PaidAt != null && a.PaidAt < cutoff)
+                    .OrderBy(a => a.PaidAt)
+                    .Select(a => a.Id)
+                    .Take(batch)
+                    .ToListAsync(ct);
+                foreach (var id in stale) await _assigner.AssignAsync(id, ct);
+            }
+            return Math.Max(due.Count, stale.Count);
+        }
+
+        public async Task<ExamApplication> PayAtOfficeAsync(Guid applicationId, string reference, CancellationToken ct = default)
+        {
+            var refText = (reference ?? "").Trim();
+            if (refText == "") throw new InvalidOperationException("Enter the office receipt number or reference.");
+            if (refText.Length > 100) throw new InvalidOperationException("The reference can be at most 100 characters.");
+            _context.ChangeTracker.Clear();
+            _justPaid.Clear();
+            var app = await LoadApplicationAsync(applicationId, ct);
+            if (app.Status != ExamApplicationStatuses.Draft)
+                throw new InvalidOperationException(ExamApplicationStatuses.IsPaid(app.Status) ? "This application is already paid." : "This application was cancelled.");
+            if (app.Subjects.Count == 0) throw new InvalidOperationException("The application has no subjects.");
+            // The office may take a payment after the closing date: the window is not checked here.
+            var fee = await FeeAsync(app, ct);
+            app.AmountDue = fee.Total;
+            app.FeeBreakdownJson = JsonSerializer.Serialize(fee);
+            app.PaymentReference = refText;
+            await MarkPaidAsync(app, fee.Total == 0 ? PaidVia.Waived : PaidVia.Office, Now, ct);
+            await _context.SaveChangesAsync(ct);
+            await AssignJustPaidAsync(ct);
+            return await LoadApplicationAsync(applicationId, ct);
+        }
+
+        public async Task<FeeBreakdown> FeeAsync(ExamApplication app, CancellationToken ct = default)
+        {
+            var setup = await _context.ExamFeeSetups.IgnoreQueryFilters()
+                .Include(s => s.CategoryRates)
+                .FirstOrDefaultAsync(s => s.ExamId == app.TargetExamId && s.CollegeId == app.CollegeId && !s.IsDeleted, ct)
+                ?? throw new InvalidOperationException("The fee for this exam has not been set yet. Please contact the exam office.");
+            var category = app.Student?.Category
+                ?? await _context.StudentMasters.IgnoreQueryFilters().Where(s => s.StdMstId == app.StdMstId).Select(s => s.Category).FirstOrDefaultAsync(ct);
+            return FeeCalculator.Compute(setup, category, app.Subjects.Count, Now);
         }
 
         // =====================================================================
@@ -314,13 +388,40 @@ namespace ExamAPI.Services.Payments
         // =====================================================================
 
         /// <summary>Paid: status, time, how, and the next receipt number of its series.</summary>
-        private async Task MarkPaidAsync(ExamApplication app, string via, DateTime at, CancellationToken ct)
+        public async Task MarkPaidAsync(ExamApplication app, string via, DateTime at, CancellationToken ct = default)
         {
             app.Status = ExamApplicationStatuses.Paid;
             app.PaidAt = at;
             app.PaidVia = via;
             app.ReceiptNo ??= await NextReceiptNoAsync(app, ct);
             app.ConcurrencyStamp = Guid.NewGuid();
+            _justPaid.Add(app.Id);
+
+            // The link counts as used (staff see "paid"); it stays open for the receipt until the closing date.
+            if (app.TaskLinkId != null)
+            {
+                var link = await _context.TaskLinks.IgnoreQueryFilters().FirstOrDefaultAsync(l => l.Id == app.TaskLinkId, ct);
+                if (link != null) link.UsedAt ??= at;
+            }
+            QueueReceiptEmail(app, via);
+        }
+
+        /// <summary>"Payment received" to the student (the receipt PDF stays on their link).</summary>
+        private void QueueReceiptEmail(ExamApplication app, string via)
+        {
+            var to = app.Student?.Email;
+            if (_outbox == null || app.CollegeId == null || string.IsNullOrWhiteSpace(to)) return;
+            var name = string.IsNullOrWhiteSpace(app.Student!.FirstName) ? "Student" : app.Student.FirstName.Trim();
+            var exam = $"{app.TargetExam?.Name} ({ExamApplicationKinds.Label(app.Kind)})";
+            var what = via == PaidVia.Waived ? "Your application was accepted (no fee for your category)" : $"We received your payment of ₹{FeeCalculator.Money(app.AmountDue)}";
+            var e = (Func<string, string>)System.Net.WebUtility.HtmlEncode;
+            var html = $"<p>Dear {e(name)},</p><p>{e(what)} for <b>{e(exam)}</b>.</p>"
+                       + $"<p>Receipt number: <b>{e(app.ReceiptNo ?? "")}</b></p>"
+                       + "<p>You can download the receipt and your application from the same link you applied with, until applications close.</p>";
+            var text = $"Dear {name},\n\n{what} for {exam}.\n\nReceipt number: {app.ReceiptNo}\n\n"
+                       + "You can download the receipt and your application from the same link you applied with, until applications close.";
+            _outbox.Enqueue(app.CollegeId.Value, EmailKinds.Plain, app.Id, to!, EmailPriorities.High,
+                $"Receipt {app.ReceiptNo}: {exam}", html, text);
         }
 
         /// <summary>e.g. "AT/2026-27/00012": per college, kind and academic year. The counter is checked on save, so two payments never get one number.</summary>

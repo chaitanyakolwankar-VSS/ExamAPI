@@ -41,6 +41,37 @@ namespace ExamAPI.Services.StudentAccess
         public string? AppUrl { get; set; }
     }
 
+    /// <summary>Exam application links: the class (for the subject rules) and the ATKT, Re-Exam or Revaluation exam.</summary>
+    public class ExamApplicationLinksRequest
+    {
+        public Guid Ayid { get; set; }
+        public Guid CourseId { get; set; }
+        public string Semester { get; set; } = "";
+        public string Pattern { get; set; } = "";
+        public Guid ExamId { get; set; }
+        /// <summary>One student by Student ID; empty = everyone who may apply.</summary>
+        public string? Student { get; set; }
+        /// <summary>Leave out students who have paid already.</summary>
+        public bool OnlyNotPaid { get; set; } = true;
+        public string? AppUrl { get; set; }
+    }
+
+    public class ExamApplicationSendPreview
+    {
+        /// <summary>Students the rules let apply.</summary>
+        public int Students { get; set; }
+        public int Sendable { get; set; }
+        public int NoEmail { get; set; }
+        public int Flagged { get; set; }
+        public int Inactive { get; set; }
+        public int Paid { get; set; }
+        /// <summary>With a working link now.</summary>
+        public int Emailed { get; set; }
+        public DateTime? LastSentAt { get; set; }
+        public bool FeesSet { get; set; }
+        public DateTime? ClosesAt { get; set; }
+    }
+
     public class SendLinksResult
     {
         public Guid BatchId { get; set; }
@@ -138,6 +169,8 @@ namespace ExamAPI.Services.StudentAccess
         /// <summary>Emails each student with this exam's hall ticket (or the one student) the link to it.</summary>
         Task<SendLinksResult> SendHallTicketsAsync(HallTicketLinksRequest request, string linkBaseUrl);
         Task<HallTicketSendPreview> PreviewHallTicketsAsync(HallTicketLinksRequest request);
+        Task<SendLinksResult> SendExamApplicationsAsync(ExamApplicationLinksRequest request, string linkBaseUrl);
+        Task<ExamApplicationSendPreview> PreviewExamApplicationsAsync(ExamApplicationLinksRequest request);
         Task<List<LinkBatchRow>> ListBatchesAsync(LinkBatchFilter filter);
         Task<LinkBatchDetail> GetBatchAsync(Guid batchId);
         Task<LinkBatchDetail> SetDeadlineAsync(Guid batchId, DateTime date);
@@ -167,14 +200,127 @@ namespace ExamAPI.Services.StudentAccess
         private readonly IEmailOutbox _outbox;
         private readonly IEmailAccountResolver _accounts;
         private readonly IGenerateHallTicketService _hallTickets;
+        private readonly ExamAPI.Services.AtktRevalExam.IAtktRevalExamService? _atkt;
 
-        public TaskLinkService(ApplicationDbContext context, IEmailOutbox outbox, IEmailAccountResolver accounts, IGenerateHallTicketService hallTickets)
+        public TaskLinkService(ApplicationDbContext context, IEmailOutbox outbox, IEmailAccountResolver accounts, IGenerateHallTicketService hallTickets,
+            ExamAPI.Services.AtktRevalExam.IAtktRevalExamService? atkt = null)
         {
             _context = context;
             _outbox = outbox;
             _accounts = accounts;
             _hallTickets = hallTickets;
+            _atkt = atkt;
         }
+
+        // =====================================================================
+        // Exam applications (ATKT / Re-Exam / Revaluation): one link per student who may apply
+        // =====================================================================
+
+        public async Task<SendLinksResult> SendExamApplicationsAsync(ExamApplicationLinksRequest request, string linkBaseUrl)
+        {
+            var collegeId = CollegeId;
+            await EnsureSenderAsync(collegeId);
+            var (exam, setup, students) = await ApplicationStudentsAsync(request);
+            if (setup == null) throw new InvalidOperationException("Set the fees and dates for this exam first (Exam Fees).");
+            if (setup.ClosesAt <= DateTime.UtcNow) throw new InvalidOperationException("Applications for this exam have closed. Move the closing date in Exam Fees first.");
+            if (request.OnlyNotPaid)
+            {
+                var paid = await PaidStudentsAsync(exam.ExamId, students.Select(s => s.StdMstId).ToList());
+                students = students.Where(s => !paid.Contains(s.StdMstId)).ToList();
+                if (students.Count == 0) throw new InvalidOperationException("Everyone who can apply has paid already.");
+            }
+
+            var kind = ExamAPI.Services.ExamApplications.ExamFeeService.KindOf(exam)!;
+            var label = ExamApplicationKinds.Label(kind);
+            var single = string.IsNullOrWhiteSpace(request.Student) ? null : students[0];
+            var examName = ExamAPI.Services.ExamApplications.ExamFeeService.DisplayName(exam);
+            var title = single != null
+                ? $"{label} application — {examName} — {StudentNames.Display(single)} ({single.StudentId})"
+                : $"{label} application — {examName} — {await ClassNameAsync(request.CourseId, request.Semester)}";
+            var batch = new TaskBatch
+            {
+                Id = Guid.NewGuid(),
+                CollegeId = collegeId,
+                TaskTypeCode = TaskTypes.AtktPayment,
+                Title = title.Length > 200 ? title[..200] : title,
+                Deadline = setup.ClosesAt,
+                CourseId = request.CourseId,
+                SemesterId = request.Semester,
+                AYID = request.Ayid,
+                Pattern = request.Pattern,
+                RefId = exam.ExamId,
+                EditableFields = "",
+                LinkBaseUrl = linkBaseUrl,
+            };
+            return await QueueBatchAsync(batch, students, single != null);
+        }
+
+        public async Task<ExamApplicationSendPreview> PreviewExamApplicationsAsync(ExamApplicationLinksRequest request)
+        {
+            _ = CollegeId;
+            var (exam, setup, students) = await ApplicationStudentsAsync(request);
+            var ids = students.Select(s => s.StdMstId).ToList();
+            var now = DateTime.UtcNow;
+            var links = await _context.TaskLinks
+                .Where(l => l.TaskTypeCode == TaskTypes.AtktPayment && l.RefId == exam.ExamId && ids.Contains(l.StdMstId))
+                .Select(l => new { l.StdMstId, l.Status, l.ExpiresAt, l.CreatedAt })
+                .ToListAsync();
+            var paid = await PaidStudentsAsync(exam.ExamId, ids);
+            return new ExamApplicationSendPreview
+            {
+                Students = students.Count,
+                Sendable = students.Count(Sendable),
+                Inactive = students.Count(s => !s.IsActive),
+                NoEmail = students.Count(s => s.IsActive && s.Email == null),
+                Flagged = students.Count(s => s.IsActive && s.Email != null && s.EmailStatus == EmailVerification.Flagged),
+                Paid = paid.Count,
+                Emailed = links.Where(l => l.Status == TaskLinkStatuses.Active && l.ExpiresAt > now).Select(l => l.StdMstId).Distinct().Count(),
+                LastSentAt = links.Count == 0 ? null : DateTime.SpecifyKind(links.Max(l => l.CreatedAt), DateTimeKind.Utc),
+                FeesSet = setup != null,
+                ClosesAt = setup == null ? null : DateTime.SpecifyKind(setup.ClosesAt, DateTimeKind.Utc),
+            };
+        }
+
+        /// <summary>The target exam, its fee setup and the students the rules let apply (the ATKT/Reval Exam screen's candidates).</summary>
+        private async Task<(ExamMaster Exam, ExamFeeSetup? Setup, List<StudentMaster> Students)> ApplicationStudentsAsync(ExamApplicationLinksRequest request)
+        {
+            if (_atkt == null) throw new InvalidOperationException("Exam applications are not available on this server.");
+            if (string.IsNullOrWhiteSpace(request.Semester) || string.IsNullOrWhiteSpace(request.Pattern))
+                throw new InvalidOperationException("Choose the semester and pattern.");
+            var exam = await _context.Exams.FirstOrDefaultAsync(e => e.ExamId == request.ExamId)
+                ?? throw new InvalidOperationException("Exam not found.");
+            var kind = ExamAPI.Services.ExamApplications.ExamFeeService.KindOf(exam)
+                ?? throw new InvalidOperationException("Students can apply only for an A.T.K.T, Re-Exam or Revaluation exam.");
+            var setup = await _context.ExamFeeSetups.FirstOrDefaultAsync(s => s.ExamId == exam.ExamId);
+            var matrix = await _atkt.GetMatrixAsync(new DTOs.AtktMatrixRequest
+            {
+                CourseId = request.CourseId,
+                Ayid = request.Ayid,
+                Semester = request.Semester,
+                Pattern = request.Pattern,
+                Mode = kind == ExamApplicationKinds.Revaluation ? AssignmentModes.Revaluation : AssignmentModes.Atkt,
+                SourceExamId = kind == ExamApplicationKinds.Revaluation ? exam.RevaluationForExamId : null,
+                TargetExamId = exam.ExamId,
+            });
+            if (!matrix.Success && matrix.Students.Count == 0)
+                throw new InvalidOperationException(string.IsNullOrWhiteSpace(matrix.Message) ? "No students can apply for this exam." : matrix.Message);
+            var ids = matrix.Students.Where(r => r.Cells.Any(c => c.Selectable)).Select(r => r.StdMstId).ToList();
+            var query = _context.StudentMasters.Where(s => ids.Contains(s.StdMstId));
+            var single = string.IsNullOrWhiteSpace(request.Student) ? null : request.Student.Trim();
+            if (single != null) query = query.Where(s => s.StudentId == single);
+            var students = await query.ToListAsync();
+            if (students.Count == 0)
+                throw new InvalidOperationException(single != null
+                    ? $"Student {single} has nothing to apply for in this exam (or is already registered)."
+                    : "No students of this class can apply for this exam.");
+            return (exam, setup, students);
+        }
+
+        private async Task<HashSet<Guid>> PaidStudentsAsync(Guid examId, List<Guid> stdMstIds) =>
+            (await _context.ExamApplications
+                .Where(a => a.TargetExamId == examId && stdMstIds.Contains(a.StdMstId)
+                            && (a.Status == ExamApplicationStatuses.Paid || a.Status == ExamApplicationStatuses.Assigned || a.Status == ExamApplicationStatuses.AssignFailed))
+                .Select(a => a.StdMstId).Distinct().ToListAsync()).ToHashSet();
 
         /// <summary>The last second of a local calendar day, in UTC (links "work until 2 Nov").</summary>
         public static DateTime EndOfLocalDay(DateTime localDate) =>

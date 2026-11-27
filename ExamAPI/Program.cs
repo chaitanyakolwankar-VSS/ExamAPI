@@ -26,6 +26,7 @@ builder.Services.AddHttpContextAccessor();
 
 // Tenant identity, read from the JWT. ApplicationDbContext depends on this to build its
 // global college query filter, so it must be registered before the DbContext.
+builder.Services.AddScoped<ExamAPI.Services.Tenancy.TenantScope>(); // empty unless a background scope acts for a college
 builder.Services.AddScoped<ExamAPI.Services.Tenancy.ICurrentUser, ExamAPI.Services.Tenancy.CurrentUser>();
 
 //  connection string
@@ -116,6 +117,9 @@ builder.Services.AddScoped<ExamAPI.Services.Payments.IPaymentAccountResolver>(sp
 builder.Services.AddScoped<ExamAPI.Services.Payments.IPaymentAccountService, ExamAPI.Services.Payments.PaymentAccountService>();
 builder.Services.AddScoped<ExamAPI.Services.Payments.IPaymentService, ExamAPI.Services.Payments.PaymentService>();
 builder.Services.AddHostedService<ExamAPI.Services.Payments.PaymentRecheckWorker>();
+builder.Services.AddScoped<ExamAPI.Services.ExamApplications.IExamApplicationAssigner, ExamAPI.Services.ExamApplications.ExamApplicationAssigner>();
+builder.Services.AddScoped<ExamAPI.Services.ExamApplications.IStudentExamApplicationService, ExamAPI.Services.ExamApplications.StudentExamApplicationService>();
+builder.Services.AddScoped<ExamAPI.Services.ExamApplications.IExamApplicationAdminService, ExamAPI.Services.ExamApplications.ExamApplicationAdminService>();
 builder.Services.AddOrdinanceEngine();
 builder.Services.AddHttpClient();
 builder.Services.AddHostedService<ExamAPI.Services.Common.KeepAliveService>(); // KeepAlive:Url, see the class

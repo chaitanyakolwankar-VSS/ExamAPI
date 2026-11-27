@@ -11,6 +11,13 @@ namespace ExamAPI.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.AddColumn<string>(
+                name: "Pattern",
+                table: "TaskBatch",
+                type: "nvarchar(50)",
+                maxLength: 50,
+                nullable: true);
+
             migrationBuilder.CreateTable(
                 name: "ExamApplication",
                 columns: table => new
@@ -20,6 +27,8 @@ namespace ExamAPI.Migrations
                     StdMstId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     TargetExamId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     SourceExamId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    SemesterId = table.Column<string>(type: "nvarchar(50)", maxLength: 50, nullable: true),
+                    Pattern = table.Column<string>(type: "nvarchar(50)", maxLength: 50, nullable: true),
                     TaskLinkId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
                     Kind = table.Column<string>(type: "nvarchar(10)", maxLength: 10, nullable: false),
                     Status = table.Column<string>(type: "nvarchar(20)", maxLength: 20, nullable: false),
@@ -368,6 +377,10 @@ namespace ExamAPI.Migrations
 
             migrationBuilder.DropTable(
                 name: "PaymentAccount");
+
+            migrationBuilder.DropColumn(
+                name: "Pattern",
+                table: "TaskBatch");
 
             migrationBuilder.UpdateData(
                 table: "TaskType",

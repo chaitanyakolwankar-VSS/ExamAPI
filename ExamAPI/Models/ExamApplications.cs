@@ -142,6 +142,13 @@ namespace ExamAPI.Models
         /// <summary>Revaluation: the exam whose papers are re-checked.</summary>
         public Guid? SourceExamId { get; set; }
 
+        /// <summary>The class the student applied in (from the link): the assignment needs semester and pattern.</summary>
+        [MaxLength(50)]
+        public string? SemesterId { get; set; }
+
+        [MaxLength(50)]
+        public string? Pattern { get; set; }
+
         /// <summary>The link the student applied through.</summary>
         public Guid? TaskLinkId { get; set; }
 

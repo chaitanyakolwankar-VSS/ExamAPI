@@ -7,16 +7,19 @@ namespace ExamAPI.Services.Tenancy
     public class CurrentUser : ICurrentUser
     {
         private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly TenantScope? _scope;
 
-        public CurrentUser(IHttpContextAccessor httpContextAccessor)
+        public CurrentUser(IHttpContextAccessor httpContextAccessor, TenantScope? scope = null)
         {
             _httpContextAccessor = httpContextAccessor;
+            _scope = scope;
         }
 
         private ClaimsPrincipal? Principal => _httpContextAccessor.HttpContext?.User;
 
+        /// <summary>A scope made to act for one college (<see cref="TenantScope"/>) wins; otherwise the signed-in user's.</summary>
         public Guid? CollegeId =>
-            Guid.TryParse(Principal?.FindFirstValue("CollegeId"), out var id) ? id : null;
+            _scope?.CollegeId ?? (Guid.TryParse(Principal?.FindFirstValue("CollegeId"), out var id) ? id : null);
 
         public Guid? UserId =>
             Guid.TryParse(Principal?.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : null;

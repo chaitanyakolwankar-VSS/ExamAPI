@@ -44,6 +44,18 @@ namespace ExamAPI.Controllers
             return await _service.SendHallTicketsAsync(request, baseUrl);
         });
 
+        /// <summary>Exam Applications: email each student who may apply for an ATKT, Re-Exam or Revaluation exam (or one student) the link.</summary>
+        [HttpPost("examapplications")]
+        public Task<IActionResult> SendExamApplications([FromBody] ExamApplicationLinksRequest request) => Answer(async () =>
+        {
+            var baseUrl = _site.Resolve(request.AppUrl)
+                ?? throw new InvalidOperationException("The student site address isn't known to the server. Set StudentAccess:AppUrl in the API settings.");
+            return await _service.SendExamApplicationsAsync(request, baseUrl);
+        });
+
+        [HttpPost("examapplications/preview")]
+        public Task<IActionResult> PreviewExamApplications([FromBody] ExamApplicationLinksRequest request) => Answer(() => _service.PreviewExamApplicationsAsync(request));
+
         /// <summary>Who a hall ticket send would reach, the subjects still without a date, and how earlier sends went.</summary>
         [HttpPost("hallticket/preview")]
         public Task<IActionResult> PreviewHallTickets([FromBody] HallTicketLinksRequest request) => Answer(() => _service.PreviewHallTicketsAsync(request));

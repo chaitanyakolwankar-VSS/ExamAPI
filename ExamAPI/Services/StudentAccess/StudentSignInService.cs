@@ -165,7 +165,11 @@ namespace ExamAPI.Services.StudentAccess
             if (!StudentAccessAuth.IsOpen(link, DateTime.UtcNow) || !StudentOk(link.Student) || link.Student!.Email == null)
             {
                 info.State = LinkOpenStates.Closed;
-                info.Message = link.UsedAt != null
+                info.Message = link.TaskTypeCode == TaskTypes.AtktPayment
+                    ? link.UsedAt != null
+                        ? $"You paid on {link.UsedAt.Value.ToLocalTime():d MMM yyyy}; your receipt was emailed to you. This link is now closed."
+                        : "Applications for this exam are closed. Contact your college office if you still need to apply."
+                    : link.UsedAt != null
                     ? link.TaskTypeCode == TaskTypes.HallTicket
                         ? $"You downloaded your hall ticket on {link.UsedAt.Value.ToLocalTime():d MMM yyyy}. This link is now closed."
                         : $"Your details were updated on {link.UsedAt.Value.ToLocalTime():d MMM yyyy}. This link is now closed."

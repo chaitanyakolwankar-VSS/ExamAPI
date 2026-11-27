@@ -72,6 +72,10 @@ namespace ExamAPI.Models
         public string? SemesterId { get; set; }
         public Guid? AYID { get; set; }
 
+        /// <summary>The class's pattern (e.g. "R-2024"), when the task needs it: exam applications build the subject list with it.</summary>
+        [MaxLength(50)]
+        public string? Pattern { get; set; }
+
         /// <summary>Comma-separated <see cref="StudentFields"/> the student may change (Student Master task); the rest are shown read-only.</summary>
         [MaxLength(500)]
         public string? EditableFields { get; set; }

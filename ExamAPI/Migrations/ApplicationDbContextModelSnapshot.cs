@@ -833,6 +833,10 @@ namespace ExamAPI.Migrations
                         .HasMaxLength(10)
                         .HasColumnType("nvarchar(10)");
 
+                    b.Property<string>("Pattern")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
                     b.Property<string>("PaymentReference")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
@@ -840,6 +844,10 @@ namespace ExamAPI.Migrations
                     b.Property<string>("ReceiptNo")
                         .HasMaxLength(40)
                         .HasColumnType("nvarchar(40)");
+
+                    b.Property<string>("SemesterId")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
 
                     b.Property<Guid?>("SourceExamId")
                         .HasColumnType("uniqueidentifier");
@@ -3344,6 +3352,10 @@ namespace ExamAPI.Migrations
                     b.Property<string>("LinkBaseUrl")
                         .HasMaxLength(300)
                         .HasColumnType("nvarchar(300)");
+
+                    b.Property<string>("Pattern")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
 
                     b.Property<Guid?>("RefId")
                         .HasColumnType("uniqueidentifier");
